@@ -1,0 +1,15 @@
+# .NET
+**/bin/
+**/obj/
+
+# Node
+**/node_modules/
+**/dist/
+
+# PlatformIO
+**/.pio/
+
+# Env / secrets
+.env
+*.env
+*.local

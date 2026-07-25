@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Domain/WaterFlex.SaltMonitor.Domain.csproj" />
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Infrastructure/WaterFlex.SaltMonitor.Infrastructure.csproj" />
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Rules/WaterFlex.SaltMonitor.Rules.csproj" />
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Ingestion/WaterFlex.SaltMonitor.Ingestion.csproj" />
+  </ItemGroup>
+</Project>

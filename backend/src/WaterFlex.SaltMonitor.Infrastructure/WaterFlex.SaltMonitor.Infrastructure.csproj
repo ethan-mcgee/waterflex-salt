@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Domain/WaterFlex.SaltMonitor.Domain.csproj" />
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Ingestion/WaterFlex.SaltMonitor.Ingestion.csproj" />
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Operations/WaterFlex.SaltMonitor.Operations.csproj" />
+    <ProjectReference Include="../WaterFlex.SaltMonitor.Provisioning/WaterFlex.SaltMonitor.Provisioning.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,853 @@
+{
+    "schemaVersion":  1,
+    "snapshotKind":  "authoritative-non-generated-source",
+    "sourceControl":  "none",
+    "excluded":  [
+                     "PROJECT_RECREATION_GUIDE.md",
+                     "**/bin/**",
+                     "**/obj/**",
+                     "**/node_modules/**",
+                     "**/dist/**",
+                     "**/.pio/**",
+                     "**/.git/**",
+                     "**/.vs/**",
+                     "**/.idea/**",
+                     "**/*.tsbuildinfo",
+                     "web/vite.config.js",
+                     "web/vite.config.d.ts"
+                 ],
+    "files":  [
+                  {
+                      "path":  ".gitignore",
+                      "lengthBytes":  131,
+                      "sha256":  "859d5a2e1b7444c4f80f36261f6e50639415741d092b927ab0bfb622836909db",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "AI-Plans/plan-a-white-label-esp32.md",
+                      "lengthBytes":  21167,
+                      "sha256":  "6da7d6ed633e31e692df1308858dd5f37da76d4aa1bcd20abc9c7c6f8e49f686",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "AI-Plans/plan-b-tuya.md",
+                      "lengthBytes":  23153,
+                      "sha256":  "77701040f2b0e14df271d42fb9949ba45fb53a9c631b300782aabc940ef1c469",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "AI-Plans/plan-c-arduino-nano-esp32.md",
+                      "lengthBytes":  34622,
+                      "sha256":  "3ce7c4bba8aafc27ad12e91b9700723ad069a811719a53a212a0ab354dfceb82",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/.gitignore",
+                      "lengthBytes":  26,
+                      "sha256":  "eb9e34271649c301e6297af3aaed20b987958a77811bbac8a3b8e3383e42c029",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/Directory.Build.props",
+                      "lengthBytes":  285,
+                      "sha256":  "787573ad5d94ccce40a41cecf0eff71bbc467753ca17f9a028e10fa7a0424f63",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/README.md",
+                      "lengthBytes":  5772,
+                      "sha256":  "c21229e87296c041dc825eb7e1dff59a822534477b1d6da85aa5cf51913fbdf5",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/DevelopmentFactoryIdentity.cs",
+                      "lengthBytes":  2318,
+                      "sha256":  "305290bcc63d85f81b1c90b193a8b20f98ad69a15d7928065664341878cac647",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/DevelopmentIdentity.cs",
+                      "lengthBytes":  1898,
+                      "sha256":  "63f0f7ce861ac314fe41a632d218064a73350a450003779f24ca041d77f7e552",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/DeviceTokenAuthenticationHandler.cs",
+                      "lengthBytes":  2422,
+                      "sha256":  "5f06718c8bf9eb88792c899c03cd23d4baff451d91b6b5d622ae42291fa34eff",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/OpenApiSecurityTransformers.cs",
+                      "lengthBytes":  1978,
+                      "sha256":  "ccfe939e93cba47dd66a78aec5e00360b2fec76146d65346d561b8e0e501385c",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/OpsEndpoints.cs",
+                      "lengthBytes":  6790,
+                      "sha256":  "73d12d5678b3f7c429e3f68a552174bee646b441202b3df457436536389f21f0",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/Program.cs",
+                      "lengthBytes":  10093,
+                      "sha256":  "2814bfb420deee883290c355c15e050c6dd032191a10382c42cb6c67a93ab893",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/ProvisioningEndpoints.cs",
+                      "lengthBytes":  8424,
+                      "sha256":  "d0ef0c0b8021eed5918b488f498caa08143baf3681a3b9926b1fdc88db66e8c7",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Api/WaterFlex.SaltMonitor.Api.csproj",
+                      "lengthBytes":  948,
+                      "sha256":  "a43af021ad129b8bf1db7d024e37b9d020b64f1818e5afc2ebe8ea12376fdd51",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Domain/Abstractions.cs",
+                      "lengthBytes":  488,
+                      "sha256":  "7f00254f4560b37555731f7ba15d69c0b55dbeb1925e830dfa3c6480a96ecf7f",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Domain/FillCalculator.cs",
+                      "lengthBytes":  946,
+                      "sha256":  "c7b70c44e9cd6243ef619f0d4ad438fcdee31f56483bbef2c19561088ced7e43",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Domain/Models.cs",
+                      "lengthBytes":  998,
+                      "sha256":  "72bdf72bcb2275f0c84260a9c307619bf4efc8ce84f454e83173d3cc3308f898",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Domain/MonitoringPolicy.cs",
+                      "lengthBytes":  1086,
+                      "sha256":  "effa962c6e3f6781de9be28021448e44c1467401602aa620f7bf51101cb6c20b",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Domain/StaffIdentity.cs",
+                      "lengthBytes":  284,
+                      "sha256":  "54e0eeb3eebc93c34beb900c85bbe7c0d6192c606a59d3f86b436b42aab9099c",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Domain/WaterFlex.SaltMonitor.Domain.csproj",
+                      "lengthBytes":  47,
+                      "sha256":  "cbab68257fbe06ac257a6dba945ad7dd68e09ea117eb1a29ff31c99d82cca9eb",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/DevelopmentIdentityDirectory.cs",
+                      "lengthBytes":  1003,
+                      "sha256":  "6275545083e6f44bf61043ab1ff11678ce63da1456b6b9d94fa9c5cdec0115fc",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/DevelopmentWaterFlexCustomerDirectory.cs",
+                      "lengthBytes":  4234,
+                      "sha256":  "51f34d8e8cb7ef811fe437d8075f868fa3b38d5e582e2fb83770bfd130ab8969",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/DeviceTokenValidator.cs",
+                      "lengthBytes":  3018,
+                      "sha256":  "168cf702e329bc36bdcff302627d1b23de0f9a391204d3a4bcbc3fa145431902",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/EfCommissioningSessionService.cs",
+                      "lengthBytes":  21879,
+                      "sha256":  "ce6a0e058f8bc7b5d2879968f088344c78aec406359e6ac282f096189078d7e5",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/EfFactoryDeviceRegistrationService.cs",
+                      "lengthBytes":  8248,
+                      "sha256":  "bcf2c81fd0c3b2d5dddec4e042b11a5de28db620a5ef9e6fb53e77642ccdf9b1",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/EfFleetQueryService.cs",
+                      "lengthBytes":  14388,
+                      "sha256":  "a01fffe531a5cae953d7ba67a950ce89f841f7ede2255899bf4b4dc08fc8045d",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/EfSensorCommissioningService.cs",
+                      "lengthBytes":  14220,
+                      "sha256":  "dfbe78008f219ba029c3427feb8ca0ea91988181c5ebc0ca42f598773f72a912",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/EfTelemetryIngestionService.cs",
+                      "lengthBytes":  7585,
+                      "sha256":  "0acfed94da8d2849ee5243a3c400df85b29da4a0d440f4967db6c002bb9e6c81",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Entities.cs",
+                      "lengthBytes":  8056,
+                      "sha256":  "46540e6babbf689f1fdb2207af7b6caaafe8a230c814d2aca2e2e6dc2e571b65",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260723192309_InitialCreate.cs",
+                      "lengthBytes":  17111,
+                      "sha256":  "35607776abef767007d429d9684f0af2c86948d3e37ab08b650418149a44e120",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260723192309_InitialCreate.Designer.cs",
+                      "lengthBytes":  19489,
+                      "sha256":  "12355dba51e32cc15640c25a7b1729d543a666f327a79ee5a59fe67a22250743",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260724141544_UseTankDepthCalibration.cs",
+                      "lengthBytes":  1212,
+                      "sha256":  "9d6232f768819cfaacac598beabb49fdd1568ad29fbb25610b53e638dc0a460f",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260724141544_UseTankDepthCalibration.Designer.cs",
+                      "lengthBytes":  19514,
+                      "sha256":  "fa4d59eb2b10fbb9fe5417e2826a9dfa2c6bc6613f121c1f886d682e9b9c1d09",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260724152140_AddDealerOwnership.cs",
+                      "lengthBytes":  2645,
+                      "sha256":  "a9b5035853c880969042aef4b541689353dd38ad1681ac1bdf0a9a6224ab4c54",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260724152140_AddDealerOwnership.Designer.cs",
+                      "lengthBytes":  21138,
+                      "sha256":  "56aa344ba7e6b863447f201cf87d7d671ebba36696cd61bd8251a13ab460ca1a",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260724164603_AddBootstrapProvisioning.cs",
+                      "lengthBytes":  11865,
+                      "sha256":  "62cba2d3f0b23a68de7f8cc72fb78cf2e66ab6a6cb524dc33e71710b0758276f",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/20260724164603_AddBootstrapProvisioning.Designer.cs",
+                      "lengthBytes":  32460,
+                      "sha256":  "848c1c7c9e688f4ed86e7009bdaf956216b532df5fe97b63a946c7fb61e9727a",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/Migrations/SaltMonitorDbContextModelSnapshot.cs",
+                      "lengthBytes":  32342,
+                      "sha256":  "4cbf4bb19c35bf007f147fdf449dc5deb14b6d4e03c5c7dea60a1fb8652a4ad5",
+                      "encoding":  "utf-8-bom",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/SaltMonitorDbContext.cs",
+                      "lengthBytes":  13088,
+                      "sha256":  "afeb15399db1a3997a8066a7dcbed8297b39aafc9d68195460e955edf31a4a63",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/SaltMonitorDbContextFactory.cs",
+                      "lengthBytes":  771,
+                      "sha256":  "0d5b4d0207932b9f102001775aa4e19a8d1d820ecbf14671a239934aad915bc5",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/Persistence/ServiceCollectionExtensions.cs",
+                      "lengthBytes":  2434,
+                      "sha256":  "52c55e7ffde517da7a952a484415206c4ccbf07ed03d17b439eddd155a53f1d8",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/StubDeliveryTicketGateway.cs",
+                      "lengthBytes":  851,
+                      "sha256":  "1f5e6f57b37f4f4c2fb04bc69ea89f2564ee23c47138d709e5c5e5164dc16ee2",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Infrastructure/WaterFlex.SaltMonitor.Infrastructure.csproj",
+                      "lengthBytes":  1002,
+                      "sha256":  "78d9a569b5013511dc5797cce6a149b5d0404ea82f210f3135ddef3ff0e52525",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Ingestion/CommissioningContracts.cs",
+                      "lengthBytes":  3240,
+                      "sha256":  "1da485982d9f3b5f24e03c29d2a55bd7c4573558f16921c6489dff51dc9ddb69",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Ingestion/TelemetryBatchValidator.cs",
+                      "lengthBytes":  4987,
+                      "sha256":  "d2690298bf3e6a1bf01466cf03978b7a65153400e0be98cd0f044ce4eb252dd5",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Ingestion/TelemetryContracts.cs",
+                      "lengthBytes":  774,
+                      "sha256":  "5d907e7f22f938e984de7856002e9a3593128248e6563096d8f7cbf4be1ab060",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Ingestion/TelemetryIngestion.cs",
+                      "lengthBytes":  2316,
+                      "sha256":  "7c6805739b44611593af01a458ab1f476fba0277d5bc804f3ed45097a5ed5afd",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Ingestion/WaterFlex.SaltMonitor.Ingestion.csproj",
+                      "lengthBytes":  182,
+                      "sha256":  "28000f166b6f419358fe205dc776b6ecf6989a8fda5baff63965a8db9e12d72b",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Operations/DevelopmentIdentityContracts.cs",
+                      "lengthBytes":  231,
+                      "sha256":  "f058348a47996f07ada957b31f3a8d7ff4ce8d1d6985e94b7250fae5b0120a71",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Operations/FleetContracts.cs",
+                      "lengthBytes":  3332,
+                      "sha256":  "3910af526d6b6640f8123e193cbfde9434ac4e2787dfc9ceeccf8cd58d0a993d",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Operations/WaterFlex.SaltMonitor.Operations.csproj",
+                      "lengthBytes":  180,
+                      "sha256":  "8fa6621ec19cac8322fd68dfd61cbf1ab3b3d2c5da49e1d1aaf2a3e978bfcbe7",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Provisioning/BootstrapContracts.cs",
+                      "lengthBytes":  4177,
+                      "sha256":  "7411c9f4bf14ab87c44f7832312b5b6c9956997f4df153d5b707078e085990de",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Provisioning/WaterFlex.SaltMonitor.Provisioning.csproj",
+                      "lengthBytes":  180,
+                      "sha256":  "8fa6621ec19cac8322fd68dfd61cbf1ab3b3d2c5da49e1d1aaf2a3e978bfcbe7",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Rules/LowSaltEvaluator.cs",
+                      "lengthBytes":  627,
+                      "sha256":  "9d74abbbb81058cf14ae8e804a8459d6d275f7d3134f70943eebb8ddd4bb236a",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Rules/WaterFlex.SaltMonitor.Rules.csproj",
+                      "lengthBytes":  182,
+                      "sha256":  "28000f166b6f419358fe205dc776b6ecf6989a8fda5baff63965a8db9e12d72b",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Worker/DeliveryOutboxWorker.cs",
+                      "lengthBytes":  766,
+                      "sha256":  "e3867d11afcdb242ba76e736b8d702f770989c26c66ede025234cb11632b6dd4",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Worker/Program.cs",
+                      "lengthBytes":  195,
+                      "sha256":  "7b9825c8b1fa5fd5c6fe6a36541b7e633554e3129576e631f49e484f23f6fd4f",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/src/WaterFlex.SaltMonitor.Worker/WaterFlex.SaltMonitor.Worker.csproj",
+                      "lengthBytes":  637,
+                      "sha256":  "a77bd4a34e976954bb3f91ec0ea8c250b31827af4718ad300d5ac2ccfe6da050",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/AssemblyInfo.cs",
+                      "lengthBytes":  81,
+                      "sha256":  "7b2f3f5f23b7fd2b6e5f4948c3c8dfc070543fa6b05f333273d360e1f7c7e9e8",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/BootstrapProvisioningApiTests.cs",
+                      "lengthBytes":  5763,
+                      "sha256":  "216e932143e0581d709f36b14582f90041bb868ec3e5c8211dcf264fc5cd494a",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/BootstrapProvisioningServiceTests.cs",
+                      "lengthBytes":  7671,
+                      "sha256":  "f38088ee684b48909fd5a9484f091962aed882e223713354aeba5500df801159",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/CommissioningApiTests.cs",
+                      "lengthBytes":  4343,
+                      "sha256":  "1e381bc1b9ee54c2c3b367f745a141c1e3ee06deae69f751758e54e5743c4806",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/CommissioningServiceTests.cs",
+                      "lengthBytes":  6263,
+                      "sha256":  "f564ff2ae833a89b0c886aec874ac513693e2786ddbb80611a96b1ac8800ac4e",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/FillCalculatorTests.cs",
+                      "lengthBytes":  1159,
+                      "sha256":  "341fc720a8bdbc27ff0d00810b1f6be24bb86f81bca4d8081019b7be4717cce1",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/FleetQueryServiceTests.cs",
+                      "lengthBytes":  7547,
+                      "sha256":  "801273ee9e8da5ceb7c141484a82e818a713e6594a4419242cf29cac9ee03c77",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/MonitoringPolicyTests.cs",
+                      "lengthBytes":  1283,
+                      "sha256":  "697080118f5909f80992775cd35f3727426015e3ccf803e4707ecfe6cca2d125",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/TelemetryApiTests.cs",
+                      "lengthBytes":  10611,
+                      "sha256":  "48413a0ad5f8f01232075262fd8321f5044cbe078c2e1009d9c633e7547b938d",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/TelemetryBatchValidatorTests.cs",
+                      "lengthBytes":  1921,
+                      "sha256":  "a5a14cdfe4f0d8e6450a5ad8eafda2a338f1ecc0e7b24f4a6ce590047b350236",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/TelemetryPersistenceTests.cs",
+                      "lengthBytes":  6445,
+                      "sha256":  "92878ea135520c8bae6f36eb5a731e2f47b3db81930ce1d7788d8d1c808a8184",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/tests/WaterFlex.SaltMonitor.Tests/WaterFlex.SaltMonitor.Tests.csproj",
+                      "lengthBytes":  1231,
+                      "sha256":  "f1bd182249ed850ca1432cf2b0b989abce5ac77ec84d1c3979cdc943b530e0cf",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "backend/WaterFlex.SaltMonitor.slnx",
+                      "lengthBytes":  974,
+                      "sha256":  "afc923448dc2056fc89bd89fc82e898875348dc1f5bb9f5e5dca24971d61032c",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "dotnet-tools.json",
+                      "lengthBytes":  195,
+                      "sha256":  "c50d950c1b480d932399a71066b159a54bb4edbf59b25067743c01c9b47fbfa7",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "firmware/.gitignore",
+                      "lengthBytes":  101,
+                      "sha256":  "2a9c1d63d2b9a6a176fc20d43b68369e7faf2f8ce8ffa5bc71a042c3822b8007",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "firmware/platformio.ini",
+                      "lengthBytes":  453,
+                      "sha256":  "496a7c3daf61befe3e19cea7fa4d16ed0aa54e4281cd8148a9106048d06f3dfb",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "firmware/README.md",
+                      "lengthBytes":  483,
+                      "sha256":  "0f808672cfd44f406e683d3bff5badb6ef508d6483337a16e7a177b913abb75d",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "firmware/src/main.cpp",
+                      "lengthBytes":  2499,
+                      "sha256":  "3635070869bb2bc0ab7b55be8fd1e476e33f051d41c405c7912deca509dc98ff",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "global.json",
+                      "lengthBytes":  114,
+                      "sha256":  "8e7272916b97b7c032b0d07f5d50c47d7c4fc32369a28a2aef6cfea133fee1b0",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "NuGet.Config",
+                      "lengthBytes":  423,
+                      "sha256":  "4ec6c73b20537d53d97cd8f66f41f35df3d04504fd71665321c72238f7674472",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "package-lock.json",
+                      "lengthBytes":  91,
+                      "sha256":  "171fafda401908650386f63a82270e647f2e0161a58ce5a72d2af50e5de55512",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "lf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "README.md",
+                      "lengthBytes":  724,
+                      "sha256":  "7339ca9148bb73900ba93ad01ec7f62f74a07b32724c214f7165b90c047041a5",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "WaterFlex.SaltMonitor.slnx",
+                      "lengthBytes":  25,
+                      "sha256":  "3c3218784f99806d32d3531be1bdea5b130f5c75458574775e15151459a1027b",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/.gitignore",
+                      "lengthBytes":  99,
+                      "sha256":  "450844d759fabb17c5e6de5fbb0aa7cc4a7b8fa4e456e574730a75c27409deae",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/index.html",
+                      "lengthBytes":  320,
+                      "sha256":  "0b231464ec1b04f1a3a6c19ccd7512fb54ed80d8b25ba4185b6e8d235058a0f3",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/package.json",
+                      "lengthBytes":  584,
+                      "sha256":  "db993fca091facb5dd7ae001879cf9908d3ed5c14b7901e278f2d8a73391ab9f",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/package-lock.json",
+                      "lengthBytes":  93362,
+                      "sha256":  "edfc6047ec386d6d7061fd42f2553658216475f54b22c62eff59ac5ba16b1227",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/README.md",
+                      "lengthBytes":  1391,
+                      "sha256":  "8149157ac1c028c39899f861a32a300ff93ba32bb711ccddf9c00af3adbb43f4",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/App.tsx",
+                      "lengthBytes":  2209,
+                      "sha256":  "afb3e7d03ff9a63d78cb7260d4c3f7c3c356bfe1073d4f25352e4846246d9c89",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/components/ThemedSelect.tsx",
+                      "lengthBytes":  2579,
+                      "sha256":  "f8e5f589878863a85b53e73d3dc91ff4334023393bc46a6a088a32c8645c102a",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/development/DevelopmentIdentity.tsx",
+                      "lengthBytes":  3462,
+                      "sha256":  "db1d017185abd896bd3aacc17ba34a79bc5b4d9fa2dbdd88eccdc62333be469b",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/index.css",
+                      "lengthBytes":  47003,
+                      "sha256":  "fad27df158bce2bb1d9e05cd741ad18c63d191c8d0315315fbf7a4d79f5da661",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/main.tsx",
+                      "lengthBytes":  496,
+                      "sha256":  "c85a6c23ce910def454fc98795f06a659fd068df12e812a27b678a2b02268770",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/ops/api.ts",
+                      "lengthBytes":  2934,
+                      "sha256":  "74490a4d3ef15dbabad2b52ed38c65ae69963bcb9c6d5b2abec02f9c0026617d",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/ops/DeviceDetailPage.tsx",
+                      "lengthBytes":  7598,
+                      "sha256":  "631299601d32fecaf9ffa9240169a42e8d50dac23be2813ef2bd734cca8a9cf3",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/ops/FleetPage.tsx",
+                      "lengthBytes":  15094,
+                      "sha256":  "1fd33f9ba3a7f929d36e4036063e922c66d26a5ef277d7183839e97b151bb210",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/ops/types.ts",
+                      "lengthBytes":  2415,
+                      "sha256":  "0ca103d70d62a5d64af1a2019f7c77920a9e5f488ea181642e0f2a450ed63277",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/provisioning/api.ts",
+                      "lengthBytes":  2192,
+                      "sha256":  "4b47484bfbc9b8f5d0a016f448b9a61d213a9b12a916a77b2c8da75f8e805279",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/provisioning/ProvisioningWorkflow.tsx",
+                      "lengthBytes":  34067,
+                      "sha256":  "919d586011236e4307df19f3a3d1367cf90846f2f215c35317bcede40627afbe",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/provisioning/sensorSerial.ts",
+                      "lengthBytes":  4990,
+                      "sha256":  "41518090f09d8585f23cf492292ee53ee0e66e450508f0c2f2577380763cb8d0",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/provisioning/types.ts",
+                      "lengthBytes":  1173,
+                      "sha256":  "a5c81de92e2b4a20ee2219c708c056375b44f3cc7888355dbf6a798e73982ace",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/src/vite-env.d.ts",
+                      "lengthBytes":  39,
+                      "sha256":  "424faf9241dd699dda995b367ed36665732da1e6ec1f33b2fd40394488ecac92",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/tsconfig.json",
+                      "lengthBytes":  620,
+                      "sha256":  "5550c767c6475f1ccb14bf8c2c70793cd828fa8b08af6e0e389bbacdbb473410",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/tsconfig.node.json",
+                      "lengthBytes":  244,
+                      "sha256":  "e2926034a7ed41a1431e4b8e60e58371af014a8856a3fcc583d3efa85440b996",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  },
+                  {
+                      "path":  "web/vite.config.ts",
+                      "lengthBytes":  292,
+                      "sha256":  "9f1e32ad98fea2bfd7c982da6bfbf65354cf6f7b2d3dc5a1d2dcbe28c790f483",
+                      "encoding":  "utf-8",
+                      "lineEnding":  "crlf",
+                      "generated":  false
+                  }
+              ]
+}

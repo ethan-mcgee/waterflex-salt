@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Api/WaterFlex.SaltMonitor.Api.csproj" />
+    <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Domain/WaterFlex.SaltMonitor.Domain.csproj" />
+    <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Infrastructure/WaterFlex.SaltMonitor.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Ingestion/WaterFlex.SaltMonitor.Ingestion.csproj" />
+    <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Operations/WaterFlex.SaltMonitor.Operations.csproj" />
+    <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Provisioning/WaterFlex.SaltMonitor.Provisioning.csproj" />
+  </ItemGroup>
+</Project>

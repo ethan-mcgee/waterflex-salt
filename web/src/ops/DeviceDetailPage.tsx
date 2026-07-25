@@ -1,0 +1,157 @@
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  Box,
+  CalendarClock,
+  Cpu,
+  Gauge,
+  KeyRound,
+  MapPin,
+  RefreshCw,
+  Router,
+  UserRound,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useDevelopmentIdentity } from '../development/DevelopmentIdentity';
+import { getFleetDevice, getFleetReadings } from './api';
+import { formatDateTime, ReportingBadge } from './FleetPage';
+import type { FleetDeviceDetail, FleetReading } from './types';
+
+export default function DeviceDetailPage() {
+  const { selectedUserId } = useDevelopmentIdentity();
+  const { deviceId = '' } = useParams();
+  const [detail, setDetail] = useState<FleetDeviceDetail | null>(null);
+  const [readings, setReadings] = useState<FleetReading[]>([]);
+  const [range, setRange] = useState<'24h' | '7d' | '30d'>('7d');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    Promise.all([
+      getFleetDevice(deviceId, controller.signal),
+      getFleetReadings(deviceId, range, controller.signal),
+    ]).then(([detailResult, readingResult]) => {
+      setDetail(detailResult);
+      setReadings(readingResult);
+      setLoading(false);
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      setError(reason instanceof Error ? reason.message : 'Unable to load sensor detail.');
+      setLoading(false);
+    });
+    return () => controller.abort();
+  }, [deviceId, range, selectedUserId]);
+
+  if (loading && !detail) {
+    return <div className="detail-state"><RefreshCw className="spin" size={22} /> Loading sensor detail...</div>;
+  }
+
+  if (error || !detail) {
+    return (
+      <div className="detail-state error-message" role="alert">
+        <AlertTriangle size={22} />
+        <div><strong>Sensor detail unavailable</strong><span>{error || 'This sensor was not found.'}</span></div>
+        <Link className="button button-secondary" to="/fleet">Return to fleet</Link>
+      </div>
+    );
+  }
+
+  const device = detail.device;
+  return (
+    <section className="device-detail" aria-labelledby="device-heading">
+      <Link className="detail-back" to="/fleet"><ArrowLeft size={16} /> Sensor fleet</Link>
+      <header className="device-heading">
+        <div>
+          <span className="eyebrow">{device.dealerName} · {device.lifecycleStatus}</span>
+          <h1 id="device-heading">{device.serialNumber}</h1>
+          <p>{device.customerDisplayName} · {device.locationDisplayName}</p>
+        </div>
+        <ReportingBadge status={device.reportingStatus} />
+      </header>
+
+      <div className="device-overview">
+        <section className={device.isBelowThreshold ? 'level-summary is-low' : 'level-summary'}>
+          <div className="level-reading">
+            <span>Latest fill</span>
+            <strong>{device.fillPercent === null ? '—' : `${device.fillPercent.toFixed(1)}%`}</strong>
+            <small>{device.isBelowThreshold ? 'Below 35% threshold' : device.fillPercent === null ? 'Awaiting first reading' : 'Above delivery threshold'}</small>
+          </div>
+          <div className="level-column" aria-hidden="true">
+            <span style={{ height: `${Math.max(0, Math.min(100, device.fillPercent ?? 0))}%` }} />
+          </div>
+        </section>
+
+        <section className="detail-panel">
+          <h2><MapPin size={16} /> Installation</h2>
+          <DetailRow label="Customer" value={device.customerDisplayName} />
+          <DetailRow label="Account" value={device.accountNumber ?? 'Not available'} />
+          <DetailRow label="Location" value={device.locationDisplayName} />
+          <DetailRow label="Tank" value={device.tankLabel} />
+          <DetailRow label="Installed" value={formatDateTime(detail.installedAtUtc)} />
+        </section>
+
+        <section className="detail-panel">
+          <h2><Cpu size={16} /> Device health</h2>
+          <DetailRow label="Quality" value={device.quality === null ? 'No reading' : `${device.quality}%`} />
+          <DetailRow label="Wi-Fi" value={device.wifiRssiDbm === null ? 'No reading' : `${device.wifiRssiDbm} dBm`} />
+          <DetailRow label="Firmware" value={device.firmwareVersion ?? 'No reading'} />
+          <DetailRow label="Raw distance" value={device.rawDistanceMm === null ? 'No reading' : `${device.rawDistanceMm} mm`} />
+          <DetailRow label="Errors" value={device.errorFlags.length ? device.errorFlags.join(', ') : 'None reported'} />
+        </section>
+      </div>
+
+      <section className="history-section">
+        <div className="section-heading-row">
+          <div><span className="eyebrow">Diagnostics</span><h2>Reading history</h2></div>
+          <div className="range-control" aria-label="Reading range">
+            {(['24h', '7d', '30d'] as const).map((value) => (
+              <button key={value} type="button" className={range === value ? 'active' : ''} onClick={() => setRange(value)}>{value}</button>
+            ))}
+          </div>
+        </div>
+        {readings.length === 0 ? (
+          <div className="history-empty"><Activity size={20} /> No readings received in this range.</div>
+        ) : (
+          <div className="history-table-wrap">
+            <table className="history-table">
+              <thead><tr><th>Observed</th><th>Fill</th><th>Distance</th><th>Quality</th><th>Wi-Fi</th><th>Firmware</th></tr></thead>
+              <tbody>{readings.slice(-50).reverse().map((reading) => (
+                <tr key={reading.readingId}>
+                  <td>{formatDateTime(reading.timestampUtc)}{!reading.usesObservedTimestamp && <small>Received time</small>}</td>
+                  <td><strong>{reading.fillPercent.toFixed(1)}%</strong></td>
+                  <td>{reading.rawDistanceMm} mm</td>
+                  <td>{reading.quality}%</td>
+                  <td>{reading.wifiRssiDbm} dBm</td>
+                  <td>{reading.firmwareVersion}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <div className="detail-metadata">
+        <MetaItem icon={<Gauge size={16} />} label="Calibration" value={detail.calibrationVersion ? `Version ${detail.calibrationVersion} · ${(detail.tankDepthMm ?? 0) / 10} cm depth` : 'Not available'} />
+        <MetaItem icon={<KeyRound size={16} />} label="Credential" value={detail.hasActiveCredential ? 'Active' : 'Unavailable'} />
+        <MetaItem icon={<UserRound size={16} />} label="Installed by" value={detail.installedBy ?? 'Not recorded'} />
+        <MetaItem icon={<Router size={16} />} label="Hardware ID" value={device.hardwareId} />
+        <MetaItem icon={<Box size={16} />} label="Model" value={device.model} />
+        <MetaItem icon={<CalendarClock size={16} />} label="Commissioned" value={detail.commissionedAtUtc ? formatDateTime(detail.commissionedAtUtc) : 'Not recorded'} />
+      </div>
+    </section>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return <div className="detail-row"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return <div className="meta-item"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong></div></div>;
+}
