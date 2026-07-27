@@ -1,2 +1,15 @@
 <Solution>
+	<Folder Name="/backend/src/">
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Api/WaterFlex.SaltMonitor.Api.csproj" />
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Domain/WaterFlex.SaltMonitor.Domain.csproj" />
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Infrastructure/WaterFlex.SaltMonitor.Infrastructure.csproj" />
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Ingestion/WaterFlex.SaltMonitor.Ingestion.csproj" />
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Operations/WaterFlex.SaltMonitor.Operations.csproj" />
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Provisioning/WaterFlex.SaltMonitor.Provisioning.csproj" />
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Rules/WaterFlex.SaltMonitor.Rules.csproj" />
+		<Project Path="backend/src/WaterFlex.SaltMonitor.Worker/WaterFlex.SaltMonitor.Worker.csproj" />
+	</Folder>
+	<Folder Name="/backend/tests/">
+		<Project Path="backend/tests/WaterFlex.SaltMonitor.Tests/WaterFlex.SaltMonitor.Tests.csproj" />
+	</Folder>
 </Solution>
