@@ -42,18 +42,25 @@ constexpr uint32_t kFactoryResetHoldMs = 15UL * 1000UL;
 constexpr uint32_t kTelemetryIntervalMs = 10UL * 1000UL;
 
 constexpr char kFirmwareVersion[] = "wf-dev-telemetry-0.1";
-constexpr char kTelemetryUrl[] = "http://192.168.0.142:8000/api/v1/telemetry";
+constexpr char kDefaultTelemetryUrl[] = "http://192.168.0.142:5188/api/v1/device/telemetry";
 
 constexpr char kNvsNamespace[] = "wf_prov";
 constexpr char kKeySsid[] = "active_ssid";
 constexpr char kKeyPassword[] = "active_pwd";
 constexpr char kKeyHidden[] = "active_hidden";
 constexpr char kKeyPassphrase[] = "setup_pass";
+constexpr char kKeyApiUrl[] = "api_url";
+constexpr char kKeyDeviceToken[] = "dev_token";
 
 struct WifiProfile {
   String ssid;
   String password;
   bool hidden = false;
+};
+
+struct DeviceConfig {
+  String apiUrl;
+  String deviceToken;
 };
 
 enum class ProvisioningState {
@@ -70,6 +77,7 @@ WebServer gPortalServer(80);
 
 bool gHasActiveProfile = false;
 WifiProfile gActiveProfile;
+DeviceConfig gDeviceConfig;
 
 bool gHasCandidateProfile = false;
 WifiProfile gCandidateProfile;
@@ -93,6 +101,8 @@ bool gRecoveryPortalTriggered = false;
 bool gFactoryResetTriggered = false;
 uint32_t gRecoveryPressedAtMs = 0;
 uint32_t gLastTelemetryAtMs = 0;
+uint64_t gReadingSequenceNumber = 0;
+String gBootId;
 
 // Returns distance in millimetres, or -1 on an invalid or timed-out frame.
 int readDistanceMm() {
@@ -179,10 +189,20 @@ void saveActiveProfile(const WifiProfile& profile) {
   gPrefs.putBool(kKeyHidden, profile.hidden);
 }
 
+void saveDeviceConfig(const DeviceConfig& config) {
+  gPrefs.putString(kKeyApiUrl, config.apiUrl);
+  gPrefs.putString(kKeyDeviceToken, config.deviceToken);
+}
+
 void clearActiveProfile() {
   gPrefs.remove(kKeySsid);
   gPrefs.remove(kKeyPassword);
   gPrefs.remove(kKeyHidden);
+}
+
+void clearDeviceConfig() {
+  gPrefs.remove(kKeyApiUrl);
+  gPrefs.remove(kKeyDeviceToken);
 }
 
 bool loadActiveProfile(WifiProfile* profile) {
@@ -194,6 +214,13 @@ bool loadActiveProfile(WifiProfile* profile) {
   profile->password = gPrefs.getString(kKeyPassword, "");
   profile->hidden = gPrefs.getBool(kKeyHidden, false);
   return true;
+}
+
+DeviceConfig loadDeviceConfig() {
+  DeviceConfig config;
+  config.apiUrl = gPrefs.getString(kKeyApiUrl, kDefaultTelemetryUrl);
+  config.deviceToken = gPrefs.getString(kKeyDeviceToken, "");
+  return config;
 }
 
 void markPortalActivity() {
@@ -256,6 +283,8 @@ void handlePortalRoot() {
   html += "<label for='ssid'>Wi-Fi name (SSID)</label><input id='ssid' name='ssid' maxlength='32' required>";
   html += "<label for='password'>Wi-Fi password</label><input id='password' name='password' type='password' maxlength='63'>";
   html += "<label><input type='checkbox' name='hidden' value='1'> Hidden network</label>";
+  html += "<label for='apiUrl'>Telemetry API URL</label><input id='apiUrl' name='apiUrl' maxlength='256' value='" + jsonEscape(gDeviceConfig.apiUrl) + "'>";
+  html += "<label for='deviceToken'>Device token</label><input id='deviceToken' name='deviceToken' maxlength='256' value='" + jsonEscape(gDeviceConfig.deviceToken) + "'>";
   html += "<button type='submit'>Configure sensor</button></form>";
   html += "<p><small>Use <code>/api/v1/status</code> to poll setup progress.</small></p></main></body></html>";
 
@@ -315,6 +344,8 @@ void handlePortalConfigure() {
 
   const String ssid = gPortalServer.arg("ssid");
   const String password = gPortalServer.arg("password");
+  const String apiUrl = gPortalServer.arg("apiUrl");
+  const String deviceToken = gPortalServer.arg("deviceToken");
   const bool hidden = gPortalServer.hasArg("hidden") && gPortalServer.arg("hidden") == "1";
 
   if (ssid.isEmpty() || ssid.length() > 32) {
@@ -325,11 +356,23 @@ void handlePortalConfigure() {
     gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_password\"}");
     return;
   }
+  if (apiUrl.length() > 256 || (!apiUrl.isEmpty() && !apiUrl.startsWith("http"))) {
+    gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_api_url\"}");
+    return;
+  }
+  if (deviceToken.length() > 256) {
+    gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_device_token\"}");
+    return;
+  }
 
   WifiProfile candidate;
   candidate.ssid = ssid;
   candidate.password = password;
   candidate.hidden = hidden;
+
+  gDeviceConfig.apiUrl = apiUrl.isEmpty() ? kDefaultTelemetryUrl : apiUrl;
+  gDeviceConfig.deviceToken = deviceToken;
+  saveDeviceConfig(gDeviceConfig);
 
   beginWifiConnect(candidate, true);
   gPortalServer.send(202, "application/json", "{\"status\":\"connecting\"}");
@@ -352,6 +395,8 @@ void handlePortalStatus() {
     body += WiFi.localIP().toString();
     body += "\"";
   }
+  body += ",\"hasDeviceToken\":";
+  body += gDeviceConfig.deviceToken.isEmpty() ? "false" : "true";
   body += "}";
 
   gPortalServer.send(200, "application/json", body);
@@ -471,8 +516,10 @@ void processRecoveryButton() {
   if (!gFactoryResetTriggered && heldMs >= kFactoryResetHoldMs) {
     gFactoryResetTriggered = true;
     clearActiveProfile();
+    clearDeviceConfig();
     gHasActiveProfile = false;
     gActiveProfile = WifiProfile{};
+    gDeviceConfig = DeviceConfig{};
     gLastError = "factory_reset";
     Serial.println("factory reset requested");
     delay(200);
@@ -548,24 +595,44 @@ int syntheticDistanceMm() {
   return 850 + static_cast<int>((millis() / 1000UL) % 120UL);
 }
 
-String telemetryPayload(int distanceMm, bool synthetic) {
+String makeBootId() {
+  const uint32_t a = static_cast<uint32_t>(esp_random());
+  const uint16_t b = static_cast<uint16_t>(esp_random() & 0xFFFFU);
+  const uint16_t c = static_cast<uint16_t>((esp_random() & 0x0FFFU) | 0x4000U);
+  const uint16_t d = static_cast<uint16_t>((esp_random() & 0x3FFFU) | 0x8000U);
+  const uint64_t e = (static_cast<uint64_t>(esp_random()) << 16)
+      | static_cast<uint64_t>(esp_random() & 0xFFFFU);
+
+  char guid[37];
+  snprintf(guid, sizeof(guid), "%08lx-%04x-%04x-%04x-%012llx",
+           static_cast<unsigned long>(a),
+           static_cast<unsigned int>(b),
+           static_cast<unsigned int>(c),
+           static_cast<unsigned int>(d),
+           static_cast<unsigned long long>(e & 0xFFFFFFFFFFFFULL));
+  return String(guid);
+}
+
+String telemetryBatchPayload(int distanceMm, bool synthetic, uint64_t sequenceNumber) {
+  const int clampedDistanceMm = distanceMm < 30 ? 30 : (distanceMm > 4500 ? 4500 : distanceMm);
+  const int wifiRssiDbm = WiFi.RSSI() > 0 ? 0 : (WiFi.RSSI() < -127 ? -127 : WiFi.RSSI());
   String body;
-  body.reserve(260);
-  body += "{\"device_id\":\"";
-  body += serialSuffix();
-  body += "\",\"firmware\":\"";
+  body.reserve(520);
+  body += "{\"schemaVersion\":1,\"firmwareVersion\":\"";
   body += kFirmwareVersion;
-  body += "\",\"uptime_ms\":";
+  body += "\",\"readings\":[{\"bootId\":\"";
+  body += gBootId;
+  body += "\",\"sequenceNumber\":";
+  body += String(static_cast<unsigned long long>(sequenceNumber));
+  body += ",\"uptimeMilliseconds\":";
   body += String(millis());
-  body += ",\"distance_mm\":";
-  body += String(distanceMm);
-  body += ",\"synthetic\":";
-  body += synthetic ? "true" : "false";
-  body += ",\"wifi_rssi\":";
-  body += String(WiFi.RSSI());
-  body += ",\"local_ip\":\"";
-  body += WiFi.localIP().toString();
-  body += "\"}";
+  body += ",\"rawDistanceMm\":";
+  body += String(clampedDistanceMm);
+  body += ",\"quality\":";
+  body += synthetic ? "70" : "90";
+  body += ",\"sampleCount\":1,\"wifiRssiDbm\":";
+  body += String(wifiRssiDbm);
+  body += ",\"errorFlags\":[]}] }";
   return body;
 }
 
@@ -574,19 +641,40 @@ void sendTelemetry(int distanceMm, bool synthetic) {
     return;
   }
 
+  if (gDeviceConfig.apiUrl.isEmpty()) {
+    Serial.println("telemetry skipped: api URL not configured");
+    return;
+  }
+
+  if (gDeviceConfig.deviceToken.isEmpty()) {
+    Serial.println("telemetry skipped: device token not configured");
+    return;
+  }
+
   WiFiClient client;
   HTTPClient http;
-  if (!http.begin(client, kTelemetryUrl)) {
+  if (!http.begin(client, gDeviceConfig.apiUrl.c_str())) {
     Serial.println("telemetry begin failed");
     return;
   }
 
+  const uint64_t sequenceNumber = gReadingSequenceNumber;
+
   http.addHeader("Content-Type", "application/json");
-  const String body = telemetryPayload(distanceMm, synthetic);
+  http.addHeader("Authorization", String("Bearer ") + gDeviceConfig.deviceToken);
+  const String body = telemetryBatchPayload(distanceMm, synthetic, sequenceNumber);
   const int statusCode = http.POST(body);
-  if (statusCode > 0) {
-    Serial.printf("telemetry post status=%d synthetic=%s distance=%d\n",
-                  statusCode, synthetic ? "true" : "false", distanceMm);
+  if (statusCode == 200) {
+    gReadingSequenceNumber++;
+    Serial.printf("telemetry post status=%d seq=%llu synthetic=%s distance=%d\n",
+                  statusCode,
+                  static_cast<unsigned long long>(sequenceNumber),
+                  synthetic ? "true" : "false",
+                  distanceMm);
+  } else if (statusCode > 0) {
+    Serial.printf("telemetry rejected status=%d seq=%llu\n",
+                  statusCode,
+                  static_cast<unsigned long long>(sequenceNumber));
   } else {
     Serial.printf("telemetry post failed error=%s\n", http.errorToString(statusCode).c_str());
   }
@@ -607,6 +695,7 @@ void processTelemetry(int distanceMm) {
 void initializeProvisioning() {
   gPrefs.begin(kNvsNamespace, false);
   gHasActiveProfile = loadActiveProfile(&gActiveProfile);
+  gDeviceConfig = loadDeviceConfig();
 
   if (gHasActiveProfile) {
     connectWithSavedProfile();
@@ -624,6 +713,8 @@ void setup() {
   Serial1.setTimeout(kReadTimeoutMs);
 
   initializeProvisioning();
+  gBootId = makeBootId();
+  Serial.printf("bootId=%s\n", gBootId.c_str());
 
   // TODO(plan-c C2): validate candidate Wi-Fi using DHCP, DNS, SNTP, and API health before commit.
   // TODO(plan-c C2): implement bootstrap activation and transition to per-device operational credentials.

@@ -19,6 +19,9 @@ The firmware now includes an initial provisioning scaffold:
 	- `POST /api/v1/configure`
 	- `GET /api/v1/status`
 	- `POST /api/v1/restart`
+- Provisioning payload now stores telemetry destination settings in NVS:
+	- `apiUrl`
+	- `deviceToken`
 - Automatic recovery portal reopening after prolonged Wi-Fi outage.
 
 Still pending for full production flow:

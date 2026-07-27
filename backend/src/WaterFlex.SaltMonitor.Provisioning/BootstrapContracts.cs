@@ -64,6 +64,59 @@ public interface IFactoryDeviceRegistrationService
         CancellationToken cancellationToken = default);
 }
 
+public sealed record ActivateDeviceRequest(
+    Guid ActivationAttemptId,
+    string SerialNumber,
+    string HardwareId,
+    string FirmwareVersion,
+    string ConfigurationVersion,
+    string OperationalCredentialId,
+    string OperationalSecretHash,
+    int? CommissioningDistanceMm = null);
+
+public sealed record ActivateDeviceResponse(
+    Guid DeviceId,
+    Guid InstallationId,
+    string OperationalCredentialId,
+    DateTimeOffset ActivatedAtUtc,
+    string ActivationStatus);
+
+public enum ActivationFailure
+{
+    None,
+    InvalidRequest,
+    InvalidBootstrapToken,
+    BootstrapUnavailable,
+    NoPendingCommissioning,
+    ActivationConflict,
+    ActivationAttemptMismatch,
+    Conflict
+}
+
+public sealed record ActivationResult(
+    ActivateDeviceResponse? Activation,
+    ActivationFailure Failure,
+    IReadOnlyList<ProvisioningValidationError> ValidationErrors)
+{
+    public bool IsSuccess => Failure == ActivationFailure.None;
+
+    public static ActivationResult Success(ActivateDeviceResponse activation) =>
+        new(activation, ActivationFailure.None, []);
+
+    public static ActivationResult Failed(
+        ActivationFailure failure,
+        IReadOnlyList<ProvisioningValidationError>? validationErrors = null) =>
+        new(null, failure, validationErrors ?? []);
+}
+
+public interface IDeviceBootstrapActivationService
+{
+    Task<ActivationResult> ActivateAsync(
+        string bootstrapToken,
+        ActivateDeviceRequest request,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed record CreateCommissioningSessionRequest(
     string WaterFlexCustomerId,
     string WaterFlexLocationId,

@@ -180,6 +180,8 @@ if (app.Environment.IsDevelopment())
 	app.MapDevelopmentFactoryEndpoints();
 }
 
+app.MapBootstrapActivationEndpoints();
+
 var deviceApi = app.MapGroup("/api/v1/device")
 	.RequireAuthorization();
 

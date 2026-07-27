@@ -88,6 +88,7 @@ Run from this folder:
   immediate commissioning demo:
 
     POST /api/v1/factory/devices
+    POST /api/v1/device/activate
     POST /api/v1/technician/commissioning-sessions
     GET  /api/v1/technician/commissioning-sessions/{sessionId}
     POST /api/v1/technician/commissioning-sessions/{sessionId}/cancel
@@ -103,7 +104,18 @@ Run from this folder:
   A technician commissioning session reserves one factory-registered sensor and one WaterFlex tank for 30 minutes.
   It moves the inventory device from `Registered` to `Commissioning` but deliberately creates no installation,
   calibration, or operational credential. Cancellation or pending-session expiry releases the device back to
-  `Registered`. The existing `/commission` endpoint remains Development-only while sensor activation is built.
+  `Registered`. The `/api/v1/device/activate` endpoint accepts a bootstrap bearer token and activation payload,
+  then creates installation + calibration + operational credential hash and sets the device `Active`.
+
+  Activation requires `Authorization: Bearer <bootstrap-credential-id>.<bootstrap-secret>`. The activation
+  payload includes an `activationAttemptId` UUID and a device-generated operational credential hash; plaintext
+  operational secrets are never returned by the API.
+
+  Batch factory registration is available via:
+
+    python tools/register_factory_devices.py --csv <path-to-csv> --factory-key <key> --factory-operator <id>
+
+  See `OPERATIONS_CHECKLIST.md` for the standard commissioning order and verification steps.
 
 ## Build, test, run
 

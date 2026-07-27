@@ -44,6 +44,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFleetQueryService, EfFleetQueryService>();
         services.AddScoped<IFactoryDeviceRegistrationService, EfFactoryDeviceRegistrationService>();
         services.AddScoped<ICommissioningSessionService, EfCommissioningSessionService>();
+        services.AddScoped<IDeviceBootstrapActivationService, EfDeviceBootstrapActivationService>();
 
         return services;
     }

@@ -56,6 +56,71 @@ public static class ProvisioningEndpoints
         return endpoints;
     }
 
+    public static IEndpointRouteBuilder MapBootstrapActivationEndpoints(
+        this IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapPost("/api/v1/device/activate", async (
+                HttpContext httpContext,
+                ActivateDeviceRequest request,
+                IDeviceBootstrapActivationService activationService,
+                CancellationToken cancellationToken) =>
+            {
+                var authorization = httpContext.Request.Headers.Authorization.ToString();
+                if (!authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.Json(
+                        new { errorCode = "invalid_bootstrap_token" },
+                        statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                var bootstrapToken = authorization["Bearer ".Length..].Trim();
+                var result = await activationService.ActivateAsync(
+                    bootstrapToken,
+                    request,
+                    cancellationToken);
+                if (result.IsSuccess)
+                {
+                    return Results.Ok(result.Activation);
+                }
+
+                return result.Failure switch
+                {
+                    ActivationFailure.InvalidRequest => Results.ValidationProblem(
+                        ToValidationDictionary(result.ValidationErrors)),
+                    ActivationFailure.InvalidBootstrapToken => Results.Json(
+                        new { errorCode = "invalid_bootstrap_token" },
+                        statusCode: StatusCodes.Status401Unauthorized),
+                    ActivationFailure.BootstrapUnavailable => Results.Json(
+                        new { errorCode = "bootstrap_unavailable" },
+                        statusCode: StatusCodes.Status403Forbidden),
+                    ActivationFailure.NoPendingCommissioning => Results.Problem(
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "No pending commissioning session"),
+                    ActivationFailure.ActivationAttemptMismatch => Results.Problem(
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "Activation attempt mismatch"),
+                    ActivationFailure.ActivationConflict => Results.Problem(
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "Activation conflict"),
+                    _ => Results.Problem(
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "Activation conflict")
+                };
+            })
+            .WithName("ActivateDevice")
+            .WithSummary("Activate a commissioned bootstrap sensor")
+            .WithDescription(
+                "Exchanges a bootstrap credential for an operational credential hash, then creates installation and calibration for telemetry.")
+            .Accepts<ActivateDeviceRequest>("application/json")
+            .Produces<ActivateDeviceResponse>(StatusCodes.Status200OK)
+            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        return endpoints;
+    }
+
     public static RouteGroupBuilder MapCommissioningSessionEndpoints(
         this RouteGroupBuilder technicianApi)
     {
