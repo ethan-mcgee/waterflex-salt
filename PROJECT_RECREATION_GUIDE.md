@@ -546,6 +546,8 @@ Factory registration and pending session are implemented. Activation is not.
 
 ### Schema
 
+Important distinction: the current codebase has no `WorkOrders` table. Work-order references are stored only as nullable external identifiers on `DeviceInstallations` and `CommissioningSessions`. Add a first-class `WorkOrders` table separately if the provisioning design needs independent work-order validation.
+
 #### `Dealers`
 
 Purpose: stable dealer ownership used by installations and commissioning sessions.
@@ -668,6 +670,8 @@ Filtered unique index: one unrevoked/unconsumed bootstrap credential per device.
 | WaterFlexWorkOrderId | nvarchar(128) | Yes | None |
 | RowVersion | rowversion | No | Concurrency token |
 
+`WaterFlexWorkOrderId` is only an external reference; there is no foreign key or lookup table for work orders in the current model.
+
 Filtered unique indexes enforce one active installation per device and per tank where `RemovedAtUtc IS NULL`.
 
 #### `TankCalibrations`
@@ -731,6 +735,8 @@ Indexes: unique `(DeviceId, BootId, SequenceNumber)`, `(DeviceInstallationId, Re
 | ActivationAttemptId | uniqueidentifier | Yes | Unique when non-null |
 | FailureCode | nvarchar(64) | Yes | None |
 | RowVersion | rowversion | No | Concurrency token |
+
+`WaterFlexWorkOrderId` follows the same pattern here: it is a nullable external identifier, not a normalized work-order entity.
 
 Filtered unique live session per device and tank for `PendingSensor` and `AwaitingFirstTelemetry`. Index `(Status, ExpiresAtUtc)` supports cleanup.
 

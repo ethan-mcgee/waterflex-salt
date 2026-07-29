@@ -86,7 +86,7 @@ public sealed class DeviceBootstrapCredential
     public DateTimeOffset? ConsumedAtUtc { get; set; }
     public DateTimeOffset? LastUsedAtUtc { get; set; }
     public int FailedAttemptCount { get; set; }
-    public byte[] RowVersion { get; set; } = [];
+    public uint RowVersion { get; set; }
     public Device Device { get; set; } = null!;
 }
 
@@ -113,7 +113,7 @@ public sealed class DeviceInstallation
     public DateTimeOffset? RemovedAtUtc { get; set; }
     public string? InstalledBy { get; set; }
     public string? WaterFlexWorkOrderId { get; set; }
-    public byte[] RowVersion { get; set; } = [];
+    public uint RowVersion { get; set; }
     public Device Device { get; set; } = null!;
     public Tank Tank { get; set; } = null!;
     public Dealer? Dealer { get; set; }
@@ -176,7 +176,7 @@ public sealed class CommissioningSession
     public DateTimeOffset? CancelledAtUtc { get; set; }
     public Guid? ActivationAttemptId { get; set; }
     public string? FailureCode { get; set; }
-    public byte[] RowVersion { get; set; } = [];
+    public uint RowVersion { get; set; }
     public Device Device { get; set; } = null!;
     public Dealer Dealer { get; set; } = null!;
     public Tank Tank { get; set; } = null!;

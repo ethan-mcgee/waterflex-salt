@@ -23,7 +23,7 @@ public static class ServiceCollectionExtensions
             var connectionString = configuration.GetConnectionString("SaltMonitor");
             if (connectionString is null && environment.IsDevelopment())
             {
-                connectionString = "Server=(localdb)\\MSSQLLocalDB;Database=WaterFlexSaltMonitor;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+                connectionString = "Host=localhost;Port=5432;Database=WaterFlexSaltMonitor;Username=postgres;Password=postgres";
             }
 
             if (connectionString is null)
@@ -32,7 +32,7 @@ public static class ServiceCollectionExtensions
                     "Connection string 'SaltMonitor' is required. Set ConnectionStrings__SaltMonitor.");
             }
 
-            options.UseSqlServer(connectionString, sqlServer => sqlServer.EnableRetryOnFailure());
+            options.UseNpgsql(connectionString);
         });
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(serviceProvider =>

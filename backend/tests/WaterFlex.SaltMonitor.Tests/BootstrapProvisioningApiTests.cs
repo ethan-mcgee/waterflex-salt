@@ -102,7 +102,7 @@ public sealed class BootstrapProvisioningApiTests
         public BootstrapApiFactory()
         {
             var databaseName = $"WaterFlexBootstrapApiTests_{Guid.NewGuid():N}";
-            connectionString = $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Trusted_Connection=True;TrustServerCertificate=True";
+            connectionString = $"Host=localhost;Port=5432;Database={databaseName};Username=postgres;Password=postgres";
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
@@ -105,7 +106,7 @@ public sealed class EfFleetQueryService(
             calibration?.EffectiveFromUtc,
             activeCredentials.Length > 0,
             activeCredentials.Max(credential => credential.LastUsedAtUtc),
-            Convert.ToBase64String(installation.RowVersion));
+            installation.RowVersion.ToString(CultureInfo.InvariantCulture));
     }
 
     public async Task<IReadOnlyList<FleetReadingPoint>?> GetReadingsAsync(

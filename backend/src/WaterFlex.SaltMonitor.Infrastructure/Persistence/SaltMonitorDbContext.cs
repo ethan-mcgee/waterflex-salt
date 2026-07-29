@@ -90,7 +90,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasIndex(credential => credential.CredentialId).IsUnique();
             entity.HasIndex(credential => credential.DeviceId)
                 .IsUnique()
-                .HasFilter("[RevokedAtUtc] IS NULL AND [ConsumedAtUtc] IS NULL");
+                .HasFilter("\"RevokedAtUtc\" IS NULL AND \"ConsumedAtUtc\" IS NULL");
             entity.HasOne(credential => credential.Device)
                 .WithMany(device => device.BootstrapCredentials)
                 .HasForeignKey(credential => credential.DeviceId)
@@ -119,10 +119,10 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(installation => installation.RowVersion).IsRowVersion();
             entity.HasIndex(installation => installation.DeviceId)
                 .IsUnique()
-                .HasFilter("[RemovedAtUtc] IS NULL");
+                .HasFilter("\"RemovedAtUtc\" IS NULL");
             entity.HasIndex(installation => installation.TankId)
                 .IsUnique()
-                .HasFilter("[RemovedAtUtc] IS NULL");
+                .HasFilter("\"RemovedAtUtc\" IS NULL");
             entity.HasIndex(installation => installation.DealerId);
             entity.HasOne(installation => installation.Device)
                 .WithMany(device => device.Installations)
@@ -150,14 +150,14 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(session => session.RowVersion).IsRowVersion();
             entity.HasIndex(session => session.DeviceId)
                 .IsUnique()
-                .HasFilter("[Status] IN ('PendingSensor', 'AwaitingFirstTelemetry')");
+                .HasFilter("\"Status\" IN ('PendingSensor', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => session.TankId)
                 .IsUnique()
-                .HasFilter("[Status] IN ('PendingSensor', 'AwaitingFirstTelemetry')");
+                .HasFilter("\"Status\" IN ('PendingSensor', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => new { session.Status, session.ExpiresAtUtc });
             entity.HasIndex(session => session.ActivationAttemptId)
                 .IsUnique()
-                .HasFilter("[ActivationAttemptId] IS NOT NULL");
+                .HasFilter("\"ActivationAttemptId\" IS NOT NULL");
             entity.HasOne(session => session.Device)
                 .WithMany(device => device.CommissioningSessions)
                 .HasForeignKey(session => session.DeviceId)
@@ -204,7 +204,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasIndex(calibration => new { calibration.DeviceInstallationId, calibration.Version }).IsUnique();
             entity.HasIndex(calibration => calibration.DeviceInstallationId)
                 .IsUnique()
-                .HasFilter("[EffectiveToUtc] IS NULL");
+                .HasFilter("\"EffectiveToUtc\" IS NULL");
             entity.HasOne(calibration => calibration.DeviceInstallation)
                 .WithMany(installation => installation.Calibrations)
                 .HasForeignKey(calibration => calibration.DeviceInstallationId)

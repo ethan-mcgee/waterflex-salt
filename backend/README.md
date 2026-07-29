@@ -36,13 +36,13 @@ Run from this folder:
 
   ## Local database
 
-  Development uses SQL Server LocalDB and a `WaterFlexSaltMonitor` database. From the repository root:
+  Development targets PostgreSQL for the database layer and the AWS deployment target is RDS PostgreSQL. From the repository root:
 
     dotnet tool restore
     dotnet tool run dotnet-ef database update --project backend/src/WaterFlex.SaltMonitor.Infrastructure
 
   Set `ConnectionStrings__SaltMonitor` to override the database in another environment. Production startup
-  requires that setting; the LocalDB fallback is Development-only.
+  requires that setting; the development fallback assumes a local PostgreSQL instance on `localhost:5432`.
 
   Set `Monitoring__TelemetryIntervalSeconds` to control the expected sensor reporting interval. It defaults to
   60 seconds and accepts 1 through 86,400. A sensor is reporting until it misses three expected reports, stale
