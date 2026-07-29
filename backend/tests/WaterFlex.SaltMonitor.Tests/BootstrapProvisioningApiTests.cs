@@ -71,6 +71,23 @@ public sealed class BootstrapProvisioningApiTests
         Assert.Equal(0, await factory.CountAsync(database => database.DeviceCredentials));
     }
 
+    [Fact]
+    public async Task TechnicianCanVerifyWorkOrderWithoutSeeingWaterFlexIds()
+    {
+        await using var factory = new BootstrapApiFactory();
+        await factory.InitializeDatabaseAsync();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-jordan");
+
+        var response = await client.GetAsync("/api/v1/technician/installation-work-orders/WO-82418");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("Baker Family Residence", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("waterFlexCustomerId", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("waterFlexAssetId", body, StringComparison.Ordinal);
+    }
+
     private static JsonSerializerOptions CreateJsonOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);

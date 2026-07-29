@@ -11,6 +11,7 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 public sealed class EfCommissioningSessionService(
     SaltMonitorDbContext dbContext,
     IWaterFlexCustomerDirectory customerDirectory,
+    IInstallationWorkOrderDirectory workOrderDirectory,
     TimeProvider timeProvider) : ICommissioningSessionService
 {
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromMinutes(30);
@@ -19,6 +20,83 @@ public sealed class EfCommissioningSessionService(
         CommissioningSessionStatus.PendingSensor,
         CommissioningSessionStatus.AwaitingFirstTelemetry
     ];
+
+    public async Task<InstallationWorkOrderView?> FindWorkOrderAsync(
+        string workOrderNumber,
+        StaffActor technician,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsValidTechnician(technician) || string.IsNullOrWhiteSpace(workOrderNumber))
+        {
+            return null;
+        }
+
+        var workOrder = await workOrderDirectory.FindEligibleAsync(
+            workOrderNumber,
+            technician.DealerExternalId!,
+            cancellationToken);
+        return workOrder is null
+            ? null
+            : new(
+                workOrder.WorkOrderNumber,
+                workOrder.CustomerDisplayName,
+                workOrder.LocationDisplayName,
+                workOrder.AddressSummary,
+                workOrder.TankLocation);
+    }
+
+    public async Task<CommissioningSessionResult> CreateFromWorkOrderAsync(
+        CreateWorkOrderCommissioningSessionRequest request,
+        StaffActor technician,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsValidTechnician(technician))
+        {
+            return CommissioningSessionResult.Failed(CommissioningSessionFailure.InvalidTechnician);
+        }
+
+        var workOrder = await workOrderDirectory.FindEligibleAsync(
+            request.WorkOrderNumber,
+            technician.DealerExternalId!,
+            cancellationToken);
+        if (workOrder is null)
+        {
+            return CommissioningSessionResult.Failed(CommissioningSessionFailure.WorkOrderNotFound);
+        }
+
+        var tankLocation = string.IsNullOrWhiteSpace(workOrder.TankLocation)
+            ? request.TankLocation?.Trim()
+            : workOrder.TankLocation;
+        if (string.IsNullOrWhiteSpace(tankLocation))
+        {
+            return CommissioningSessionResult.Failed(
+                CommissioningSessionFailure.TankLocationRequired,
+                [new(nameof(request.TankLocation), "Tank location is required because it is missing from the work order.")]);
+        }
+
+        var normalized = new CreateCommissioningSessionRequest(
+            workOrder.WaterFlexCustomerId,
+            workOrder.WaterFlexLocationId,
+            workOrder.WaterFlexAssetId,
+            request.SerialNumber,
+            request.WorkOrderNumber,
+            request.TankDepthCm);
+
+        return await CreateWithSelectionAsync(
+            normalized,
+            new WaterFlexCommissioningSelection(
+                workOrder.WaterFlexCustomerId,
+                string.Empty,
+                workOrder.CustomerDisplayName,
+                workOrder.WaterFlexLocationId,
+                workOrder.LocationDisplayName,
+                workOrder.AddressSummary,
+                workOrder.WaterFlexAssetId,
+                tankLocation,
+                null),
+            technician,
+            cancellationToken);
+    }
 
     public async Task<CommissioningSessionResult> CreateAsync(
         CreateCommissioningSessionRequest request,
@@ -50,11 +128,20 @@ public sealed class EfCommissioningSessionService(
                 CommissioningSessionFailure.DirectorySelectionNotFound);
         }
 
+        return await CreateWithSelectionAsync(normalized, selection, technician, cancellationToken);
+    }
+
+    private async Task<CommissioningSessionResult> CreateWithSelectionAsync(
+        CreateCommissioningSessionRequest request,
+        WaterFlexCommissioningSelection selection,
+        StaffActor technician,
+        CancellationToken cancellationToken)
+    {
         var strategy = dbContext.Database.CreateExecutionStrategy();
         try
         {
             return await strategy.ExecuteAsync(() => CreateWithinTransactionAsync(
-                normalized,
+                request,
                 selection,
                 technician,
                 cancellationToken));

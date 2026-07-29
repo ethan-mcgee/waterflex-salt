@@ -8,19 +8,41 @@ public enum DeviceReportingStatus
     NeverReported
 }
 
+public sealed class MonitoringSchedule
+{
+    public const int DefaultReportIntervalSeconds = 60;
+    public const int StaleAfterMissedReports = 3;
+    public const int OfflineAfterMissedReports = 5;
+
+    public MonitoringSchedule(TimeSpan reportInterval)
+    {
+        if (reportInterval <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(reportInterval),
+                "Report interval must be greater than zero.");
+        }
+
+        ReportInterval = reportInterval;
+    }
+
+    public TimeSpan ReportInterval { get; }
+    public int ReportIntervalSeconds => checked((int)ReportInterval.TotalSeconds);
+    public TimeSpan StaleAfter => ReportInterval * StaleAfterMissedReports;
+    public TimeSpan OfflineAfter => ReportInterval * OfflineAfterMissedReports;
+}
+
 public static class MonitoringPolicy
 {
     public const double LowFillThresholdPercent = 35.0;
-
-    public static readonly TimeSpan StaleAfter = TimeSpan.FromHours(2);
-    public static readonly TimeSpan OfflineAfter = TimeSpan.FromHours(6);
 
     public static bool IsBelowFillThreshold(double fillPercent) =>
         fillPercent < LowFillThresholdPercent;
 
     public static DeviceReportingStatus GetReportingStatus(
         DateTimeOffset? lastReportedAtUtc,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        MonitoringSchedule schedule)
     {
         if (lastReportedAtUtc is null)
         {
@@ -28,12 +50,12 @@ public static class MonitoringPolicy
         }
 
         var age = nowUtc - lastReportedAtUtc.Value;
-        if (age <= StaleAfter)
+        if (age < schedule.StaleAfter)
         {
             return DeviceReportingStatus.Reporting;
         }
 
-        return age <= OfflineAfter
+        return age < schedule.OfflineAfter
             ? DeviceReportingStatus.Stale
             : DeviceReportingStatus.Offline;
     }

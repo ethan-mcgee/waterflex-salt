@@ -9,13 +9,14 @@ namespace WaterFlex.SaltMonitor.Tests;
 public sealed class FleetQueryServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
+    private static readonly MonitoringSchedule Schedule = new(TimeSpan.FromHours(2));
 
     [Fact]
     public async Task FleetQueries_SelectLatestReadingAndClassifyReportingState()
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedFleetAsync(database.Context);
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now));
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
 
         var summary = await service.GetSummaryAsync(new());
         var page = await service.SearchAsync(new(new(), PageSize: 10));
@@ -38,7 +39,7 @@ public sealed class FleetQueryServiceTests
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedFleetAsync(database.Context);
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now));
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
 
         var page = await service.SearchAsync(new(new(
             Search: "OFFLINE",
@@ -87,7 +88,7 @@ public sealed class FleetQueryServiceTests
         AddReading(context, reporting, 1, Now.AddHours(-3), 70);
         AddReading(context, reporting, 2, Now.AddHours(-2), 20);
         AddReading(context, stale, 1, Now.AddHours(-6), 55);
-        AddReading(context, offline, 1, Now.AddHours(-6).AddSeconds(-1), 60);
+        AddReading(context, offline, 1, Now.AddHours(-10), 60);
         await context.SaveChangesAsync();
     }
 

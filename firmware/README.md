@@ -22,6 +22,12 @@ The firmware now includes an initial provisioning scaffold:
 - Provisioning payload now stores telemetry destination settings in NVS:
 	- `apiUrl`
 	- `deviceToken`
+- Telemetry defaults to a 60-second interval and adopts the API's `nextReportIntervalSeconds` value after every
+  successful upload. The API controls this with `Monitoring__TelemetryIntervalSeconds`.
+- Wi-Fi, API URL, and token updates are staged and committed together only after Wi-Fi connects. Recovery setup
+	can retain the stored token by leaving the token field blank.
+- `/api/v1/status` exposes only non-secret persistence diagnostics: `configured`, `hardwareId`,
+	`hasDeviceToken`, and `telemetryIntervalSeconds`.
 - Automatic recovery portal reopening after prolonged Wi-Fi outage.
 
 Still pending for full production flow:

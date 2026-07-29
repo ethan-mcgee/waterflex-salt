@@ -124,6 +124,51 @@ public static class ProvisioningEndpoints
     public static RouteGroupBuilder MapCommissioningSessionEndpoints(
         this RouteGroupBuilder technicianApi)
     {
+        technicianApi.MapGet("/installation-work-orders/{workOrderNumber}", async (
+                string workOrderNumber,
+                HttpContext httpContext,
+                ICommissioningSessionService sessionService,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await sessionService.FindWorkOrderAsync(
+                    workOrderNumber,
+                    httpContext.GetDevelopmentActor(),
+                    cancellationToken);
+                return result is null
+                    ? Results.Problem(
+                        statusCode: StatusCodes.Status404NotFound,
+                        title: "Eligible salt-sensor work order not found")
+                    : Results.Ok(result);
+            })
+            .WithName("GetInstallationWorkOrder")
+            .WithSummary("Verify an eligible salt-sensor installation work order")
+            .Produces<InstallationWorkOrderView>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        technicianApi.MapPost("/work-order-commissioning-sessions", async (
+                CreateWorkOrderCommissioningSessionRequest request,
+                HttpContext httpContext,
+                ICommissioningSessionService sessionService,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await sessionService.CreateFromWorkOrderAsync(
+                    request,
+                    httpContext.GetDevelopmentActor(),
+                    cancellationToken);
+                return result.IsSuccess
+                    ? Results.Created(
+                        $"/api/v1/technician/commissioning-sessions/{result.Session!.SessionId:D}",
+                        result.Session)
+                    : ToSessionFailure(result);
+            })
+            .WithName("CreateWorkOrderCommissioningSession")
+            .WithSummary("Assign a factory sensor from an installation work order")
+            .Accepts<CreateWorkOrderCommissioningSessionRequest>("application/json")
+            .Produces<CommissioningSessionView>(StatusCodes.Status201Created)
+            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         technicianApi.MapPost("/commissioning-sessions", async (
                 CreateCommissioningSessionRequest request,
                 HttpContext httpContext,
@@ -194,6 +239,11 @@ public static class ProvisioningEndpoints
             CommissioningSessionFailure.DirectorySelectionNotFound => Results.Problem(
                 statusCode: StatusCodes.Status404NotFound,
                 title: "WaterFlex selection not found"),
+            CommissioningSessionFailure.WorkOrderNotFound => Results.Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Eligible salt-sensor work order not found"),
+            CommissioningSessionFailure.TankLocationRequired => Results.ValidationProblem(
+                ToValidationDictionary(result.ValidationErrors)),
             CommissioningSessionFailure.DeviceNotFound => Results.Problem(
                 statusCode: StatusCodes.Status404NotFound,
                 title: "Factory sensor not found"),

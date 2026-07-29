@@ -44,6 +44,11 @@ Run from this folder:
   Set `ConnectionStrings__SaltMonitor` to override the database in another environment. Production startup
   requires that setting; the LocalDB fallback is Development-only.
 
+  Set `Monitoring__TelemetryIntervalSeconds` to control the expected sensor reporting interval. It defaults to
+  60 seconds and accepts 1 through 86,400. A sensor is reporting until it misses three expected reports, stale
+  after three misses, and offline after five. Successful telemetry acknowledgements return the configured interval
+  so firmware can adopt changes without being reflashed.
+
   ## Device telemetry API
 
   Authenticated devices submit versioned JSON batches to:

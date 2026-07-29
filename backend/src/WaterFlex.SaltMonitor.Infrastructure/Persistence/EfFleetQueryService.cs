@@ -7,7 +7,8 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
 public sealed class EfFleetQueryService(
     SaltMonitorDbContext dbContext,
-    TimeProvider timeProvider) : IFleetQueryService
+    TimeProvider timeProvider,
+    MonitoringSchedule monitoringSchedule) : IFleetQueryService
 {
     public async Task<IReadOnlyList<FleetDealerOption>> GetDealersAsync(
         CancellationToken cancellationToken = default) =>
@@ -205,7 +206,7 @@ public sealed class EfFleetQueryService(
             .ThenByDescending(reading => reading.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
-    private static FleetDeviceListItem MapItem(
+    private FleetDeviceListItem MapItem(
         DeviceInstallation installation,
         TelemetryReadingRecord? latestReading,
         DateTimeOffset now)
@@ -231,7 +232,10 @@ public sealed class EfFleetQueryService(
             installation.Tank.CapacityPounds,
             fillPercent,
             fillPercent is { } value && MonitoringPolicy.IsBelowFillThreshold(value),
-            MonitoringPolicy.GetReportingStatus(latestReading?.ReceivedAtUtc, now),
+            MonitoringPolicy.GetReportingStatus(
+                latestReading?.ReceivedAtUtc,
+                now,
+                monitoringSchedule),
             latestReading?.ReceivedAtUtc,
             latestReading?.RawDistanceMm,
             latestReading?.Quality,

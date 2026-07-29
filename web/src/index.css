@@ -1613,6 +1613,13 @@ p {
   white-space: nowrap;
 }
 
+.sensor-read-warning {
+  display: block;
+  margin-top: 8px;
+  color: var(--warning);
+  line-height: 1.45;
+}
+
 .sensor-read-error {
   color: var(--danger) !important;
 }
@@ -2176,6 +2183,71 @@ p {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.device-handoff {
+  margin: 20px 0 0;
+  padding: 18px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.device-handoff-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent);
+}
+
+.device-handoff-heading small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.device-handoff-heading h2 {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.device-handoff ol {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.device-handoff li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.device-handoff li > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.device-handoff code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
 }
 
 .next-checks {

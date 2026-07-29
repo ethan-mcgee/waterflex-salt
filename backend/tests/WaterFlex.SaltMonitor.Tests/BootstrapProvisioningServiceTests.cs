@@ -107,10 +107,44 @@ public sealed class BootstrapProvisioningServiceTests
             (await database.Context.Devices.SingleAsync()).Status);
     }
 
+    [Fact]
+    public async Task WorkOrderSession_RequiresTankLocationWhenOrderDoesNotProvideOne()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var timeProvider = new MutableTimeProvider(Now);
+        await RegisterFactoryDeviceAsync(database.Context, timeProvider);
+        var service = CreateSessionService(database.Context, timeProvider);
+
+        var result = await service.CreateFromWorkOrderAsync(
+            new("WO-82418", "WF-BOOT-0001", null, 150m),
+            NorthStarTechnician);
+
+        Assert.Equal(CommissioningSessionFailure.TankLocationRequired, result.Failure);
+        Assert.Contains(result.ValidationErrors, error => error.Field == nameof(CreateWorkOrderCommissioningSessionRequest.TankLocation));
+    }
+
+    [Fact]
+    public async Task WorkOrderLookup_IsDealerScoped()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = CreateSessionService(database.Context, new MutableTimeProvider(Now));
+
+        var visible = await service.FindWorkOrderAsync("WO-82417", NorthStarTechnician);
+        var hidden = await service.FindWorkOrderAsync("WO-82417", LakesTechnician);
+
+        Assert.NotNull(visible);
+        Assert.Equal("North Ridge Apartments", visible!.CustomerDisplayName);
+        Assert.Null(hidden);
+    }
+
     private static EfCommissioningSessionService CreateSessionService(
         SaltMonitorDbContext context,
         TimeProvider timeProvider) =>
-        new(context, new DevelopmentWaterFlexCustomerDirectory(), timeProvider);
+        new(
+            context,
+            new DevelopmentWaterFlexCustomerDirectory(),
+            new DevelopmentInstallationWorkOrderDirectory(),
+            timeProvider);
 
     private static async Task RegisterFactoryDeviceAsync(
         SaltMonitorDbContext context,

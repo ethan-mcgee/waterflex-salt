@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Infrastructure.Persistence;
 using WaterFlex.SaltMonitor.Ingestion;
 using Xunit;
@@ -16,7 +17,11 @@ public sealed class TelemetryPersistenceTests
         await using var database = await TestDatabase.CreateAsync();
         var device = await SeedCommissionedDeviceAsync(database.Context);
         var validator = new TelemetryBatchValidator(new FixedTimeProvider(Now));
-        var service = new EfTelemetryIngestionService(database.Context, validator, new FixedTimeProvider(Now));
+        var service = new EfTelemetryIngestionService(
+            database.Context,
+            validator,
+            new FixedTimeProvider(Now),
+            new MonitoringSchedule(TimeSpan.FromMinutes(1)));
         var reading = new TelemetryReadingInput(
             Guid.NewGuid(), 1, Now, 1000, 750, 90, 8, -60);
         var batch = new TelemetryBatch(1, "1.0.0", [reading]);
@@ -25,7 +30,8 @@ public sealed class TelemetryPersistenceTests
         var duplicate = await service.IngestAsync(device.Id, batch);
 
         Assert.True(accepted.IsSuccess);
-        Assert.Equal(TelemetryReadingStatus.Accepted, accepted.Acknowledgement!.Readings.Single().Status);
+        Assert.Equal(60, accepted.Acknowledgement!.NextReportIntervalSeconds);
+        Assert.Equal(TelemetryReadingStatus.Accepted, accepted.Acknowledgement.Readings.Single().Status);
         Assert.True(duplicate.IsSuccess);
         Assert.Equal(TelemetryReadingStatus.Duplicate, duplicate.Acknowledgement!.Readings.Single().Status);
         Assert.Equal(

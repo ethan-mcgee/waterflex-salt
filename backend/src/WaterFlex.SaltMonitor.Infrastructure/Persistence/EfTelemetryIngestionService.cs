@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using WaterFlex.SaltMonitor.Domain.Level;
 using WaterFlex.SaltMonitor.Domain.Model;
+using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
@@ -11,10 +12,9 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 public sealed class EfTelemetryIngestionService(
     SaltMonitorDbContext dbContext,
     TelemetryBatchValidator validator,
-    TimeProvider timeProvider) : ITelemetryIngestionService
+    TimeProvider timeProvider,
+    MonitoringSchedule monitoringSchedule) : ITelemetryIngestionService
 {
-    private const int DefaultReportIntervalSeconds = 3600;
-
     public async Task<TelemetryIngestionResult> IngestAsync(
         Guid deviceId,
         TelemetryBatch batch,
@@ -188,7 +188,7 @@ public sealed class EfTelemetryIngestionService(
 
         return TelemetryIngestionResult.Success(new(
             serverTime,
-            DefaultReportIntervalSeconds,
+            monitoringSchedule.ReportIntervalSeconds,
             acknowledgements.Select(acknowledgement => acknowledgement!).ToArray()));
     }
 

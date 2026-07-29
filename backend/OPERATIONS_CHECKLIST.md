@@ -1,5 +1,29 @@
 # WaterFlex Sensor Provisioning Checklist
 
+## Persistent Bench Path
+
+Use this path for the current ESP32 firmware. Automatic bootstrap activation remains a future firmware step.
+
+1. Start the API on a LAN-reachable address, not only localhost. Set
+  `Monitoring__TelemetryIntervalSeconds` to the desired cadence.
+2. Before changing the board, open its serial monitor at 115200 and reboot it. If it reports
+  `wifiConfigured=true`, `tokenConfigured=true`, and telemetry status 200, reuse the existing NVS identity.
+3. To configure or recover without erasing identity, hold D2 for about 5 seconds. Join
+  `WaterFlex-<hardwareId>` and open `http://192.168.4.1/`.
+4. Submit a 2.4 GHz SSID/password, `http://<server-LAN-IP>:5188/api/v1/device/telemetry`, and a valid
+  operational token. During recovery, leave the token blank to retain the stored token.
+5. Configuration commits only after the candidate Wi-Fi connection succeeds. Check
+  `/api/v1/status` for `status=connected`, `configured=true`, and `hasDeviceToken=true`, then restart.
+6. Confirm serial telemetry status 200 and the expected `next=<seconds>s`, then confirm the fleet last-report
+  timestamp advances.
+7. Power-cycle the board and verify that it reconnects without opening setup. NVS also survives an ordinary
+  PlatformIO firmware upload that does not erase flash.
+8. To intentionally deprovision the board, hold D2 continuously for 15 seconds. This clears its Wi-Fi, API URL,
+  and token. It does not revoke or delete the corresponding backend credential.
+
+The backend stores only the operational token hash. Do not factory-reset a working board unless the plaintext
+token is still available or a replacement device credential will be issued.
+
 ## Preconditions
 
 - Backend API is running in Development on port 5188.

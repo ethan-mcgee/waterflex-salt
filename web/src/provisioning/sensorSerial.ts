@@ -25,6 +25,7 @@ export interface SensorDistanceReading {
   distanceMm: number;
   sampleCount: number;
   spreadMm: number;
+  source: 'sensor' | 'bench';
 }
 
 export interface SensorReadProgress {
@@ -134,6 +135,7 @@ export async function readSensorDistance(
       distanceMm: sortedSamples[Math.floor(sortedSamples.length / 2)],
       sampleCount: samples.length,
       spreadMm,
+      source: 'sensor',
     };
   } catch (error) {
     if (error instanceof SensorSerialError) throw error;

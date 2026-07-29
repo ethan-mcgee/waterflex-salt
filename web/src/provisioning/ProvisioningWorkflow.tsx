@@ -220,6 +220,23 @@ export default function ProvisioningWorkflow() {
     }
   }
 
+  function useBenchReading() {
+    const depthMm = Number(tankDepth) * 10;
+    if (!Number.isFinite(depthMm) || depthMm < 100 || depthMm > 4500) {
+      setSensorReadError('Enter a valid tank depth before using a bench estimate.');
+      return;
+    }
+
+    setSensorReadError('');
+    setSensorReadProgress(null);
+    setSensorReading({
+      distanceMm: Math.round(depthMm / 2),
+      sampleCount: 0,
+      spreadMm: 0,
+      source: 'bench',
+    });
+  }
+
   async function submitCommissioning() {
     if (!selectedCustomer
       || !selectedLocation
@@ -281,6 +298,7 @@ export default function ProvisioningWorkflow() {
     return (
       <CompletionScreen
         result={result}
+        hardwareId={normalizeHardwareId(sensor.hardwareId)}
         copied={copied}
         onCopy={copyToken}
         onRestart={resetWorkflow}
@@ -345,6 +363,7 @@ export default function ProvisioningWorkflow() {
               valid={calibrationValid}
               onTankDepthChange={setTankDepth}
               onReadSensor={captureSensorReading}
+              onUseBenchReading={useBenchReading}
             />
           )}
           {step === 'review' && selectedCustomer && selectedLocation && selectedTank && (
@@ -652,6 +671,7 @@ function CalibrationStep({
   valid,
   onTankDepthChange,
   onReadSensor,
+  onUseBenchReading,
 }: {
   tankDepth: string;
   sensorReading: SensorDistanceReading | null;
@@ -661,6 +681,7 @@ function CalibrationStep({
   valid: boolean;
   onTankDepthChange: (value: string) => void;
   onReadSensor: () => void;
+  onUseBenchReading: () => void;
 }) {
   const depth = Number(tankDepth);
   const distance = sensorReading ? sensorReading.distanceMm / 10 : 0;
@@ -701,7 +722,9 @@ function CalibrationStep({
                   </strong>
                   <small>
                     {sensorReading
-                      ? `${sensorReading.sampleCount} samples · ${sensorReading.spreadMm} mm spread`
+                      ? sensorReading.source === 'bench'
+                        ? 'Bench estimate · replace after sensor installation'
+                        : `${sensorReading.sampleCount} samples · ${sensorReading.spreadMm} mm spread`
                       : readingSensor && sensorReadProgress
                         ? `Sample ${sensorReadProgress.sampleCount} of ${sensorReadProgress.targetSampleCount}`
                         : serialSupported
@@ -722,8 +745,21 @@ function CalibrationStep({
                     ? <><RefreshCw size={16} /> Read again</>
                     : <><Usb size={16} /> Read sensor</>}
               </button>
+              <button
+                className="button button-secondary sensor-read-button"
+                type="button"
+                disabled={readingSensor || !depthValid}
+                onClick={onUseBenchReading}
+              >
+                <Wrench size={16} /> Use bench estimate
+              </button>
             </div>
             {sensorReadError && <small className="sensor-read-error" role="alert">{sensorReadError}</small>}
+            {sensorReading?.source === 'bench' && (
+              <small className="sensor-read-warning" role="status">
+                This enables controller connectivity testing only. Recommission calibration from live sensor samples before using fill levels operationally.
+              </small>
+            )}
           </div>
         </div>
         {!depthValid && (
@@ -843,15 +879,24 @@ function ReviewStep({
 
 function CompletionScreen({
   result,
+  hardwareId,
   copied,
   onCopy,
   onRestart,
 }: {
   result: CommissionSensorResponse;
+  hardwareId: string;
   copied: boolean;
   onCopy: () => void;
   onRestart: () => void;
 }) {
+  const hardwareSuffix = hardwareId.slice(-6);
+  const browserHost = window.location.hostname;
+  const telemetryHost = browserHost === 'localhost' || browserHost === '127.0.0.1'
+    ? '<this-computer-LAN-IP>'
+    : browserHost;
+  const telemetryUrl = `http://${telemetryHost}:5188/api/v1/device/telemetry`;
+
   return (
     <section className="completion-screen" aria-labelledby="complete-title">
       <div className="success-mark"><CheckCircle2 size={34} /></div>
@@ -875,6 +920,25 @@ function CompletionScreen({
         <div><small>Installation ID</small><code>{result.installationId}</code></div>
         <div><small>Initial fill</small><strong>{result.initialFillPercent.toFixed(1)}%</strong></div>
       </div>
+
+      <section className="device-handoff" aria-labelledby="device-handoff-title">
+        <div className="device-handoff-heading">
+          <Wifi size={19} />
+          <div><small>ESP32 handoff</small><h2 id="device-handoff-title">Connect this sensor</h2></div>
+        </div>
+        <ol>
+          <li><span>1</span><div>Hold D2 for 5 seconds, then join <code>WaterFlex-{hardwareSuffix}</code>.</div></li>
+          <li><span>2</span><div>Open <code>http://192.168.4.1/</code> and enter the site's 2.4 GHz Wi-Fi.</div></li>
+          <li><span>3</span><div>Set the telemetry URL to <code>{telemetryUrl}</code> and paste the token shown above.</div></li>
+          <li><span>4</span><div>Restart the sensor after status reports connected. Its configuration persists until a 15-second D2 reset.</div></li>
+        </ol>
+        {telemetryHost.startsWith('<') && (
+          <div className="inline-alert warning">
+            <Wifi size={18} />
+            <span>Replace the LAN-IP placeholder with this computer's address on the same Wi-Fi network.</span>
+          </div>
+        )}
+      </section>
 
       <div className="next-checks">
         <span><Check size={16} /> WaterFlex assignment saved</span>

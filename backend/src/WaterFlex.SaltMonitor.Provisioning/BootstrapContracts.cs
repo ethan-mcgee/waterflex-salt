@@ -117,6 +117,38 @@ public interface IDeviceBootstrapActivationService
         CancellationToken cancellationToken = default);
 }
 
+public sealed record InstallationWorkOrderView(
+    string WorkOrderNumber,
+    string CustomerDisplayName,
+    string LocationDisplayName,
+    string AddressSummary,
+    string? TankLocation);
+
+public sealed record InstallationWorkOrder(
+    string WorkOrderNumber,
+    string DealerExternalId,
+    string WaterFlexCustomerId,
+    string WaterFlexLocationId,
+    string WaterFlexAssetId,
+    string CustomerDisplayName,
+    string LocationDisplayName,
+    string AddressSummary,
+    string? TankLocation);
+
+public interface IInstallationWorkOrderDirectory
+{
+    Task<InstallationWorkOrder?> FindEligibleAsync(
+        string workOrderNumber,
+        string dealerExternalId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record CreateWorkOrderCommissioningSessionRequest(
+    string WorkOrderNumber,
+    string SerialNumber,
+    string? TankLocation,
+    decimal TankDepthCm);
+
 public sealed record CreateCommissioningSessionRequest(
     string WaterFlexCustomerId,
     string WaterFlexLocationId,
@@ -153,6 +185,8 @@ public enum CommissioningSessionFailure
     TankUnavailable,
     SessionNotFound,
     SessionUnavailable,
+    WorkOrderNotFound,
+    TankLocationRequired,
     InvalidTechnician,
     Conflict
 }
@@ -175,6 +209,16 @@ public sealed record CommissioningSessionResult(
 
 public interface ICommissioningSessionService
 {
+    Task<InstallationWorkOrderView?> FindWorkOrderAsync(
+        string workOrderNumber,
+        StaffActor technician,
+        CancellationToken cancellationToken = default);
+
+    Task<CommissioningSessionResult> CreateFromWorkOrderAsync(
+        CreateWorkOrderCommissioningSessionRequest request,
+        StaffActor technician,
+        CancellationToken cancellationToken = default);
+
     Task<CommissioningSessionResult> CreateAsync(
         CreateCommissioningSessionRequest request,
         StaffActor technician,
