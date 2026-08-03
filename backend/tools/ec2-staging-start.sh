@@ -39,24 +39,52 @@ if [[ -z "${SECRET_VALUE}" ]]; then
   exit 1
 fi
 
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+else
+  echo "Python is required to parse the AWS secret payload." >&2
+  exit 1
+fi
+
 if [[ "${SECRET_VALUE}" =~ ^\{ ]]; then
-  SECRET_VALUE="$(python3 - "${SECRET_VALUE}" <<'PY'
+  SECRET_VALUE="$("${PYTHON_BIN}" - "${SECRET_VALUE}" <<'PY'
 import json
 import sys
 raw = sys.argv[1]
+
+if not raw or not raw.strip():
+    print("")
+    sys.exit(0)
+
 try:
     data = json.loads(raw)
-except json.JSONDecodeError as exc:
-    raise SystemExit(f"Unable to parse JSON secret: {exc}") from exc
+except json.JSONDecodeError:
+    print(raw)
+    sys.exit(0)
 
-if isinstance(data, dict):
-    for key in ("connectionString", "ConnectionStrings__SaltMonitor", "value"):
-        value = data.get(key)
-        if isinstance(value, str) and value.strip():
-            print(value)
-            break
-    else:
-        raise SystemExit("The JSON secret did not contain a connection string field.")
+if not isinstance(data, dict):
+    print(raw)
+    sys.exit(0)
+
+for key in ("connectionString", "ConnectionStrings__SaltMonitor", "value", "uri", "url"):
+    value = data.get(key)
+    if isinstance(value, str) and value.strip():
+        print(value)
+        sys.exit(0)
+
+host = data.get("host") or data.get("Hostname") or data.get("hostName") or data.get("server")
+port = data.get("port") or data.get("Port")
+dbname = data.get("dbname") or data.get("database") or data.get("Database")
+username = data.get("username") or data.get("user")
+password = data.get("password")
+
+if host and username and password and dbname:
+    port_value = port if port else 5432
+    print(
+        f"Host={host};Port={port_value};Database={dbname};Username={username};Password={password};SSL Mode=VerifyFull;Root Certificate=/etc/ssl/certs/aws-rds-global-bundle.pem"
+    )
 else:
     print(raw)
 PY
