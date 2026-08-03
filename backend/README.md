@@ -44,6 +44,12 @@ Run from this folder:
   Set `ConnectionStrings__SaltMonitor` to override the database in another environment. Production startup
   requires that setting; the development fallback assumes a local PostgreSQL instance on `localhost:5432`.
 
+  AWS staging runs the API on EC2 and PostgreSQL on private Amazon RDS. Do not install PostgreSQL on the
+  application EC2 instance or connect AWS to a developer workstation database. Follow
+  [`AWS_RDS_STAGING_RUNBOOK.md`](AWS_RDS_STAGING_RUNBOOK.md) to configure networking, TLS, roles, migrations,
+  and the EC2 service. The local-to-RDS copy script is only for an intentional full data migration; it must not
+  be used when creating an empty staging database.
+
   Set `Monitoring__TelemetryIntervalSeconds` to control the expected sensor reporting interval. It defaults to
   60 seconds and accepts 1 through 86,400. A sensor is reporting until it misses three expected reports, stale
   after three misses, and offline after five. Successful telemetry acknowledgements return the configured interval

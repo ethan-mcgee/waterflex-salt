@@ -22,6 +22,7 @@
 #include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <esp_attr.h>
 #include <esp_mac.h>
 
 namespace {
@@ -41,6 +42,8 @@ constexpr uint32_t kWifiConnectTimeoutMs = 30UL * 1000UL;
 constexpr uint32_t kRecoveryReopenMs = 15UL * 60UL * 1000UL;
 constexpr uint32_t kRecoveryPortalHoldMs = 5UL * 1000UL;
 constexpr uint32_t kFactoryResetHoldMs = 15UL * 1000UL;
+constexpr uint32_t kOnboardResetGestureWindowMs = 10UL * 1000UL;
+constexpr uint32_t kOnboardResetGestureMagic = 0x57465253;
 constexpr uint32_t kDefaultTelemetryIntervalMs = 60UL * 1000UL;
 constexpr uint32_t kMinimumTelemetryIntervalSeconds = 1;
 constexpr uint32_t kMaximumTelemetryIntervalSeconds = 24UL * 60UL * 60UL;
@@ -76,6 +79,7 @@ enum class ProvisioningState {
 };
 
 Preferences gPrefs;
+bool gPrefsInitialized = false;
 DNSServer gDnsServer;
 WebServer gPortalServer(80);
 
@@ -105,11 +109,37 @@ bool gRecoveryButtonDown = false;
 bool gRecoveryPortalTriggered = false;
 bool gFactoryResetTriggered = false;
 uint32_t gRecoveryPressedAtMs = 0;
+uint32_t gOnboardResetGestureArmedAtMs = 0;
 uint32_t gLastTelemetryAtMs = 0;
 uint32_t gTelemetryIntervalMs = kDefaultTelemetryIntervalMs;
 bool gTelemetryDue = true;
 uint64_t gReadingSequenceNumber = 0;
 String gBootId;
+
+RTC_NOINIT_ATTR uint32_t gOnboardResetGestureMarker;
+RTC_NOINIT_ATTR uint32_t gOnboardResetGestureMarkerInverse;
+
+bool onboardResetGestureIsArmed() {
+  return gOnboardResetGestureMarker == kOnboardResetGestureMagic
+      && gOnboardResetGestureMarkerInverse == ~kOnboardResetGestureMagic;
+}
+
+void disarmOnboardResetGesture() {
+  gOnboardResetGestureMarker = 0;
+  gOnboardResetGestureMarkerInverse = 0;
+  gOnboardResetGestureArmedAtMs = 0;
+}
+
+void armOnboardResetGesture() {
+  gOnboardResetGestureMarker = kOnboardResetGestureMagic;
+  gOnboardResetGestureMarkerInverse = ~kOnboardResetGestureMagic;
+  gOnboardResetGestureArmedAtMs = millis();
+}
+
+void restartDevice() {
+  disarmOnboardResetGesture();
+  ESP.restart();
+}
 
 // Returns distance in millimetres, or -1 on an invalid or timed-out frame.
 int readDistanceMm() {
@@ -190,26 +220,59 @@ String defaultPortalPassphrase() {
   return String("WF-") + serialSuffix() + "-SETUP";
 }
 
+void ensurePrefsReady() {
+  if (gPrefsInitialized) {
+    return;
+  }
+  gPrefs.begin(kNvsNamespace, false);
+  gPrefsInitialized = true;
+}
+
 void saveActiveProfile(const WifiProfile& profile) {
+  ensurePrefsReady();
   gPrefs.putString(kKeySsid, profile.ssid);
   gPrefs.putString(kKeyPassword, profile.password);
   gPrefs.putBool(kKeyHidden, profile.hidden);
 }
 
 void saveDeviceConfig(const DeviceConfig& config) {
+  ensurePrefsReady();
   gPrefs.putString(kKeyApiUrl, config.apiUrl);
   gPrefs.putString(kKeyDeviceToken, config.deviceToken);
 }
 
 void clearActiveProfile() {
+  ensurePrefsReady();
   gPrefs.remove(kKeySsid);
   gPrefs.remove(kKeyPassword);
   gPrefs.remove(kKeyHidden);
 }
 
 void clearDeviceConfig() {
+  ensurePrefsReady();
   gPrefs.remove(kKeyApiUrl);
   gPrefs.remove(kKeyDeviceToken);
+}
+
+void clearProvisioningState() {
+  ensurePrefsReady();
+  gPrefs.clear();
+  gActiveProfile = WifiProfile{};
+  gDeviceConfig = DeviceConfig{};
+  gHasActiveProfile = false;
+  gCandidateProfile = WifiProfile{};
+  gCandidateDeviceConfig = DeviceConfig{};
+  gCandidateApplyOnSuccess = false;
+  gHasCandidateProfile = false;
+  gLastError = "";
+}
+
+void performFactoryReset() {
+  clearProvisioningState();
+  gLastError = "factory_reset";
+  Serial.println("factory reset requested");
+  delay(200);
+  restartDevice();
 }
 
 bool loadActiveProfile(WifiProfile* profile) {
@@ -433,7 +496,7 @@ void handlePortalRestart() {
 
   gPortalServer.send(200, "application/json", "{\"status\":\"restarting\"}");
   delay(200);
-  ESP.restart();
+  restartDevice();
 }
 
 void handleCaptiveRedirect() {
@@ -455,9 +518,21 @@ void startPortal(const String& reasonCode) {
       ? defaultPortalPassphrase()
       : setupPassphrase;
 
-  WiFi.mode(WIFI_MODE_APSTA);
-  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-  WiFi.softAP(gPortalSsid.c_str(), portalPassphrase.c_str(), 1, 0, 1);
+  if (!WiFi.mode(WIFI_MODE_APSTA)) {
+    setPortalError("portal_wifi_mode_failed");
+    Serial.println("portal failed: could not enable AP+STA mode");
+    return;
+  }
+  if (!WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0))) {
+    setPortalError("portal_ip_config_failed");
+    Serial.println("portal failed: could not configure AP address");
+    return;
+  }
+  if (!WiFi.softAP(gPortalSsid.c_str(), portalPassphrase.c_str(), 1, 0, 1)) {
+    setPortalError("portal_start_failed");
+    Serial.println("portal failed: could not start SoftAP");
+    return;
+  }
 
   gDnsServer.start(kPortalDnsPort, "*", IPAddress(192, 168, 4, 1));
 
@@ -480,7 +555,9 @@ void startPortal(const String& reasonCode) {
   gState = ProvisioningState::PortalIdle;
   gLastError = reasonCode;
 
-  Serial.printf("portal started ssid=%s\n", gPortalSsid.c_str());
+  Serial.printf("portal started ssid=%s ip=%s hidden=false\n",
+                gPortalSsid.c_str(),
+                WiFi.softAPIP().toString().c_str());
 }
 
 void processPortal() {
@@ -496,7 +573,7 @@ void processPortal() {
     setPortalError("portal_idle_timeout");
     stopPortal();
     if (!gHasActiveProfile) {
-      ESP.restart();
+      restartDevice();
     }
     return;
   }
@@ -505,7 +582,39 @@ void processPortal() {
     setPortalError("portal_absolute_timeout");
     stopPortal();
     if (!gHasActiveProfile) {
-      ESP.restart();
+      restartDevice();
+    }
+  }
+}
+
+void processSerialCommands() {
+  static String inputBuffer;
+
+  while (Serial.available() > 0) {
+    const char c = static_cast<char>(Serial.read());
+    if (c == '\r' || c == '\n') {
+      String command = inputBuffer;
+      inputBuffer = "";
+      command.trim();
+      if (command.isEmpty()) {
+        continue;
+      }
+
+      command.toUpperCase();
+      if (command == "FACTORY_RESET" || command == "FACTORYRESET" || command == "RESET") {
+        Serial.println("factory reset command received");
+        performFactoryReset();
+      } else if (command == "PORTAL") {
+        Serial.println("portal command received");
+        startPortal("serial_portal");
+      } else {
+        Serial.println("unknown command");
+      }
+      continue;
+    }
+
+    if (c >= 32 && c <= 126) {
+      inputBuffer += c;
     }
   }
 }
@@ -535,21 +644,21 @@ void processRecoveryButton() {
   const uint32_t heldMs = now - gRecoveryPressedAtMs;
   if (!gFactoryResetTriggered && heldMs >= kFactoryResetHoldMs) {
     gFactoryResetTriggered = true;
-    clearActiveProfile();
-    clearDeviceConfig();
-    gHasActiveProfile = false;
-    gActiveProfile = WifiProfile{};
-    gDeviceConfig = DeviceConfig{};
-    gLastError = "factory_reset";
-    Serial.println("factory reset requested");
-    delay(200);
-    ESP.restart();
+    performFactoryReset();
     return;
   }
 
   if (!gRecoveryPortalTriggered && heldMs >= kRecoveryPortalHoldMs) {
     gRecoveryPortalTriggered = true;
     startPortal("manual_recovery");
+  }
+}
+
+void processOnboardResetGestureWindow() {
+  if (gOnboardResetGestureArmedAtMs != 0
+      && millis() - gOnboardResetGestureArmedAtMs >= kOnboardResetGestureWindowMs) {
+    disarmOnboardResetGesture();
+    Serial.println("onboard reset gesture window closed");
   }
 }
 
@@ -586,6 +695,10 @@ void processWifiConnection() {
   gState = ProvisioningState::PortalError;
   gLastError = "wifi_connect_timeout";
   Serial.println("wifi connect timeout");
+
+  if (!gCandidateApplyOnSuccess && gHasActiveProfile) {
+    startPortal("wifi_connect_timeout");
+  }
 }
 
 void processAutoRecoveryPortal() {
@@ -728,7 +841,20 @@ void processTelemetry(int distanceMm) {
 }
 
 void initializeProvisioning() {
-  gPrefs.begin(kNvsNamespace, false);
+  ensurePrefsReady();
+
+  bool onboardResetSetupRequested = false;
+  if (onboardResetGestureIsArmed()) {
+    disarmOnboardResetGesture();
+    clearActiveProfile();
+    clearDeviceConfig();
+    onboardResetSetupRequested = true;
+    Serial.println("onboard RESET gesture recognized; provisioning settings cleared");
+  } else {
+    armOnboardResetGesture();
+    Serial.println("onboard RESET gesture armed for 10 seconds");
+  }
+
   gHasActiveProfile = loadActiveProfile(&gActiveProfile);
   gDeviceConfig = loadDeviceConfig();
   gCandidateDeviceConfig = gDeviceConfig;
@@ -738,7 +864,9 @@ void initializeProvisioning() {
                 gHasActiveProfile ? "true" : "false",
                 gDeviceConfig.deviceToken.isEmpty() ? "false" : "true");
 
-  if (!gHasActiveProfile || gDeviceConfig.deviceToken.isEmpty()) {
+  if (onboardResetSetupRequested) {
+    startPortal("onboard_reset");
+  } else if (!gHasActiveProfile || gDeviceConfig.deviceToken.isEmpty()) {
     startPortal(gHasActiveProfile ? "missing_device_token" : "first_boot");
   } else {
     connectWithSavedProfile();
@@ -764,6 +892,8 @@ void setup() {
 }
 
 void loop() {
+  processSerialCommands();
+  processOnboardResetGestureWindow();
   processRecoveryButton();
   processPortal();
   processWifiConnection();

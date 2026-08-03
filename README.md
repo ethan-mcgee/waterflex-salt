@@ -16,5 +16,3 @@ Run the CLI steps noted in each folder's README to restore dependencies and star
 - `firmware/` → `pio run`
 - `backend/`  → `dotnet tool restore`, apply the EF migration, then `dotnet build`
 - `web/`      → `npm install`, then `npm run dev`
-
-

@@ -12,6 +12,11 @@ The firmware now includes an initial provisioning scaffold:
 - Recovery setup input on `D2` (`INPUT_PULLUP`):
 	- Hold 5 seconds to open the setup portal.
 	- Hold 15 seconds to clear stored Wi-Fi and restart.
+- Onboard RESET recovery gesture (no external switch required):
+	- Press RESET once, wait for the built-in boot LED pulse to finish, then press RESET again within 10 seconds.
+	- Do not press twice rapidly; the Nano reserves a rapid double-tap for Arduino bootloader recovery.
+	- The second reset clears stored Wi-Fi, API URL, and device token settings.
+	- The firmware immediately broadcasts the visible `WaterFlex-XXXXXX` setup network and serves the setup portal at `http://192.168.4.1/`.
 - SoftAP captive portal skeleton with wildcard DNS redirect behavior.
 - Provisioning routes:
 	- `GET /`
@@ -28,7 +33,7 @@ The firmware now includes an initial provisioning scaffold:
 	can retain the stored token by leaving the token field blank.
 - `/api/v1/status` exposes only non-secret persistence diagnostics: `configured`, `hardwareId`,
 	`hasDeviceToken`, and `telemetryIntervalSeconds`.
-- Automatic recovery portal reopening after prolonged Wi-Fi outage.
+- Automatic recovery portal opening immediately after a saved Wi-Fi connection times out.
 
 Still pending for full production flow:
 

@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: waterflex-api:staging
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
+      Logging__LogLevel__Default: Information
+    ports:
+      - "5188:8080"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: waterflex-web:staging
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.worker
+    image: waterflex-worker:staging
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
+    restart: unless-stopped

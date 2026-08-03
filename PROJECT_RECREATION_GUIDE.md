@@ -2,6 +2,8 @@
 
 This document describes the repository as implemented on 2026-07-24. It intentionally distinguishes working code from design-only material. Anything labeled **missing**, **planned**, or **not implemented** must not be treated as available behavior.
 
+> **Current persistence correction (2026-07-31):** The backend now uses PostgreSQL through Npgsql. Local development defaults to PostgreSQL on `localhost:5432`; the selected AWS staging topology runs the API on EC2 and PostgreSQL on private Amazon RDS. Older SQL Server LocalDB and Azure SQL passages below are historical reconstruction material and are not current deployment instructions. Use `backend/AWS_RDS_STAGING_RUNBOOK.md` for the active AWS procedure.
+
 ## 1. Project Overview
 
 ### Business purpose
