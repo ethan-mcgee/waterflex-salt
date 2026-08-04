@@ -69,10 +69,11 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+if (app.Environment.IsDevelopment())
 {
-    var dbContext = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
-    await dbContext.Database.MigrateAsync();
+	using var scope = app.Services.CreateScope();
+	var dbContext = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+	await dbContext.Database.MigrateAsync();
 }
 
 if (app.Environment.IsDevelopment())
