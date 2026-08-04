@@ -78,12 +78,12 @@ Run from this folder:
 
   ## Technician provisioning
 
-  The technician UI uses two Development-only endpoints until WaterFlex staff authentication is connected:
+  The technician UI uses temporary Development/Staging endpoints until WaterFlex staff authentication is connected:
 
     GET  /api/v1/technician/customers
     POST /api/v1/technician/commission
 
-  Customer search currently uses a deterministic WaterFlex directory adapter. Commissioning resolves the selected
+  These routes remain unavailable in Production. Customer search currently uses a deterministic WaterFlex directory adapter. Commissioning resolves the selected
   customer, location, and tank server-side, then creates the device, installation, calibration, and hashed device
   credential in one serializable transaction. The plaintext device token is returned once. These routes are not
   mapped outside Development; production deployment must replace the directory adapter and protect the route group

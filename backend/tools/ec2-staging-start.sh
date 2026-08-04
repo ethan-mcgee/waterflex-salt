@@ -111,4 +111,18 @@ echo "Pulling staging images tagged ${IMAGE_TAG}."
 "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" pull
 
 echo "Starting staging stack from ${COMPOSE_FILE}."
-"${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" up -d --no-build --remove-orphans
+"${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" up -d --no-build --remove-orphans --wait --wait-timeout 120
+
+echo "Verifying the same-origin health endpoint."
+"${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T web \
+  wget --quiet --output-document=- http://localhost/health >/dev/null
+
+echo "Verifying the operations endpoint is mapped and protected."
+OPS_STATUS="$("${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T api \
+  curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/api/v1/ops/dealers)"
+if [[ "${OPS_STATUS}" != "401" ]]; then
+  echo "Expected the unauthenticated operations endpoint to return 401, received ${OPS_STATUS}." >&2
+  exit 1
+fi
+
+echo "Staging deployment is healthy and the operations API is mapped."

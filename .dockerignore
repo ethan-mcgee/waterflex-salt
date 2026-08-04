@@ -1,0 +1,17 @@
+.git
+.github
+.vs
+.vscode
+.venv
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.pio
+*.dump
+*.env
+*.env.*
+!.env.example
+PROJECT_RECREATION_GUIDE.md
+SOURCE_MANIFEST.json
+AI-Plans

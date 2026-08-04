@@ -110,7 +110,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
 	.WithTags("System")
 	.Produces(StatusCodes.Status200OK);
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 {
 	app.MapGet("/api/v1/development/users", (IDevelopmentIdentityDirectory identityDirectory) =>
 		Results.Ok(identityDirectory.GetUsers()))
@@ -177,7 +177,7 @@ if (app.Environment.IsDevelopment())
 		.WithName("CommissionSensor")
 		.WithSummary("Commission a salt sensor")
 		.WithDescription(
-			"Atomically registers the ESP32, binds it to the selected WaterFlex tank, records calibration, and returns its device token exactly once. Development-only until WaterFlex staff authentication is configured.")
+			"Atomically registers the ESP32, binds it to the selected WaterFlex tank, records calibration, and returns its device token exactly once. Development/Staging only until WaterFlex staff authentication is configured.")
 		.Accepts<CommissionSensorRequest>("application/json")
 		.Produces<CommissionSensorResponse>(StatusCodes.Status200OK)
 		.ProducesValidationProblem(StatusCodes.Status400BadRequest)

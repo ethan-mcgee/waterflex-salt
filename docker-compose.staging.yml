@@ -9,8 +9,14 @@ services:
     volumes:
       - /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro
     ports:
-      - "5188:8080"
+      - "127.0.0.1:5188:8080"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 4
 
   web:
     image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-web:${IMAGE_TAG:?Set IMAGE_TAG}
@@ -18,12 +24,20 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 4
 
   worker:
     image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-worker:${IMAGE_TAG:?Set IMAGE_TAG}
     pull_policy: always
+    profiles: ["worker"]
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
