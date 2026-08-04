@@ -6,6 +6,8 @@ services:
       ASPNETCORE_ENVIRONMENT: Staging
       ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
       Logging__LogLevel__Default: Information
+    volumes:
+      - /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro
     ports:
       - "5188:8080"
     restart: unless-stopped
@@ -25,4 +27,6 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
+    volumes:
+      - /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro
     restart: unless-stopped
