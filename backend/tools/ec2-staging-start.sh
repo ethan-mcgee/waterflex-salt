@@ -115,7 +115,7 @@ echo "Starting staging stack from ${COMPOSE_FILE}."
 
 echo "Verifying the same-origin health endpoint."
 "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T web \
-  wget --quiet --output-document=- http://localhost/health >/dev/null
+  wget --quiet --output-document=- http://127.0.0.1/health >/dev/null
 
 echo "Verifying the operations endpoint is mapped and protected."
 OPS_STATUS="$("${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T api \

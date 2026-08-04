@@ -28,7 +28,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/health"]
       interval: 15s
       timeout: 5s
       start_period: 10s
