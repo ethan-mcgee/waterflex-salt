@@ -72,7 +72,7 @@ if not isinstance(data, dict):
 normalized = {str(key).lower(): value for key, value in data.items()}
 
 for key in ("connectionstring", "connectionstrings__saltmonitor", "value", "uri", "url"):
-  value = normalized.get(key)
+    value = normalized.get(key)
     if isinstance(value, str) and value.strip():
         print(value)
         sys.exit(0)
@@ -89,7 +89,7 @@ if host and username and password and dbname:
         f"Host={host};Port={port_value};Database={dbname};Username={username};Password={password};SSL Mode=VerifyFull;Root Certificate=/etc/ssl/certs/aws-rds-global-bundle.pem"
     )
 else:
-    print(raw)
+    raise SystemExit("The JSON secret does not contain connection-string or PostgreSQL credential fields.")
 PY
 )"
 fi
