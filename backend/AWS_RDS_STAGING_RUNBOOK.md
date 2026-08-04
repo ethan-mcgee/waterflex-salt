@@ -173,9 +173,44 @@ service deployment mechanism and expose it to the API process as `ConnectionStri
 the value to the repository, AMI, EC2 user data, deployment logs, or a world-readable environment file.
 
 The repository includes an EC2 bootstrap helper at `backend/tools/ec2-staging-start.sh` and a systemd unit at
-`backend/tools/waterflex-api.service` for the staging deployment. Copy the service file to
-`/etc/systemd/system/waterflex-api.service`, make the script executable, and install the repo on the EC2 host
-before enabling the service.
+`backend/tools/waterflex-api.service`. Staging images are built on a developer workstation, pushed to private
+Amazon ECR repositories, and pulled by EC2. The EC2 host does not build the application.
+
+Add these ECR read actions to the EC2 instance role in addition to its existing Secrets Manager permission:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "ecr:GetAuthorizationToken",
+    "ecr:BatchCheckLayerAvailability",
+    "ecr:GetDownloadUrlForLayer",
+    "ecr:BatchGetImage"
+  ],
+  "Resource": "*"
+}
+```
+
+From PowerShell on the build workstation, publish images to ECR:
+
+```powershell
+.\backend\tools\build-and-push-staging-images.ps1
+```
+
+Use the `ECR_REGISTRY` and `IMAGE_TAG` values printed by that command to create the root-owned deployment file on
+EC2. This file selects images and contains no database credential:
+
+```bash
+sudo install -d -m 0755 /etc/waterflex
+sudo tee /etc/waterflex/deployment.env >/dev/null <<'EOF'
+ECR_REGISTRY=<aws-account-id>.dkr.ecr.us-east-2.amazonaws.com
+IMAGE_TAG=<git-commit>
+EOF
+sudo chmod 0644 /etc/waterflex/deployment.env
+```
+
+Copy the service file to `/etc/systemd/system/waterflex-api.service`, make the script executable, and install the
+repository on EC2 before enabling the service.
 
 Example EC2 commands:
 
@@ -193,7 +228,8 @@ Set the application environment to `Staging` (or another established non-Develop
 fails startup outside Development when `ConnectionStrings__SaltMonitor` is absent.
 
 The deployed service retrieves `waterflex/staging/database/runtime` through the EC2 instance role before each
-start. Restart it after changing the secret or application binary:
+start, logs Docker into ECR, pulls the configured image tag, and starts Compose without building. To deploy a new
+release, publish a new tag locally, update `IMAGE_TAG` in `/etc/waterflex/deployment.env`, and restart the service:
 
 ```bash
 sudo systemctl restart waterflex-api.service

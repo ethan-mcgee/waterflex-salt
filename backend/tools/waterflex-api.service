@@ -4,17 +4,16 @@ After=docker.service
 Requires=docker.service
 
 [Service]
-Type=simple
+Type=oneshot
+RemainAfterExit=yes
 User=ubuntu
 WorkingDirectory=/home/ubuntu/waterflex-salt
 Environment=AWS_REGION=us-east-2
 Environment=SECRET_ID=waterflex/staging/database/runtime
 Environment=COMPOSE_FILE=docker-compose.staging.yml
-Environment=ENV_FILE=.env.staging
+EnvironmentFile=/etc/waterflex/deployment.env
 ExecStart=/home/ubuntu/waterflex-salt/backend/tools/ec2-staging-start.sh
-ExecStop=/usr/bin/docker compose -f /home/ubuntu/waterflex-salt/docker-compose.staging.yml --env-file /home/ubuntu/waterflex-salt/.env.staging down
-Restart=on-failure
-RestartSec=10
+ExecStop=/usr/bin/docker compose -f /home/ubuntu/waterflex-salt/docker-compose.staging.yml down
 
 [Install]
 WantedBy=multi-user.target

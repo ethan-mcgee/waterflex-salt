@@ -1,9 +1,7 @@
 services:
   api:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    image: waterflex-api:staging
+    image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-api:${IMAGE_TAG:?Set IMAGE_TAG}
+    pull_policy: always
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
@@ -13,10 +11,8 @@ services:
     restart: unless-stopped
 
   web:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
-    image: waterflex-web:staging
+    image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-web:${IMAGE_TAG:?Set IMAGE_TAG}
+    pull_policy: always
     ports:
       - "3000:80"
     depends_on:
@@ -24,10 +20,8 @@ services:
     restart: unless-stopped
 
   worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile.worker
-    image: waterflex-worker:staging
+    image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-worker:${IMAGE_TAG:?Set IMAGE_TAG}
+    pull_policy: always
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}

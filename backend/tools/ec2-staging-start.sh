@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.staging.yml}"
-ENV_FILE="${ENV_FILE:-.env.staging}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 SECRET_ID="${SECRET_ID:-waterflex/staging/database/runtime}"
+DB_NAME="${DB_NAME:-waterflex_salt_staging}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 
 cd "${REPO_ROOT}"
@@ -21,8 +21,8 @@ if ! command -v aws >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "${ENV_FILE}" ]]; then
-  echo "Expected environment file ${ENV_FILE} at ${REPO_ROOT}." >&2
+if [[ -z "${ECR_REGISTRY:-}" || -z "${IMAGE_TAG:-}" ]]; then
+  echo "ECR_REGISTRY and IMAGE_TAG must be configured in /etc/waterflex/deployment.env." >&2
   exit 1
 fi
 
@@ -49,10 +49,11 @@ else
 fi
 
 if [[ "${SECRET_VALUE}" =~ ^\{ ]]; then
-  SECRET_VALUE="$("${PYTHON_BIN}" - "${SECRET_VALUE}" <<'PY'
+  SECRET_VALUE="$("${PYTHON_BIN}" - "${SECRET_VALUE}" "${DB_NAME}" <<'PY'
 import json
 import sys
 raw = sys.argv[1]
+default_database = sys.argv[2]
 
 if not raw or not raw.strip():
     print("")
@@ -68,17 +69,19 @@ if not isinstance(data, dict):
     print(raw)
     sys.exit(0)
 
-for key in ("connectionString", "ConnectionStrings__SaltMonitor", "value", "uri", "url"):
-    value = data.get(key)
+normalized = {str(key).lower(): value for key, value in data.items()}
+
+for key in ("connectionstring", "connectionstrings__saltmonitor", "value", "uri", "url"):
+  value = normalized.get(key)
     if isinstance(value, str) and value.strip():
         print(value)
         sys.exit(0)
 
-host = data.get("host") or data.get("Hostname") or data.get("hostName") or data.get("server")
-port = data.get("port") or data.get("Port")
-dbname = data.get("dbname") or data.get("database") or data.get("Database")
-username = data.get("username") or data.get("user")
-password = data.get("password")
+host = normalized.get("host") or normalized.get("hostname") or normalized.get("server")
+port = normalized.get("port")
+dbname = normalized.get("dbname") or normalized.get("database") or default_database
+username = normalized.get("username") or normalized.get("user")
+password = normalized.get("password")
 
 if host and username and password and dbname:
     port_value = port if port else 5432
@@ -100,5 +103,12 @@ export ConnectionStrings__SaltMonitor="${SECRET_VALUE}"
 export AWS_REGION
 export SECRET_ID
 
+echo "Authenticating Docker to ${ECR_REGISTRY}."
+aws ecr get-login-password --region "${AWS_REGION}" \
+  | "${DOCKER_BIN}" login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+echo "Pulling staging images tagged ${IMAGE_TAG}."
+"${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" pull
+
 echo "Starting staging stack from ${COMPOSE_FILE}."
-"${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" up -d --build
+"${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" up -d --no-build --remove-orphans
