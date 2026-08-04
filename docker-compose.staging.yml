@@ -33,14 +33,3 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 4
-
-  worker:
-    image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-worker:${IMAGE_TAG:?Set IMAGE_TAG}
-    pull_policy: always
-    profiles: ["worker"]
-    environment:
-      ASPNETCORE_ENVIRONMENT: Staging
-      ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
-    volumes:
-      - /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro
-    restart: unless-stopped
