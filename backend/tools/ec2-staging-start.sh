@@ -8,6 +8,8 @@ AWS_REGION="${AWS_REGION:-us-east-2}"
 SECRET_ID="${SECRET_ID:-waterflex/staging/database/runtime}"
 DB_NAME="${DB_NAME:-waterflex_salt_staging}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+TLS_CERTIFICATE_PATH="${WATERFLEX_TLS_CERTIFICATE_PATH:-/etc/waterflex/tls/origin.pem}"
+TLS_PRIVATE_KEY_PATH="${WATERFLEX_TLS_PRIVATE_KEY_PATH:-/etc/waterflex/tls/origin.key}"
 
 cd "${REPO_ROOT}"
 
@@ -30,6 +32,19 @@ if [[ -z "${AWS_REGION}" ]]; then
   echo "AWS_REGION must be set to the target region." >&2
   exit 1
 fi
+
+if [[ ! -f "${TLS_CERTIFICATE_PATH}" ]]; then
+  echo "Cloudflare origin certificate was not found at ${TLS_CERTIFICATE_PATH}." >&2
+  exit 1
+fi
+
+if [[ ! -f "${TLS_PRIVATE_KEY_PATH}" ]]; then
+  echo "Cloudflare origin private key was not found at ${TLS_PRIVATE_KEY_PATH}." >&2
+  exit 1
+fi
+
+export WATERFLEX_TLS_CERTIFICATE_PATH="${TLS_CERTIFICATE_PATH}"
+export WATERFLEX_TLS_PRIVATE_KEY_PATH="${TLS_PRIVATE_KEY_PATH}"
 
 echo "Retrieving runtime connection string from ${SECRET_ID} in ${AWS_REGION}."
 SECRET_VALUE="$(aws secretsmanager get-secret-value --region "${AWS_REGION}" --secret-id "${SECRET_ID}" --query SecretString --output text)"
@@ -112,6 +127,9 @@ echo "Pulling staging images tagged ${IMAGE_TAG}."
 
 echo "Starting staging stack from ${COMPOSE_FILE}."
 "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" up -d --no-build --remove-orphans --wait --wait-timeout 120
+
+echo "Validating the staging Nginx configuration."
+"${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T web nginx -t
 
 echo "Verifying the same-origin health endpoint."
 "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T web \

@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Api;
@@ -39,6 +40,21 @@ builder.Services
 		DeviceTokenAuthenticationHandler.SchemeName,
 		_ => { });
 builder.Services.AddAuthorization();
+if (!builder.Environment.IsDevelopment())
+{
+	builder.Services.Configure<ForwardedHeadersOptions>(options =>
+	{
+		options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+			| ForwardedHeaders.XForwardedProto
+			| ForwardedHeaders.XForwardedHost;
+		// The API is reachable only from the Nginx service on the private Docker
+		// network in staging. Container addresses are dynamic, so trust the
+		// immediate private proxy rather than pinning an ephemeral address.
+		options.KnownIPNetworks.Clear();
+		options.KnownProxies.Clear();
+		options.ForwardLimit = 1;
+	});
+}
 builder.Services.AddRateLimiter(options =>
 {
 	options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -90,6 +106,7 @@ if (app.Environment.IsDevelopment())
 
 if (!app.Environment.IsDevelopment())
 {
+	app.UseForwardedHeaders();
 	app.UseHttpsRedirection();
 }
 

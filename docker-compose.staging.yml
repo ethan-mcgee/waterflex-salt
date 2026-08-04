@@ -8,8 +8,8 @@ services:
       Logging__LogLevel__Default: Information
     volumes:
       - /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro
-    ports:
-      - "127.0.0.1:5188:8080"
+    expose:
+      - "8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8080/health"]
@@ -22,13 +22,17 @@ services:
     image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-web:${IMAGE_TAG:?Set IMAGE_TAG}
     pull_policy: always
     ports:
-      - "3000:80"
+      - "443:443"
+    volumes:
+      - ./web/nginx/staging.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${WATERFLEX_TLS_CERTIFICATE_PATH:-/etc/waterflex/tls/origin.pem}:/etc/nginx/tls/origin.pem:ro
+      - ${WATERFLEX_TLS_PRIVATE_KEY_PATH:-/etc/waterflex/tls/origin.key}:/etc/nginx/tls/origin.key:ro
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/health"]
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/nginx-health"]
       interval: 15s
       timeout: 5s
       start_period: 10s

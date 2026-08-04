@@ -24,7 +24,7 @@ aws sts get-caller-identity
 .\backend\tools\build-and-push-staging-images.ps1
 ```
 
-The script creates the `waterflex-api`, `waterflex-web`, and `waterflex-worker` ECR repositories when necessary,
+The script creates the `waterflex-api` and `waterflex-web` ECR repositories when necessary,
 builds `linux/amd64` images, tags them with the current Git commit, and pushes them. Its final output contains the
 two values required in `/etc/waterflex/deployment.env` on EC2:
 
@@ -42,4 +42,6 @@ docker compose -f /home/ubuntu/waterflex-salt/docker-compose.staging.yml ps
 ```
 
 The staging Compose file intentionally has no `build:` sections. The EC2 startup script authenticates to ECR,
-pulls the selected tag, and starts the API, web, and worker containers with `--no-build`.
+pulls the selected tag, and starts the API and web containers with `--no-build`. Staging HTTPS also requires the
+Cloudflare origin certificate described in
+[`backend/CLOUDFLARE_STAGING_RUNBOOK.md`](backend/CLOUDFLARE_STAGING_RUNBOOK.md).

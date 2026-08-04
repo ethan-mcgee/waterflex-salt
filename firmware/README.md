@@ -29,6 +29,11 @@ The firmware now includes an initial provisioning scaffold:
 	- `deviceToken`
 - Telemetry defaults to a 60-second interval and adopts the API's `nextReportIntervalSeconds` value after every
   successful upload. The API controls this with `Monitoring__TelemetryIntervalSeconds`.
+- The default telemetry destination is
+  `https://telemetry-staging.saltmonitor.dev/api/v1/device/telemetry`. HTTPS validates Cloudflare's edge
+  certificate against the embedded Google Trust Services GTS Root R4 trust anchor after SNTP synchronization;
+  TLS verification is never disabled. Review the embedded trust anchor before its 2036-06-22 expiration and
+  whenever Cloudflare changes the edge certificate issuer.
 - Wi-Fi, API URL, and token updates are staged and committed together only after Wi-Fi connects. Recovery setup
 	can retain the stored token by leaving the token field blank.
 - `/api/v1/status` exposes only non-secret persistence diagnostics: `configured`, `hardwareId`,

@@ -22,8 +22,12 @@
 #include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <esp_attr.h>
 #include <esp_mac.h>
+#include <time.h>
+
+#include "cloudflare_root_ca.h"
 
 namespace {
 constexpr int kSensorRxPin = D4;      // A02YYUW TX -> Nano RX
@@ -47,9 +51,11 @@ constexpr uint32_t kOnboardResetGestureMagic = 0x57465253;
 constexpr uint32_t kDefaultTelemetryIntervalMs = 60UL * 1000UL;
 constexpr uint32_t kMinimumTelemetryIntervalSeconds = 1;
 constexpr uint32_t kMaximumTelemetryIntervalSeconds = 24UL * 60UL * 60UL;
+constexpr uint32_t kClockSyncTimeoutMs = 20UL * 1000UL;
+constexpr time_t kMinimumValidEpoch = 1704067200;  // 2024-01-01T00:00:00Z
 
 constexpr char kFirmwareVersion[] = "wf-dev-telemetry-0.1";
-constexpr char kDefaultTelemetryUrl[] = "http://192.168.0.142:5188/api/v1/device/telemetry";
+constexpr char kDefaultTelemetryUrl[] = "https://telemetry-staging.saltmonitor.dev/api/v1/device/telemetry";
 
 constexpr char kNvsNamespace[] = "wf_prov";
 constexpr char kKeySsid[] = "active_ssid";
@@ -428,7 +434,10 @@ void handlePortalConfigure() {
     gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_password\"}");
     return;
   }
-  if (apiUrl.length() > 256 || (!apiUrl.isEmpty() && !apiUrl.startsWith("http"))) {
+  if (apiUrl.length() > 256
+      || (!apiUrl.isEmpty()
+          && !apiUrl.startsWith("http://")
+          && !apiUrl.startsWith("https://"))) {
     gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_api_url\"}");
     return;
   }
@@ -774,6 +783,21 @@ String telemetryBatchPayload(int distanceMm, bool synthetic, uint64_t sequenceNu
   return body;
 }
 
+bool ensureClockSynchronized() {
+  if (time(nullptr) >= kMinimumValidEpoch) {
+    return true;
+  }
+
+  configTime(0, 0, "time.cloudflare.com", "time.google.com", "pool.ntp.org");
+  const uint32_t startedAtMs = millis();
+  while (time(nullptr) < kMinimumValidEpoch
+         && millis() - startedAtMs < kClockSyncTimeoutMs) {
+    delay(100);
+  }
+
+  return time(nullptr) >= kMinimumValidEpoch;
+}
+
 void sendTelemetry(int distanceMm, bool synthetic) {
   if (WiFi.status() != WL_CONNECTED) {
     return;
@@ -789,9 +813,22 @@ void sendTelemetry(int distanceMm, bool synthetic) {
     return;
   }
 
-  WiFiClient client;
+  const bool usesHttps = gDeviceConfig.apiUrl.startsWith("https://");
+  if (usesHttps && !ensureClockSynchronized()) {
+    Serial.println("telemetry skipped: clock synchronization required for TLS");
+    return;
+  }
+
+  WiFiClient plainClient;
+  WiFiClientSecure secureClient;
+  WiFiClient *client = &plainClient;
+  if (usesHttps) {
+    secureClient.setCACert(kCloudflareRootCa);
+    client = &secureClient;
+  }
+
   HTTPClient http;
-  if (!http.begin(client, gDeviceConfig.apiUrl.c_str())) {
+  if (!http.begin(*client, gDeviceConfig.apiUrl.c_str())) {
     Serial.println("telemetry begin failed");
     return;
   }
