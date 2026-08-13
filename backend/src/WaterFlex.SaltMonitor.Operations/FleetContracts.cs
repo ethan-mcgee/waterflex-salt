@@ -118,5 +118,6 @@ public interface IFleetQueryService
     Task<IReadOnlyList<FleetReadingPoint>?> GetReadingsAsync(
         Guid deviceId,
         TimeSpan range,
+        int limit,
         CancellationToken cancellationToken = default);
 }

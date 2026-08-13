@@ -1016,6 +1016,33 @@ button:disabled {
   font-size: 11px;
 }
 
+.history-error {
+  display: flex;
+  min-height: 110px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  color: var(--danger);
+  background: #fff8f8;
+  border: 1px solid #f0cccc;
+  border-radius: 4px;
+}
+
+.history-error div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 420px;
+}
+
+.history-error strong { font-size: 12px; }
+
+.history-error span {
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
 .detail-metadata {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

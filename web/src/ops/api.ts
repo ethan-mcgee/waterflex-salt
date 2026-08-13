@@ -44,10 +44,39 @@ export async function getFleetReadings(
   range: '24h' | '7d' | '30d',
   signal?: AbortSignal,
 ): Promise<FleetReading[]> {
-  return getJson(
-    `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/readings?range=${range}`,
-    signal,
-  );
+  const url = `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/readings?range=${range}&limit=50`;
+  try {
+    return await getJson(url, signal);
+  } catch (reason) {
+    if (!shouldRetryHistory(reason, signal)) throw reason;
+    await retryDelay(750, signal);
+    return getJson(url, signal);
+  }
+}
+
+function shouldRetryHistory(reason: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return false;
+  if (reason instanceof OpsApiError) return reason.status >= 500;
+  return !(reason instanceof DOMException && reason.name === 'AbortError');
+}
+
+function retryDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+      return;
+    }
+    let timeout = 0;
+    const abort = () => {
+      window.clearTimeout(timeout);
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    timeout = window.setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {

@@ -111,6 +111,7 @@ public static class OpsEndpoints
         opsApi.MapGet("/devices/{deviceId:guid}/readings", async (
                 Guid deviceId,
                 string? range,
+                int? limit,
                 IFleetQueryService fleetQueryService,
                 CancellationToken cancellationToken) =>
             {
@@ -122,7 +123,15 @@ public static class OpsEndpoints
                     });
                 }
 
-                return await fleetQueryService.GetReadingsAsync(deviceId, duration, cancellationToken) is { } readings
+                if (limit is < 1 or > 500)
+                {
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["limit"] = ["Limit must be between 1 and 500."]
+                    });
+                }
+
+                return await fleetQueryService.GetReadingsAsync(deviceId, duration, limit ?? 100, cancellationToken) is { } readings
                     ? Results.Ok(readings)
                     : Results.NotFound();
             })

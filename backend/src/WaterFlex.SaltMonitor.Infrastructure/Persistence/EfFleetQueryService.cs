@@ -112,6 +112,7 @@ public sealed class EfFleetQueryService(
     public async Task<IReadOnlyList<FleetReadingPoint>?> GetReadingsAsync(
         Guid deviceId,
         TimeSpan range,
+        int limit,
         CancellationToken cancellationToken = default)
     {
         if (!await dbContext.Devices.AsNoTracking().AnyAsync(
@@ -127,7 +128,7 @@ public sealed class EfFleetQueryService(
             .Where(reading => reading.DeviceId == deviceId && reading.ReceivedAtUtc >= cutoff)
             .OrderByDescending(reading => reading.ReceivedAtUtc)
             .ThenByDescending(reading => reading.Id)
-            .Take(2000)
+            .Take(limit)
             .Select(reading => new
             {
                 reading.Id,

@@ -49,7 +49,45 @@ public sealed class FleetQueryServiceTests
         Assert.Equal("WF-FLEET-OFFLINE", device.SerialNumber);
     }
 
-    private static async Task SeedFleetAsync(SaltMonitorDbContext context)
+    [Fact]
+    public async Task GetReadings_HonorsRangeAndLimitAndReturnsChronologicalOrder()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        AddReading(database.Context, reporting, 3, Now.AddHours(-1), 30);
+        AddReading(database.Context, reporting, 4, Now.AddHours(-25), 40);
+        await database.Context.SaveChangesAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var readings = await service.GetReadingsAsync(reporting.Device.Id, TimeSpan.FromHours(24), 10);
+        var limitedReadings = await service.GetReadingsAsync(reporting.Device.Id, TimeSpan.FromHours(24), 2);
+
+        Assert.NotNull(readings);
+        Assert.Collection(
+            readings,
+            reading => Assert.Equal(70, reading.FillPercent),
+            reading => Assert.Equal(20, reading.FillPercent),
+            reading => Assert.Equal(30, reading.FillPercent));
+        Assert.NotNull(limitedReadings);
+        Assert.Collection(
+            limitedReadings,
+            reading => Assert.Equal(20, reading.FillPercent),
+            reading => Assert.Equal(30, reading.FillPercent));
+    }
+
+    [Fact]
+    public async Task GetReadings_ReturnsNullForMissingDevice()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var readings = await service.GetReadingsAsync(Guid.NewGuid(), TimeSpan.FromHours(24), 50);
+
+        Assert.Null(readings);
+    }
+
+    private static async Task<(Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration)>
+        SeedFleetAsync(SaltMonitorDbContext context)
     {
         var dealer = new Dealer
         {
@@ -90,6 +128,7 @@ public sealed class FleetQueryServiceTests
         AddReading(context, stale, 1, Now.AddHours(-6), 55);
         AddReading(context, offline, 1, Now.AddHours(-10), 60);
         await context.SaveChangesAsync();
+        return reporting;
     }
 
     private static (Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration)
