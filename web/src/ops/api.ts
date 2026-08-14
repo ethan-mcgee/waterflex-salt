@@ -3,6 +3,7 @@ import type {
   FleetDealerOption,
   FleetDeviceDetail,
   FleetFilters,
+  FleetHistory,
   FleetPageResult,
   FleetReading,
   FleetSummary,
@@ -45,6 +46,22 @@ export async function getFleetReadings(
   signal?: AbortSignal,
 ): Promise<FleetReading[]> {
   const url = `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/readings?range=${range}&limit=50`;
+  try {
+    return await getJson(url, signal);
+  } catch (reason) {
+    if (!shouldRetryHistory(reason, signal)) throw reason;
+    await retryDelay(750, signal);
+    return getJson(url, signal);
+  }
+}
+
+export async function getFleetHistory(
+  deviceId: string,
+  range: '7d' | '30d' | '13m' | '3y',
+  resolution: 'auto' | 'hour' | 'day' = 'auto',
+  signal?: AbortSignal,
+): Promise<FleetHistory> {
+  const url = `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/history?range=${range}&resolution=${resolution}`;
   try {
     return await getJson(url, signal);
   } catch (reason) {

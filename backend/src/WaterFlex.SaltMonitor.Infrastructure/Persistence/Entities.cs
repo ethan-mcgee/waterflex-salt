@@ -197,3 +197,55 @@ public sealed class ProvisioningAuditEvent
     public Device? Device { get; set; }
     public CommissioningSession? CommissioningSession { get; set; }
 }
+
+public sealed class TelemetryHourlySummary
+{
+    public Guid DeviceId { get; set; }
+    public DateTimeOffset BucketStartUtc { get; set; }
+    public DateTimeOffset LastReadingAtUtc { get; set; }
+    public long ReadingCount { get; set; }
+    public double FillPercentMin { get; set; }
+    public double FillPercentMax { get; set; }
+    public double FillPercentAverage { get; set; }
+    public double FillPercentLatest { get; set; }
+    public int RawDistanceMmMin { get; set; }
+    public int RawDistanceMmMax { get; set; }
+    public double RawDistanceMmAverage { get; set; }
+    public int WifiRssiDbmMin { get; set; }
+    public int WifiRssiDbmMax { get; set; }
+    public double WifiRssiDbmAverage { get; set; }
+    public int WorstQuality { get; set; }
+    public long ErrorCount { get; set; }
+    public required string LatestFirmwareVersion { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public Device Device { get; set; } = null!;
+}
+
+public sealed class TelemetryDailySummary
+{
+    public Guid DeviceId { get; set; }
+    public DateTimeOffset BucketStartUtc { get; set; }
+    public DateTimeOffset LastReadingAtUtc { get; set; }
+    public long ReadingCount { get; set; }
+    public double FillPercentMin { get; set; }
+    public double FillPercentMax { get; set; }
+    public double FillPercentAverage { get; set; }
+    public double FillPercentLatest { get; set; }
+    public int RawDistanceMmMin { get; set; }
+    public int RawDistanceMmMax { get; set; }
+    public double RawDistanceMmAverage { get; set; }
+    public int WifiRssiDbmMin { get; set; }
+    public int WifiRssiDbmMax { get; set; }
+    public double WifiRssiDbmAverage { get; set; }
+    public int WorstQuality { get; set; }
+    public long ErrorCount { get; set; }
+    public required string LatestFirmwareVersion { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public Device Device { get; set; } = null!;
+}
+
+public sealed class TelemetryMaintenanceState
+{
+    public required string Name { get; set; }
+    public DateTimeOffset CompletedAtUtc { get; set; }
+}

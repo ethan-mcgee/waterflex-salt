@@ -18,6 +18,25 @@ services:
       start_period: 20s
       retries: 4
 
+  worker:
+    image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-worker:${IMAGE_TAG:?Set IMAGE_TAG}
+    pull_policy: always
+    environment:
+      DOTNET_ENVIRONMENT: Staging
+      ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
+      TelemetryHistory__RawRetentionDays: 30
+      TelemetryHistory__HourlyRetentionMonths: 13
+      TelemetryHistory__DailyRetentionYears: 3
+      TelemetryHistory__DeleteBatchSize: 10000
+      TelemetryHistory__MaintenanceIntervalMinutes: 15
+      Logging__LogLevel__Default: Information
+    volumes:
+      - /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   web:
     image: ${ECR_REGISTRY:?Set ECR_REGISTRY}/waterflex-web:${IMAGE_TAG:?Set IMAGE_TAG}
     pull_policy: always

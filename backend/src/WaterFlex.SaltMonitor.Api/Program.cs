@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Api;
 using WaterFlex.SaltMonitor.Domain.Security;
@@ -23,6 +24,13 @@ const string deviceTelemetryRateLimit = "device-telemetry";
 builder.WebHost.ConfigureKestrel(options =>
 	options.Limits.MaxRequestBodySize = maximumTelemetryBodyBytes);
 builder.Services.AddProblemDetails();
+builder.Services.AddResponseCompression(options =>
+{
+	options.EnableForHttps = true;
+	options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+	options.Level = System.IO.Compression.CompressionLevel.Fastest);
 builder.Services.AddOpenApi(options =>
 {
 	options.AddDocumentTransformer<DeviceTokenSecuritySchemeTransformer>();
@@ -119,6 +127,7 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
+app.UseResponseCompression();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
 	.WithName("GetHealth")

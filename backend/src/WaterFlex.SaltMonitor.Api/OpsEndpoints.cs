@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Domain.Security;
 using WaterFlex.SaltMonitor.Operations;
@@ -131,12 +133,72 @@ public static class OpsEndpoints
                     });
                 }
 
-                return await fleetQueryService.GetReadingsAsync(deviceId, duration, limit ?? 100, cancellationToken) is { } readings
+                return await fleetQueryService.GetReadingsAsync(deviceId, duration, limit ?? 50, cancellationToken) is { } readings
                     ? Results.Ok(readings)
                     : Results.NotFound();
             })
             .WithName("GetFleetDeviceReadings")
             .WithSummary("Get bounded sensor reading history");
+
+        opsApi.MapGet("/devices/{deviceId:guid}/history", async (
+                Guid deviceId,
+                string? range,
+                string? resolution,
+                HttpContext httpContext,
+                IFleetQueryService fleetQueryService,
+                TimeProvider timeProvider,
+                CancellationToken cancellationToken) =>
+            {
+                var now = timeProvider.GetUtcNow();
+                if (!TryParseHistoryRange(range, now, out var fromUtc, out var defaultResolution))
+                {
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["range"] = ["Range must be one of 24h, 7d, 30d, 13m, or 3y."]
+                    });
+                }
+
+                if (!TryParseHistoryResolution(resolution, defaultResolution, out var parsedResolution))
+                {
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["resolution"] = ["Resolution must be one of auto, hour, or day."]
+                    });
+                }
+
+                if (parsedResolution == TelemetryHistoryResolution.Hour && fromUtc < now.AddDays(-31))
+                {
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["resolution"] = ["Hourly resolution is limited to ranges of 30 days or less."]
+                    });
+                }
+
+                fromUtc = TruncateHistoryStart(fromUtc, parsedResolution);
+
+                var history = await fleetQueryService.GetHistoryAsync(
+                    deviceId,
+                    fromUtc,
+                    parsedResolution,
+                    cancellationToken);
+                if (history is null)
+                {
+                    return Results.NotFound();
+                }
+
+                var entityTag = CreateHistoryEntityTag(history);
+                httpContext.Response.Headers.ETag = entityTag;
+                httpContext.Response.Headers.CacheControl = "private, max-age=60, must-revalidate";
+                httpContext.Response.Headers.Vary = "Accept-Encoding, X-WaterFlex-Development-User";
+                if (httpContext.Request.Headers.IfNoneMatch.Any(value => value == entityTag))
+                {
+                    return Results.StatusCode(StatusCodes.Status304NotModified);
+                }
+
+                return Results.Ok(history);
+            })
+            .WithName("GetFleetDeviceHistory")
+            .WithSummary("Get hourly or daily sensor history summaries");
 
         return endpoints;
     }
@@ -160,6 +222,61 @@ public static class OpsEndpoints
             _ => TimeSpan.Zero
         };
         return range > TimeSpan.Zero;
+    }
+
+    private static bool TryParseHistoryRange(
+        string? value,
+        DateTimeOffset now,
+        out DateTimeOffset fromUtc,
+        out TelemetryHistoryResolution defaultResolution)
+    {
+        defaultResolution = TelemetryHistoryResolution.Hour;
+        fromUtc = value?.ToLowerInvariant() switch
+        {
+            null or "7d" => now.AddDays(-7),
+            "24h" => now.AddHours(-24),
+            "30d" => now.AddDays(-30),
+            "13m" => now.AddMonths(-13),
+            "3y" => now.AddYears(-3),
+            _ => DateTimeOffset.MaxValue
+        };
+        if (value?.ToLowerInvariant() is "13m" or "3y")
+        {
+            defaultResolution = TelemetryHistoryResolution.Day;
+        }
+        return fromUtc != DateTimeOffset.MaxValue;
+    }
+
+    private static bool TryParseHistoryResolution(
+        string? value,
+        TelemetryHistoryResolution defaultResolution,
+        out TelemetryHistoryResolution resolution)
+    {
+        resolution = value?.ToLowerInvariant() switch
+        {
+            null or "auto" => defaultResolution,
+            "hour" => TelemetryHistoryResolution.Hour,
+            "day" => TelemetryHistoryResolution.Day,
+            _ => (TelemetryHistoryResolution)(-1)
+        };
+        return Enum.IsDefined(resolution);
+    }
+
+    private static string CreateHistoryEntityTag(FleetHistory history)
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(history);
+        var hash = Convert.ToHexString(SHA256.HashData(payload));
+        return $"W/\"{hash[..24]}\"";
+    }
+
+    private static DateTimeOffset TruncateHistoryStart(
+        DateTimeOffset value,
+        TelemetryHistoryResolution resolution)
+    {
+        var utc = value.UtcDateTime;
+        return resolution == TelemetryHistoryResolution.Hour
+            ? new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero)
+            : new DateTimeOffset(utc.Year, utc.Month, utc.Day, 0, 0, 0, TimeSpan.Zero);
     }
 
     private static bool TryParseOptionalEnum<TEnum>(string? value, out TEnum? result)

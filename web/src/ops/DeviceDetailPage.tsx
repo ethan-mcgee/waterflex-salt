@@ -16,15 +16,16 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useDevelopmentIdentity } from '../development/DevelopmentIdentity';
-import { getFleetDevice, getFleetReadings } from './api';
+import { getFleetDevice, getFleetHistory, getFleetReadings } from './api';
 import { formatDateTime, ReportingBadge } from './FleetPage';
-import type { FleetDeviceDetail, FleetReading } from './types';
+import type { FleetDeviceDetail, FleetHistoryPoint, FleetReading } from './types';
 
 export default function DeviceDetailPage() {
   const { selectedUserId } = useDevelopmentIdentity();
   const { deviceId = '' } = useParams();
   const [detail, setDetail] = useState<FleetDeviceDetail | null>(null);
   const [readings, setReadings] = useState<FleetReading[]>([]);
+  const [historyPoints, setHistoryPoints] = useState<FleetHistoryPoint[]>([]);
   const [range, setRange] = useState<'24h' | '7d' | '30d'>('24h');
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState('');
@@ -51,10 +52,17 @@ export default function DeviceDetailPage() {
   useEffect(() => {
     const controller = new AbortController();
     setReadings([]);
+    setHistoryPoints([]);
     setHistoryLoading(true);
     setHistoryError('');
-    getFleetReadings(deviceId, range, controller.signal).then((readingResult) => {
-      setReadings(readingResult);
+    const request = range === '24h'
+      ? getFleetReadings(deviceId, range, controller.signal).then((readingResult) => {
+        setReadings(readingResult);
+      })
+      : getFleetHistory(deviceId, range, 'auto', controller.signal).then((historyResult) => {
+        setHistoryPoints(historyResult.points);
+      });
+    request.then(() => {
       setHistoryLoading(false);
     }).catch(() => {
       if (controller.signal.aborted) return;
@@ -139,22 +147,35 @@ export default function DeviceDetailPage() {
             <div><strong>Reading history unavailable</strong><span>{historyError}</span></div>
             <button className="button button-secondary" type="button" onClick={() => setHistoryRequestVersion((value) => value + 1)}>Retry</button>
           </div>
-        ) : readings.length === 0 ? (
+        ) : readings.length === 0 && historyPoints.length === 0 ? (
           <div className="history-empty"><Activity size={20} /> No readings received in this range.</div>
         ) : (
           <div className="history-table-wrap">
             <table className="history-table">
               <thead><tr><th>Observed</th><th>Fill</th><th>Distance</th><th>Quality</th><th>Wi-Fi</th><th>Firmware</th></tr></thead>
-              <tbody>{readings.slice(-50).reverse().map((reading) => (
-                <tr key={reading.readingId}>
-                  <td>{formatDateTime(reading.timestampUtc)}{!reading.usesObservedTimestamp && <small>Received time</small>}</td>
-                  <td><strong>{reading.fillPercent.toFixed(1)}%</strong></td>
-                  <td>{reading.rawDistanceMm} mm</td>
-                  <td>{reading.quality}%</td>
-                  <td>{reading.wifiRssiDbm} dBm</td>
-                  <td>{reading.firmwareVersion}</td>
-                </tr>
-              ))}</tbody>
+              <tbody>
+                {range === '24h'
+                  ? readings.slice(-50).reverse().map((reading) => (
+                    <tr key={reading.readingId}>
+                      <td>{formatDateTime(reading.timestampUtc)}{!reading.usesObservedTimestamp && <small>Received time</small>}</td>
+                      <td><strong>{reading.fillPercent.toFixed(1)}%</strong></td>
+                      <td>{reading.rawDistanceMm} mm</td>
+                      <td>{reading.quality}%</td>
+                      <td>{reading.wifiRssiDbm} dBm</td>
+                      <td>{reading.firmwareVersion}</td>
+                    </tr>
+                  ))
+                  : historyPoints.slice().reverse().map((point) => (
+                    <tr key={point.bucketStartUtc}>
+                      <td>{formatDateTime(point.bucketStartUtc)}<small>{point.readingCount} readings</small></td>
+                      <td><strong>{point.fillPercentLatest.toFixed(1)}%</strong><small>{point.fillPercentMin.toFixed(1)}–{point.fillPercentMax.toFixed(1)}%</small></td>
+                      <td>{point.rawDistanceMmAverage.toFixed(0)} mm<small>{point.rawDistanceMmMin}–{point.rawDistanceMmMax}</small></td>
+                      <td>{point.worstQuality}%<small>Worst</small></td>
+                      <td>{point.wifiRssiDbmAverage.toFixed(0)} dBm<small>{point.wifiRssiDbmMin}–{point.wifiRssiDbmMax}</small></td>
+                      <td>{point.latestFirmwareVersion}{point.errorCount > 0 && <small>{point.errorCount} errors</small>}</td>
+                    </tr>
+                  ))}
+              </tbody>
             </table>
           </div>
         )}

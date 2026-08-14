@@ -55,6 +55,19 @@ Run from this folder:
   after three misses, and offline after five. Successful telemetry acknowledgements return the configured interval
   so firmware can adopt changes without being reflashed.
 
+  ## Telemetry history retention
+
+  The worker rolls completed raw readings into hourly and daily summaries every 15 minutes. Raw readings are
+  retained for 30 days, hourly summaries for 13 months, and daily summaries for 3 years. Cleanup is batched and
+  a raw row is deleted only after its hourly and daily summaries exist. Configure the policy with
+  `TelemetryHistory__RawRetentionDays`, `TelemetryHistory__HourlyRetentionMonths`,
+  `TelemetryHistory__DailyRetentionYears`, `TelemetryHistory__DeleteBatchSize`, and
+  `TelemetryHistory__MaintenanceIntervalMinutes`.
+
+  The operations console uses `/readings` for bounded 24-hour raw diagnostics and
+  `/history?range=7d&resolution=auto` for completed hourly or daily buckets. History responses include ETags,
+  a private 60-second cache policy, and gzip compression when the client requests it.
+
   ## Device telemetry API
 
   Authenticated devices submit versioned JSON batches to:

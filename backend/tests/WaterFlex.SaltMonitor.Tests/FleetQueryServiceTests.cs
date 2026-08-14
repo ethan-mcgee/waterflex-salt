@@ -86,6 +86,53 @@ public sealed class FleetQueryServiceTests
         Assert.Null(readings);
     }
 
+    [Fact]
+    public async Task GetHistory_ReturnsCompletedBucketsInChronologicalOrder()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        database.Context.TelemetryHourlySummaries.AddRange(
+            CreateSummary(reporting.Device.Id, Now.AddHours(-3), 20),
+            CreateSummary(reporting.Device.Id, Now.AddHours(-2), 30));
+        await database.Context.SaveChangesAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var history = await service.GetHistoryAsync(
+            reporting.Device.Id,
+            Now.AddDays(-7),
+            TelemetryHistoryResolution.Hour);
+
+        Assert.NotNull(history);
+        Assert.Equal(TelemetryHistoryResolution.Hour, history.Resolution);
+        Assert.Collection(
+            history.Points,
+            point => Assert.Equal(20, point.FillPercentLatest),
+            point => Assert.Equal(30, point.FillPercentLatest));
+    }
+
+    private static TelemetryHourlySummary CreateSummary(Guid deviceId, DateTimeOffset bucket, double fill) =>
+        new()
+        {
+            DeviceId = deviceId,
+            BucketStartUtc = new DateTimeOffset(bucket.Year, bucket.Month, bucket.Day, bucket.Hour, 0, 0, TimeSpan.Zero),
+            LastReadingAtUtc = bucket.AddMinutes(59),
+            ReadingCount = 60,
+            FillPercentMin = fill - 1,
+            FillPercentMax = fill + 1,
+            FillPercentAverage = fill,
+            FillPercentLatest = fill,
+            RawDistanceMmMin = 990,
+            RawDistanceMmMax = 1010,
+            RawDistanceMmAverage = 1000,
+            WifiRssiDbmMin = -70,
+            WifiRssiDbmMax = -50,
+            WifiRssiDbmAverage = -60,
+            WorstQuality = 80,
+            ErrorCount = 0,
+            LatestFirmwareVersion = "1.0.0",
+            UpdatedAtUtc = Now
+        };
+
     private static async Task<(Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration)>
         SeedFleetAsync(SaltMonitorDbContext context)
     {

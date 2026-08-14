@@ -159,6 +159,90 @@ public sealed class EfFleetQueryService(
             .ToArray();
     }
 
+    public async Task<FleetHistory?> GetHistoryAsync(
+        Guid deviceId,
+        DateTimeOffset fromUtc,
+        TelemetryHistoryResolution resolution,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await dbContext.Devices.AsNoTracking().AnyAsync(
+            device => device.Id == deviceId,
+            cancellationToken))
+        {
+            return null;
+        }
+
+        var throughUtc = TruncateToBucket(timeProvider.GetUtcNow(), resolution);
+        IReadOnlyList<FleetHistoryPoint> points = resolution switch
+        {
+            TelemetryHistoryResolution.Hour => await dbContext.TelemetryHourlySummaries
+                .AsNoTracking()
+                .Where(summary => summary.DeviceId == deviceId
+                    && summary.BucketStartUtc >= fromUtc
+                    && summary.BucketStartUtc < throughUtc)
+                .OrderBy(summary => summary.BucketStartUtc)
+                .Take(1200)
+                .Select(summary => new FleetHistoryPoint(
+                    summary.BucketStartUtc,
+                    summary.BucketStartUtc.AddHours(1),
+                    summary.LastReadingAtUtc,
+                    summary.ReadingCount,
+                    summary.FillPercentMin,
+                    summary.FillPercentMax,
+                    summary.FillPercentAverage,
+                    summary.FillPercentLatest,
+                    summary.RawDistanceMmMin,
+                    summary.RawDistanceMmMax,
+                    summary.RawDistanceMmAverage,
+                    summary.WifiRssiDbmMin,
+                    summary.WifiRssiDbmMax,
+                    summary.WifiRssiDbmAverage,
+                    summary.WorstQuality,
+                    summary.ErrorCount,
+                    summary.LatestFirmwareVersion))
+                .ToArrayAsync(cancellationToken),
+            TelemetryHistoryResolution.Day => await dbContext.TelemetryDailySummaries
+                .AsNoTracking()
+                .Where(summary => summary.DeviceId == deviceId
+                    && summary.BucketStartUtc >= fromUtc
+                    && summary.BucketStartUtc < throughUtc)
+                .OrderBy(summary => summary.BucketStartUtc)
+                .Take(1200)
+                .Select(summary => new FleetHistoryPoint(
+                    summary.BucketStartUtc,
+                    summary.BucketStartUtc.AddDays(1),
+                    summary.LastReadingAtUtc,
+                    summary.ReadingCount,
+                    summary.FillPercentMin,
+                    summary.FillPercentMax,
+                    summary.FillPercentAverage,
+                    summary.FillPercentLatest,
+                    summary.RawDistanceMmMin,
+                    summary.RawDistanceMmMax,
+                    summary.RawDistanceMmAverage,
+                    summary.WifiRssiDbmMin,
+                    summary.WifiRssiDbmMax,
+                    summary.WifiRssiDbmAverage,
+                    summary.WorstQuality,
+                    summary.ErrorCount,
+                    summary.LatestFirmwareVersion))
+                .ToArrayAsync(cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(resolution))
+        };
+
+        return new(resolution, fromUtc, throughUtc, points);
+    }
+
+    private static DateTimeOffset TruncateToBucket(
+        DateTimeOffset value,
+        TelemetryHistoryResolution resolution)
+    {
+        var utc = value.UtcDateTime;
+        return resolution == TelemetryHistoryResolution.Hour
+            ? new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero)
+            : new DateTimeOffset(utc.Year, utc.Month, utc.Day, 0, 0, 0, TimeSpan.Zero);
+    }
+
     private async Task<IReadOnlyList<FleetDeviceListItem>> LoadFleetAsync(
         DateTimeOffset now,
         CancellationToken cancellationToken)

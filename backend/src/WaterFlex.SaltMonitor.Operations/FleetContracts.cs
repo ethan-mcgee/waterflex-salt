@@ -98,6 +98,37 @@ public sealed record FleetReadingPoint(
     string FirmwareVersion,
     IReadOnlyList<string> ErrorFlags);
 
+public enum TelemetryHistoryResolution
+{
+    Hour,
+    Day
+}
+
+public sealed record FleetHistoryPoint(
+    DateTimeOffset BucketStartUtc,
+    DateTimeOffset BucketEndUtc,
+    DateTimeOffset LastReadingAtUtc,
+    long ReadingCount,
+    double FillPercentMin,
+    double FillPercentMax,
+    double FillPercentAverage,
+    double FillPercentLatest,
+    int RawDistanceMmMin,
+    int RawDistanceMmMax,
+    double RawDistanceMmAverage,
+    int WifiRssiDbmMin,
+    int WifiRssiDbmMax,
+    double WifiRssiDbmAverage,
+    int WorstQuality,
+    long ErrorCount,
+    string LatestFirmwareVersion);
+
+public sealed record FleetHistory(
+    TelemetryHistoryResolution Resolution,
+    DateTimeOffset FromUtc,
+    DateTimeOffset ThroughUtc,
+    IReadOnlyList<FleetHistoryPoint> Points);
+
 public interface IFleetQueryService
 {
     Task<IReadOnlyList<FleetDealerOption>> GetDealersAsync(
@@ -119,5 +150,11 @@ public interface IFleetQueryService
         Guid deviceId,
         TimeSpan range,
         int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<FleetHistory?> GetHistoryAsync(
+        Guid deviceId,
+        DateTimeOffset fromUtc,
+        TelemetryHistoryResolution resolution,
         CancellationToken cancellationToken = default);
 }

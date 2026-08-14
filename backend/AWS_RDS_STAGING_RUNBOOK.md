@@ -162,9 +162,13 @@ ORDER BY "MigrationId";
 
 SELECT COUNT(*) AS device_count FROM "Devices";
 SELECT COUNT(*) AS telemetry_count FROM "TelemetryReadings";
+SELECT COUNT(*) AS hourly_summary_count FROM "TelemetryHourlySummaries";
+SELECT COUNT(*) AS daily_summary_count FROM "TelemetryDailySummaries";
 ```
 
-The expected migration ID is `20260729032051_InitialCreate`; both counts should initially be zero.
+The newest expected migration ID is `20260814031421_AddTelemetryHistoryRetention`; all counts should initially
+be zero for a new environment. On an existing environment, the worker backfills summaries before deleting any
+raw reading.
 
 ## 6. Configure the EC2 API
 
@@ -240,6 +244,18 @@ sudo journalctl -u waterflex-api.service -n 100 --no-pager
 Inspect logs for startup, DNS, authentication, TLS, and PostgreSQL errors. Never paste the connection string into
 logs or support output.
 
+The staging Compose deployment also runs `waterflex-worker`. Verify its backfill and retention cycle without
+exposing the database connection string:
+
+```bash
+cd /home/ubuntu/waterflex-salt
+sudo docker compose --env-file /etc/waterflex/deployment.env -f docker-compose.staging.yml ps worker
+sudo docker compose --env-file /etc/waterflex/deployment.env -f docker-compose.staging.yml logs --tail 100 worker
+```
+
+Expect a maintenance completion log containing bucket and deletion counts, duration, and the oldest remaining
+raw, hourly, and daily timestamps. A second cycle must not create duplicate summary buckets.
+
 ## 7. Validate staging
 
 1. Call `/health` to verify process liveness. This endpoint does not test the database.
@@ -248,6 +264,24 @@ logs or support output.
 4. Confirm the runtime role can select, insert, update, and delete required rows.
 5. Confirm the runtime role cannot run `CREATE TABLE`, `DROP TABLE`, or alter the schema.
 6. Inspect RDS connection, CPU, storage, and error metrics during the test.
+7. Confirm the composite history index and retention ages:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT "Id"
+FROM "TelemetryReadings"
+WHERE "DeviceId" = '<device-id>'
+  AND "ReceivedAtUtc" >= now() - interval '24 hours'
+ORDER BY "ReceivedAtUtc" DESC, "Id" DESC
+LIMIT 50;
+
+SELECT min("ReceivedAtUtc") AS oldest_raw FROM "TelemetryReadings";
+SELECT min("BucketStartUtc") AS oldest_hourly FROM "TelemetryHourlySummaries";
+SELECT min("BucketStartUtc") AS oldest_daily FROM "TelemetryDailySummaries";
+```
+
+The query plan should use `IX_TelemetryReadings_DeviceId_ReceivedAtUtc_Id` once enough readings exist for an
+index scan to be cheaper than a sequential scan.
 
 Before pilot use, configure storage and connection alarms, maintenance windows, PostgreSQL log exports,
 credential rotation ownership, and a restore drill to a separate temporary database. Deletion protection and

@@ -2,11 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DeviceDetailPage from './DeviceDetailPage';
-import { getFleetDevice, getFleetReadings } from './api';
+import { getFleetDevice, getFleetHistory, getFleetReadings } from './api';
 import type { FleetDeviceDetail, FleetReading } from './types';
 
 vi.mock('./api', () => ({
   getFleetDevice: vi.fn(),
+  getFleetHistory: vi.fn(),
   getFleetReadings: vi.fn(),
 }));
 
@@ -73,6 +74,7 @@ describe('DeviceDetailPage', () => {
   beforeEach(() => {
     vi.mocked(getFleetDevice).mockReset();
     vi.mocked(getFleetReadings).mockReset();
+    vi.mocked(getFleetHistory).mockReset();
   });
 
   it('keeps sensor detail visible when reading history fails', async () => {
@@ -122,6 +124,47 @@ describe('DeviceDetailPage', () => {
       '24h',
       expect.any(AbortSignal),
     ));
+  });
+
+  it('loads hourly summaries for the 7-day range', async () => {
+    vi.mocked(getFleetDevice).mockResolvedValue(detail);
+    vi.mocked(getFleetReadings).mockResolvedValue([]);
+    vi.mocked(getFleetHistory).mockResolvedValue({
+      resolution: 'hour',
+      fromUtc: '2026-08-06T12:00:00Z',
+      throughUtc: '2026-08-13T12:00:00Z',
+      points: [{
+        bucketStartUtc: '2026-08-13T11:00:00Z',
+        bucketEndUtc: '2026-08-13T12:00:00Z',
+        lastReadingAtUtc: '2026-08-13T11:59:00Z',
+        readingCount: 60,
+        fillPercentMin: 70,
+        fillPercentMax: 75,
+        fillPercentAverage: 72.5,
+        fillPercentLatest: 75,
+        rawDistanceMmMin: 490,
+        rawDistanceMmMax: 510,
+        rawDistanceMmAverage: 500,
+        wifiRssiDbmMin: -65,
+        wifiRssiDbmMax: -50,
+        wifiRssiDbmAverage: -55,
+        worstQuality: 80,
+        errorCount: 1,
+        latestFirmwareVersion: '1.0.0',
+      }],
+    });
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'WF-TEST-001' });
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+
+    await waitFor(() => expect(getFleetHistory).toHaveBeenCalledWith(
+      detail.device.deviceId,
+      '7d',
+      'auto',
+      expect.any(AbortSignal),
+    ));
+    expect(await screen.findByText('60 readings')).toBeVisible();
   });
 });
 

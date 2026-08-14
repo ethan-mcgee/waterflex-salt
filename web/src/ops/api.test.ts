@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getFleetReadings, OpsApiError } from './api';
+import { getFleetHistory, getFleetReadings, OpsApiError } from './api';
 
 describe('getFleetReadings', () => {
   afterEach(() => {
@@ -15,6 +15,20 @@ describe('getFleetReadings', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/ops/devices/device%2Fid/readings?range=24h&limit=50',
+      expect.objectContaining({ headers: expect.any(Object) }),
+    );
+  });
+
+  it('requests bounded rollup history for longer ranges', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okResponse({
+      resolution: 'hour', fromUtc: '', throughUtc: '', points: [],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getFleetHistory('device/id', '30d');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/ops/devices/device%2Fid/history?range=30d&resolution=auto',
       expect.objectContaining({ headers: expect.any(Object) }),
     );
   });

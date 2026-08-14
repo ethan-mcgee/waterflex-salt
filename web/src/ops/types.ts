@@ -91,3 +91,32 @@ export interface FleetReading {
   firmwareVersion: string;
   errorFlags: string[];
 }
+
+export type TelemetryHistoryResolution = 'hour' | 'day';
+
+export interface FleetHistoryPoint {
+  bucketStartUtc: string;
+  bucketEndUtc: string;
+  lastReadingAtUtc: string;
+  readingCount: number;
+  fillPercentMin: number;
+  fillPercentMax: number;
+  fillPercentAverage: number;
+  fillPercentLatest: number;
+  rawDistanceMmMin: number;
+  rawDistanceMmMax: number;
+  rawDistanceMmAverage: number;
+  wifiRssiDbmMin: number;
+  wifiRssiDbmMax: number;
+  wifiRssiDbmAverage: number;
+  worstQuality: number;
+  errorCount: number;
+  latestFirmwareVersion: string;
+}
+
+export interface FleetHistory {
+  resolution: TelemetryHistoryResolution;
+  fromUtc: string;
+  throughUtc: string;
+  points: FleetHistoryPoint[];
+}

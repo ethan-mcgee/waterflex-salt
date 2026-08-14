@@ -17,6 +17,9 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<ProvisioningAuditEvent> ProvisioningAuditEvents => Set<ProvisioningAuditEvent>();
     public DbSet<TankCalibrationRecord> TankCalibrations => Set<TankCalibrationRecord>();
     public DbSet<TelemetryReadingRecord> TelemetryReadings => Set<TelemetryReadingRecord>();
+    public DbSet<TelemetryHourlySummary> TelemetryHourlySummaries => Set<TelemetryHourlySummary>();
+    public DbSet<TelemetryDailySummary> TelemetryDailySummaries => Set<TelemetryDailySummary>();
+    public DbSet<TelemetryMaintenanceState> TelemetryMaintenanceStates => Set<TelemetryMaintenanceState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -219,6 +222,8 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(reading => reading.ErrorFlagsJson).HasMaxLength(2048);
             entity.HasIndex(reading => new { reading.DeviceId, reading.BootId, reading.SequenceNumber }).IsUnique();
             entity.HasIndex(reading => new { reading.DeviceInstallationId, reading.ReceivedAtUtc });
+            entity.HasIndex(reading => new { reading.DeviceId, reading.ReceivedAtUtc, reading.Id })
+                .IsDescending(false, true, true);
             entity.HasOne(reading => reading.Device)
                 .WithMany()
                 .HasForeignKey(reading => reading.DeviceId)
@@ -232,5 +237,30 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
                 .HasForeignKey(reading => reading.TankCalibrationRecordId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        ConfigureTelemetrySummary(modelBuilder.Entity<TelemetryHourlySummary>(), "TelemetryHourlySummaries");
+        ConfigureTelemetrySummary(modelBuilder.Entity<TelemetryDailySummary>(), "TelemetryDailySummaries");
+
+        modelBuilder.Entity<TelemetryMaintenanceState>(entity =>
+        {
+            entity.ToTable("TelemetryMaintenanceStates");
+            entity.HasKey(state => state.Name);
+            entity.Property(state => state.Name).HasMaxLength(100);
+        });
+    }
+
+    private static void ConfigureTelemetrySummary<TSummary>(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TSummary> entity,
+        string tableName)
+        where TSummary : class
+    {
+        entity.ToTable(tableName);
+        entity.HasKey("DeviceId", "BucketStartUtc");
+        entity.Property("LatestFirmwareVersion").HasMaxLength(64);
+        entity.HasIndex("BucketStartUtc");
+        entity.HasOne(typeof(Device), "Device")
+            .WithMany()
+            .HasForeignKey("DeviceId")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
