@@ -6,6 +6,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     : DbContext(options)
 {
     public DbSet<Dealer> Dealers => Set<Dealer>();
+    public DbSet<StaffIdentityRecord> StaffIdentities => Set<StaffIdentityRecord>();
     public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
     public DbSet<ServiceLocation> ServiceLocations => Set<ServiceLocation>();
     public DbSet<Tank> Tanks => Set<Tank>();
@@ -20,9 +21,31 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<TelemetryHourlySummary> TelemetryHourlySummaries => Set<TelemetryHourlySummary>();
     public DbSet<TelemetryDailySummary> TelemetryDailySummaries => Set<TelemetryDailySummary>();
     public DbSet<TelemetryMaintenanceState> TelemetryMaintenanceStates => Set<TelemetryMaintenanceState>();
+    public DbSet<LowSaltAlert> LowSaltAlerts => Set<LowSaltAlert>();
+    public DbSet<LowSaltAlertAuditEvent> LowSaltAlertAuditEvents => Set<LowSaltAlertAuditEvent>();
+    public DbSet<LowSaltAlertEvaluationState> LowSaltAlertEvaluationStates => Set<LowSaltAlertEvaluationState>();
+    public DbSet<AlertEvaluationWorkItem> AlertEvaluationWorkItems => Set<AlertEvaluationWorkItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<StaffIdentityRecord>(entity =>
+        {
+            entity.ToTable("StaffIdentities");
+            entity.HasKey(identity => identity.Id);
+            entity.Property(identity => identity.Issuer).HasMaxLength(500);
+            entity.Property(identity => identity.Subject).HasMaxLength(200);
+            entity.Property(identity => identity.Email).HasMaxLength(320);
+            entity.Property(identity => identity.DisplayName).HasMaxLength(200);
+            entity.Property(identity => identity.Role).HasConversion<string>().HasMaxLength(32);
+            entity.Property(identity => identity.RowVersion).IsRowVersion();
+            entity.HasIndex(identity => new { identity.Issuer, identity.Subject }).IsUnique();
+            entity.HasIndex(identity => new { identity.IsActive, identity.Role });
+            entity.HasOne(identity => identity.Dealer)
+                .WithMany()
+                .HasForeignKey(identity => identity.DealerId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<Dealer>(entity =>
         {
             entity.ToTable("Dealers");
@@ -79,6 +102,9 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(device => device.FactoryFirmwareVersion).HasMaxLength(64);
             entity.Property(device => device.FactoryConfigurationVersion).HasMaxLength(64);
             entity.Property(device => device.FactoryProvisionedBy).HasMaxLength(200);
+            entity.Property(device => device.LastSensorStatus).HasConversion<string>().HasMaxLength(32);
+            entity.Property(device => device.LastSensorFault).HasConversion<string>().HasMaxLength(32);
+            entity.Property(device => device.LastHealthFirmwareVersion).HasMaxLength(64);
             entity.HasIndex(device => device.SerialNumber).IsUnique();
             entity.HasIndex(device => device.HardwareId).IsUnique();
         });
@@ -246,6 +272,65 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.ToTable("TelemetryMaintenanceStates");
             entity.HasKey(state => state.Name);
             entity.Property(state => state.Name).HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<LowSaltAlert>(entity =>
+        {
+            entity.ToTable("LowSaltAlerts");
+            entity.HasKey(alert => alert.Id);
+            entity.Property(alert => alert.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(alert => alert.AcknowledgedBy).HasMaxLength(200);
+            entity.Property(alert => alert.ApprovedBy).HasMaxLength(200);
+            entity.Property(alert => alert.DismissedBy).HasMaxLength(200);
+            entity.Property(alert => alert.DismissalReason).HasMaxLength(500);
+            entity.Property(alert => alert.RowVersion).IsRowVersion();
+            entity.HasIndex(alert => new { alert.Status, alert.OpenedAtUtc });
+            entity.HasIndex(alert => alert.DeviceInstallationId)
+                .IsUnique()
+                .HasFilter("\"Status\" IN ('Open', 'Acknowledged', 'Approved')");
+            entity.HasOne(alert => alert.DeviceInstallation)
+                .WithMany()
+                .HasForeignKey(alert => alert.DeviceInstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LowSaltAlertAuditEvent>(entity =>
+        {
+            entity.ToTable("LowSaltAlertAuditEvents");
+            entity.HasKey(auditEvent => auditEvent.Id);
+            entity.Property(auditEvent => auditEvent.EventType).HasMaxLength(64);
+            entity.Property(auditEvent => auditEvent.ActorType).HasMaxLength(32);
+            entity.Property(auditEvent => auditEvent.ActorId).HasMaxLength(200);
+            entity.Property(auditEvent => auditEvent.Reason).HasMaxLength(500);
+            entity.HasIndex(auditEvent => new { auditEvent.LowSaltAlertId, auditEvent.OccurredAtUtc });
+            entity.HasOne(auditEvent => auditEvent.LowSaltAlert)
+                .WithMany(alert => alert.AuditEvents)
+                .HasForeignKey(auditEvent => auditEvent.LowSaltAlertId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LowSaltAlertEvaluationState>(entity =>
+        {
+            entity.ToTable("LowSaltAlertEvaluationStates");
+            entity.HasKey(state => state.DeviceInstallationId);
+            entity.HasOne(state => state.DeviceInstallation)
+                .WithMany()
+                .HasForeignKey(state => state.DeviceInstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AlertEvaluationWorkItem>(entity =>
+        {
+            entity.ToTable("AlertEvaluationWorkItems");
+            entity.HasKey(workItem => workItem.Id);
+            entity.Property(workItem => workItem.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(workItem => workItem.LastError).HasMaxLength(1000);
+            entity.HasIndex(workItem => workItem.TelemetryReadingId).IsUnique();
+            entity.HasIndex(workItem => new { workItem.Status, workItem.AvailableAtUtc, workItem.Id });
+            entity.HasOne(workItem => workItem.TelemetryReading)
+                .WithMany()
+                .HasForeignKey(workItem => workItem.TelemetryReadingId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 

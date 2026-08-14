@@ -78,6 +78,15 @@ Run from this folder:
   calibration server-side, so firmware cannot select its WaterFlex customer, location, tank, or tenant. Duplicate
   `(device, bootId, sequenceNumber)` uploads return successful duplicate acknowledgements.
 
+  Authenticated devices report sensor and controller health separately to:
+
+    POST /api/v1/device/health
+
+  Health heartbeats record sensor status, sensor fault, Wi-Fi RSSI, clock synchronization, queue depth, firmware,
+  and uptime without creating a distance or changing fill. Operational telemetry requires quality of at least 70
+  and no error flags; faulted samples must use the health endpoint instead. Fleet views retain the last trustworthy
+  fill while showing the latest sensor fault, and history rollups exclude historical fault-tagged readings.
+
   ## Swagger
 
   Swagger UI and the OpenAPI 3.1 document are available in Development only. Start the API, then open:
@@ -86,8 +95,8 @@ Run from this folder:
 
   The generated document is available at `http://localhost:5188/openapi/v1.json`. To test a protected device
   endpoint, select **Authorize** and enter only `<credential-id>.<device-secret>`; Swagger adds the `Bearer`
-  prefix. Device credentials will be issued by the commissioning workflow. The health endpoint can be tested
-  without authorization.
+  prefix. Device credentials will be issued by the commissioning workflow. The device-health endpoint requires
+  that bearer token; only the service liveness endpoint at `GET /health` is anonymous.
 
   ## Technician provisioning
 

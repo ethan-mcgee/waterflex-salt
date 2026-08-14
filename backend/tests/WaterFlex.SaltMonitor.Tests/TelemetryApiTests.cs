@@ -92,6 +92,65 @@ public sealed class TelemetryApiTests
     }
 
     [Fact]
+    public async Task DeviceHealthEndpoint_StoresFaultWithoutCreatingReading()
+    {
+        await using var factory = new TelemetryApiFactory();
+        var token = await factory.SeedAsync();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        var heartbeat = new DeviceHealthHeartbeat(
+            1,
+            "pwm-pilot-0.1",
+            DateTimeOffset.UtcNow,
+            12_000,
+            SensorHealthStatus.Faulted,
+            SensorFaultCode.ReadTimeout,
+            -58,
+            0,
+            true,
+            3);
+
+        var response = await client.PostAsJsonAsync("/api/v1/device/health", heartbeat);
+        var device = await factory.GetDeviceAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, await factory.CountReadingsAsync());
+        Assert.Equal(SensorHealthStatus.Faulted, device.LastSensorStatus);
+        Assert.Equal(SensorFaultCode.ReadTimeout, device.LastSensorFault);
+        Assert.Equal("pwm-pilot-0.1", device.LastHealthFirmwareVersion);
+        Assert.Equal(3, device.LastDroppedReadingCount);
+        Assert.NotNull(device.LastHealthReportedAtUtc);
+    }
+
+    [Fact]
+    public async Task DeviceHealthEndpoint_RejectsUnknownSensorState()
+    {
+        await using var factory = new TelemetryApiFactory();
+        var token = await factory.SeedAsync();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        var body = """
+            {
+              "schemaVersion": 1,
+              "firmwareVersion": "pwm-pilot-0.1",
+              "uptimeMilliseconds": 12000,
+              "sensorStatus": 99,
+              "sensorFault": null,
+              "wifiRssiDbm": -58,
+              "queuedReadingCount": 0,
+              "clockSynchronized": true
+            }
+            """;
+
+        var response = await client.PostAsync(
+            "/api/v1/device/health",
+            new StringContent(body, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, await factory.CountReadingsAsync());
+    }
+
+    [Fact]
     public async Task OpenApiDocument_DescribesDeviceBearerAuthentication()
     {
         await using var factory = new TelemetryApiFactory();
@@ -108,6 +167,10 @@ public sealed class TelemetryApiTests
             .GetProperty("paths")
             .GetProperty("/api/v1/device/telemetry")
             .GetProperty("post");
+        var deviceHealthOperation = root
+            .GetProperty("paths")
+            .GetProperty("/api/v1/device/health")
+            .GetProperty("post");
         var healthOperation = root
             .GetProperty("paths")
             .GetProperty("/health")
@@ -118,6 +181,9 @@ public sealed class TelemetryApiTests
         Assert.Equal("bearer", securityScheme.GetProperty("scheme").GetString());
         Assert.Contains(
             telemetryOperation.GetProperty("security").EnumerateArray(),
+            requirement => requirement.TryGetProperty("DeviceToken", out _));
+        Assert.Contains(
+            deviceHealthOperation.GetProperty("security").EnumerateArray(),
             requirement => requirement.TryGetProperty("DeviceToken", out _));
         Assert.False(healthOperation.TryGetProperty("security", out _));
     }
@@ -147,7 +213,7 @@ public sealed class TelemetryApiTests
         public TelemetryApiFactory()
         {
             var databaseName = $"WaterFlexSaltMonitorApiTests_{Guid.NewGuid():N}";
-            _connectionString = $"Host=localhost;Port=5432;Database={databaseName};Username=postgres;Password=postgres";
+            _connectionString = TestPostgres.GetConnectionString(databaseName);
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -246,6 +312,13 @@ public sealed class TelemetryApiTests
             using var scope = Services.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
             return await context.TelemetryReadings.CountAsync();
+        }
+
+        public async Task<Device> GetDeviceAsync()
+        {
+            using var scope = Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+            return await context.Devices.AsNoTracking().SingleAsync();
         }
 
         public override async ValueTask DisposeAsync()

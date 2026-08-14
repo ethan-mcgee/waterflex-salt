@@ -37,8 +37,15 @@ export function DevelopmentIdentityProvider({ children }: { children: ReactNode 
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/v1/development/users', { signal: controller.signal })
-      .then((response) => response.ok ? response.json() as Promise<DevelopmentUser[]> : [])
+    const identityUrl = import.meta.env.DEV
+      ? '/api/v1/development/users'
+      : '/api/v1/staff/me';
+    fetch(identityUrl, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const payload = await response.json() as DevelopmentUser[] | DevelopmentUser;
+        return Array.isArray(payload) ? payload : [payload];
+      })
       .then((availableUsers) => {
         setUsers(availableUsers);
         if (availableUsers.length > 0
@@ -75,6 +82,7 @@ export function useDevelopmentIdentity(): DevelopmentIdentityValue {
 
 export function DevelopmentIdentitySelector() {
   const { users, selectedUserId, selectUser } = useDevelopmentIdentity();
+  if (!import.meta.env.DEV) return null;
   const options = users.length > 0
     ? users.map((user) => ({
         value: user.userId,
@@ -97,6 +105,7 @@ export function DevelopmentIdentitySelector() {
 }
 
 export function developmentIdentityHeaders(): Record<string, string> {
+  if (!import.meta.env.DEV) return {};
   const userId = window.localStorage.getItem(STORAGE_KEY) || DEFAULT_USER_ID;
   return { [HEADER_NAME]: userId };
 }

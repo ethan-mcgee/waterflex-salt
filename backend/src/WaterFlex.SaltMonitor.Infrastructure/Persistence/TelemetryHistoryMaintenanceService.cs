@@ -2,6 +2,7 @@ using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
@@ -37,7 +38,7 @@ public sealed class TelemetryHistoryMaintenanceService(
     IOptions<TelemetryHistoryOptions> options,
     ILogger<TelemetryHistoryMaintenanceService> logger) : ITelemetryHistoryMaintenanceService
 {
-    private const string BackfillStateName = "telemetry-history-backfill-v1";
+    private const string BackfillStateName = "telemetry-history-backfill-v2-operational-only";
     private const long AdvisoryLockId = 1_465_011_442;
     private readonly TelemetryHistoryOptions historyOptions = options.Value;
 
@@ -155,6 +156,8 @@ public sealed class TelemetryHistoryMaintenanceService(
                 {{updatedAtUtc}}
             FROM "TelemetryReadings"
             WHERE "ReceivedAtUtc" >= {{fromUtc}} AND "ReceivedAtUtc" < {{throughUtc}}
+              AND "Quality" >= {{TelemetryBatchValidator.MinimumOperationalQuality}}
+              AND "ErrorFlagsJson" = '[]'
             GROUP BY "DeviceId", date_trunc('hour', "ReceivedAtUtc" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
             ON CONFLICT ("DeviceId", "BucketStartUtc") DO UPDATE SET
                 "LastReadingAtUtc" = EXCLUDED."LastReadingAtUtc",
@@ -236,14 +239,14 @@ public sealed class TelemetryHistoryMaintenanceService(
                     SELECT raw."Id"
                     FROM "TelemetryReadings" raw
                     WHERE raw."ReceivedAtUtc" < {{cutoffUtc}}
-                      AND EXISTS (
+                      AND ((raw."Quality" < {{TelemetryBatchValidator.MinimumOperationalQuality}} OR raw."ErrorFlagsJson" <> '[]') OR (EXISTS (
                           SELECT 1 FROM "TelemetryHourlySummaries" hourly
                           WHERE hourly."DeviceId" = raw."DeviceId"
                             AND hourly."BucketStartUtc" = date_trunc('hour', raw."ReceivedAtUtc" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
                       AND EXISTS (
                           SELECT 1 FROM "TelemetryDailySummaries" daily
                           WHERE daily."DeviceId" = raw."DeviceId"
-                            AND daily."BucketStartUtc" = date_trunc('day', raw."ReceivedAtUtc" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+                            AND daily."BucketStartUtc" = date_trunc('day', raw."ReceivedAtUtc" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')))
                     ORDER BY raw."ReceivedAtUtc", raw."Id"
                     LIMIT {{historyOptions.DeleteBatchSize}}
                     FOR UPDATE SKIP LOCKED)

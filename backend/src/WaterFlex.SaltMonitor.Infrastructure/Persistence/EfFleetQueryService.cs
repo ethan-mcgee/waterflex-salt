@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
+using WaterFlex.SaltMonitor.Ingestion;
 using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
@@ -45,13 +46,152 @@ public sealed class EfFleetQueryService(
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var now = timeProvider.GetUtcNow();
-        var filtered = ApplyFilter(await LoadFleetAsync(now, cancellationToken), query.Filter);
-        var ordered = ApplySort(filtered, query.Sort);
-        var totalCount = ordered.Count();
-        var items = ordered
+        var staleCutoff = now - monitoringSchedule.StaleAfter;
+        var offlineCutoff = now - monitoringSchedule.OfflineAfter;
+        var filtered =
+            from installation in dbContext.DeviceInstallations.AsNoTracking()
+            where installation.RemovedAtUtc == null
+            from latest in dbContext.TelemetryReadings
+                .Where(reading => reading.DeviceInstallationId == installation.Id
+                    && reading.Quality >= TelemetryBatchValidator.MinimumOperationalQuality
+                    && reading.ErrorFlagsJson == "[]")
+                .OrderByDescending(reading => reading.ReceivedAtUtc)
+                .ThenByDescending(reading => reading.Id)
+                .Take(1)
+                .DefaultIfEmpty()
+            select new
+            {
+                installation.DeviceId,
+                InstallationId = installation.Id,
+                installation.Device.SerialNumber,
+                installation.Device.HardwareId,
+                installation.Device.Model,
+                LifecycleStatus = installation.Device.Status,
+                DealerExternalId = installation.Dealer == null ? null : installation.Dealer.ExternalId,
+                DealerName = installation.Dealer == null ? "Unassigned" : installation.Dealer.DisplayName,
+                CustomerDisplayName = installation.Tank.ServiceLocation.CustomerAccount.DisplayName,
+                installation.Tank.ServiceLocation.CustomerAccount.AccountNumber,
+                LocationDisplayName = installation.Tank.ServiceLocation.DisplayName,
+                installation.Tank.ServiceLocation.AddressSummary,
+                TankLabel = installation.Tank.Label,
+                installation.Tank.CapacityPounds,
+                SensorStatus = installation.Device.LastSensorStatus,
+                SensorFault = installation.Device.LastSensorFault,
+                installation.Device.LastHealthReportedAtUtc,
+                installation.Device.LastHealthFirmwareVersion,
+                installation.Device.LastHealthWifiRssiDbm,
+                ClockSynchronized = installation.Device.LastClockSynchronized,
+                QueuedReadingCount = installation.Device.LastQueuedReadingCount,
+                DroppedReadingCount = installation.Device.LastDroppedReadingCount,
+                LatestReceivedAtUtc = latest == null ? null : (DateTimeOffset?)latest.ReceivedAtUtc,
+                LatestFillPercent = latest == null ? null : (double?)latest.FillPercent,
+                LatestRawDistanceMm = latest == null ? null : (int?)latest.RawDistanceMm,
+                LatestQuality = latest == null ? null : (int?)latest.Quality,
+                LatestWifiRssiDbm = latest == null ? null : (int?)latest.WifiRssiDbm,
+                LatestFirmwareVersion = latest == null ? null : latest.FirmwareVersion,
+                LatestErrorFlagsJson = latest == null ? null : latest.ErrorFlagsJson
+            };
+
+        var filter = query.Filter;
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var escaped = filter.Search.Trim()
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("%", "\\%", StringComparison.Ordinal)
+                .Replace("_", "\\_", StringComparison.Ordinal);
+            var pattern = $"%{escaped}%";
+            filtered = filtered.Where(row =>
+                EF.Functions.ILike(row.DealerName, pattern, "\\")
+                || EF.Functions.ILike(row.CustomerDisplayName, pattern, "\\")
+                || (row.AccountNumber != null && EF.Functions.ILike(row.AccountNumber, pattern, "\\"))
+                || EF.Functions.ILike(row.LocationDisplayName, pattern, "\\")
+                || (row.AddressSummary != null && EF.Functions.ILike(row.AddressSummary, pattern, "\\"))
+                || EF.Functions.ILike(row.TankLabel, pattern, "\\")
+                || EF.Functions.ILike(row.SerialNumber, pattern, "\\")
+                || EF.Functions.ILike(row.HardwareId, pattern, "\\"));
+        }
+        filtered = filter.ReportingStatus switch
+        {
+            DeviceReportingStatus.Reporting => filtered.Where(row => row.LatestReceivedAtUtc > staleCutoff
+                && row.SensorStatus != SensorHealthStatus.Faulted),
+            DeviceReportingStatus.Stale => filtered.Where(row => row.LatestReceivedAtUtc > offlineCutoff
+                && (row.LatestReceivedAtUtc <= staleCutoff || row.SensorStatus == SensorHealthStatus.Faulted)),
+            DeviceReportingStatus.Offline => filtered.Where(row => row.LatestReceivedAtUtc <= offlineCutoff),
+            DeviceReportingStatus.NeverReported => filtered.Where(row => row.LatestReceivedAtUtc == null),
+            _ => filtered
+        };
+        if (filter.BelowThreshold is { } belowThreshold)
+        {
+            filtered = belowThreshold
+                ? filtered.Where(row => row.LatestFillPercent < MonitoringPolicy.LowFillThresholdPercent)
+                : filtered.Where(row => row.LatestFillPercent >= MonitoringPolicy.LowFillThresholdPercent);
+        }
+        if (!string.IsNullOrWhiteSpace(filter.LifecycleStatus))
+        {
+            filtered = Enum.TryParse<DeviceLifecycleStatus>(filter.LifecycleStatus.Trim(), true, out var lifecycle)
+                && Enum.IsDefined(lifecycle)
+                ? filtered.Where(row => row.LifecycleStatus == lifecycle)
+                : filtered.Where(_ => false);
+        }
+        if (!string.IsNullOrWhiteSpace(filter.FirmwareVersion))
+        {
+            var firmware = filter.FirmwareVersion.Trim();
+            filtered = filtered.Where(row => row.LatestReceivedAtUtc != null
+                && (row.LastHealthReportedAtUtc >= row.LatestReceivedAtUtc
+                    ? row.LastHealthFirmwareVersion == firmware
+                    : row.LatestFirmwareVersion == firmware));
+        }
+        if (!string.IsNullOrWhiteSpace(filter.DealerExternalId))
+        {
+            var dealer = filter.DealerExternalId.Trim();
+            filtered = dealer.Equals("unassigned", StringComparison.OrdinalIgnoreCase)
+                ? filtered.Where(row => row.DealerExternalId == null)
+                : filtered.Where(row => row.DealerExternalId == dealer);
+        }
+
+        var totalCount = await filtered.CountAsync(cancellationToken);
+        var ordered = query.Sort switch
+        {
+            FleetSort.LastReported => filtered.OrderBy(row => row.LatestReceivedAtUtc == null)
+                .ThenByDescending(row => row.LatestReceivedAtUtc),
+            FleetSort.FillAscending => filtered.OrderBy(row => row.LatestFillPercent == null)
+                .ThenBy(row => row.LatestFillPercent),
+            FleetSort.FillDescending => filtered.OrderBy(row => row.LatestFillPercent == null)
+                .ThenByDescending(row => row.LatestFillPercent),
+            FleetSort.Customer => filtered.OrderBy(row => row.CustomerDisplayName)
+                .ThenBy(row => row.LocationDisplayName),
+            _ => filtered.OrderBy(row => row.LatestReceivedAtUtc == null ? 1
+                    : row.LatestReceivedAtUtc <= offlineCutoff ? 0
+                    : row.SensorStatus == SensorHealthStatus.Faulted || row.LatestReceivedAtUtc <= staleCutoff ? 2
+                    : row.LatestFillPercent < MonitoringPolicy.LowFillThresholdPercent ? 4 : 5)
+                .ThenBy(row => row.LatestReceivedAtUtc ?? DateTimeOffset.MinValue)
+                .ThenBy(row => row.CustomerDisplayName)
+        };
+        var rows = await ordered
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToArray();
+            .ToArrayAsync(cancellationToken);
+        var items = rows.Select(row =>
+        {
+            var latestHealthIsNewer = row.LastHealthReportedAtUtc is { } healthAt
+                && (row.LatestReceivedAtUtc is null || healthAt >= row.LatestReceivedAtUtc);
+            var reportingStatus = MonitoringPolicy.GetReportingStatus(row.LatestReceivedAtUtc, now, monitoringSchedule);
+            if (row.SensorStatus == SensorHealthStatus.Faulted && reportingStatus == DeviceReportingStatus.Reporting)
+            {
+                reportingStatus = DeviceReportingStatus.Stale;
+            }
+            return new FleetDeviceListItem(
+                row.DeviceId, row.InstallationId, row.SerialNumber, row.HardwareId, row.Model,
+                row.LifecycleStatus.ToString(), row.DealerExternalId, row.DealerName,
+                row.CustomerDisplayName, row.AccountNumber, row.LocationDisplayName, row.AddressSummary,
+                row.TankLabel, row.CapacityPounds, row.LatestFillPercent,
+                row.LatestFillPercent is { } fill && MonitoringPolicy.IsBelowFillThreshold(fill),
+                reportingStatus, row.LatestReceivedAtUtc, row.LatestRawDistanceMm, row.LatestQuality,
+                latestHealthIsNewer ? row.LastHealthWifiRssiDbm ?? row.LatestWifiRssiDbm : row.LatestWifiRssiDbm,
+                latestHealthIsNewer ? row.LastHealthFirmwareVersion ?? row.LatestFirmwareVersion : row.LatestFirmwareVersion,
+                ParseErrorFlags(row.LatestErrorFlagsJson), row.SensorStatus, row.SensorFault,
+                row.LastHealthReportedAtUtc, row.ClockSynchronized, row.QueuedReadingCount, row.DroppedReadingCount);
+        }).ToArray();
 
         return new(now, items, totalCount, page, pageSize);
     }
@@ -125,7 +265,10 @@ public sealed class EfFleetQueryService(
         var cutoff = timeProvider.GetUtcNow() - range;
         var readings = await dbContext.TelemetryReadings
             .AsNoTracking()
-            .Where(reading => reading.DeviceId == deviceId && reading.ReceivedAtUtc >= cutoff)
+            .Where(reading => reading.DeviceId == deviceId
+                && reading.ReceivedAtUtc >= cutoff
+                && reading.Quality >= TelemetryBatchValidator.MinimumOperationalQuality
+                && reading.ErrorFlagsJson == "[]")
             .OrderByDescending(reading => reading.ReceivedAtUtc)
             .ThenByDescending(reading => reading.Id)
             .Take(limit)
@@ -266,8 +409,12 @@ public sealed class EfFleetQueryService(
         var latestReadings = await dbContext.TelemetryReadings
             .AsNoTracking()
             .Where(reading => installationIds.Contains(reading.DeviceInstallationId))
+            .Where(reading => reading.Quality >= TelemetryBatchValidator.MinimumOperationalQuality
+                && reading.ErrorFlagsJson == "[]")
             .Where(reading => reading.Id == dbContext.TelemetryReadings
-                .Where(candidate => candidate.DeviceInstallationId == reading.DeviceInstallationId)
+                .Where(candidate => candidate.DeviceInstallationId == reading.DeviceInstallationId
+                    && candidate.Quality >= TelemetryBatchValidator.MinimumOperationalQuality
+                    && candidate.ErrorFlagsJson == "[]")
                 .OrderByDescending(candidate => candidate.ReceivedAtUtc)
                 .ThenByDescending(candidate => candidate.Id)
                 .Select(candidate => candidate.Id)
@@ -287,7 +434,9 @@ public sealed class EfFleetQueryService(
         CancellationToken cancellationToken) =>
         await dbContext.TelemetryReadings
             .AsNoTracking()
-            .Where(reading => reading.DeviceInstallationId == installationId)
+            .Where(reading => reading.DeviceInstallationId == installationId
+                && reading.Quality >= TelemetryBatchValidator.MinimumOperationalQuality
+                && reading.ErrorFlagsJson == "[]")
             .OrderByDescending(reading => reading.ReceivedAtUtc)
             .ThenByDescending(reading => reading.Id)
             .FirstOrDefaultAsync(cancellationToken);
@@ -300,6 +449,23 @@ public sealed class EfFleetQueryService(
         var location = installation.Tank.ServiceLocation;
         var customer = location.CustomerAccount;
         var fillPercent = latestReading?.FillPercent;
+        var latestHealthIsNewer = installation.Device.LastHealthReportedAtUtc is { } healthAt
+            && (latestReading is null || healthAt >= latestReading.ReceivedAtUtc);
+        var wifiRssiDbm = latestHealthIsNewer
+            ? installation.Device.LastHealthWifiRssiDbm ?? latestReading?.WifiRssiDbm
+            : latestReading?.WifiRssiDbm;
+        var firmwareVersion = latestHealthIsNewer
+            ? installation.Device.LastHealthFirmwareVersion ?? latestReading?.FirmwareVersion
+            : latestReading?.FirmwareVersion;
+        var reportingStatus = MonitoringPolicy.GetReportingStatus(
+            latestReading?.ReceivedAtUtc,
+            now,
+            monitoringSchedule);
+        if (installation.Device.LastSensorStatus == SensorHealthStatus.Faulted
+            && reportingStatus == DeviceReportingStatus.Reporting)
+        {
+            reportingStatus = DeviceReportingStatus.Stale;
+        }
 
         return new(
             installation.DeviceId,
@@ -318,16 +484,19 @@ public sealed class EfFleetQueryService(
             installation.Tank.CapacityPounds,
             fillPercent,
             fillPercent is { } value && MonitoringPolicy.IsBelowFillThreshold(value),
-            MonitoringPolicy.GetReportingStatus(
-                latestReading?.ReceivedAtUtc,
-                now,
-                monitoringSchedule),
+            reportingStatus,
             latestReading?.ReceivedAtUtc,
             latestReading?.RawDistanceMm,
             latestReading?.Quality,
-            latestReading?.WifiRssiDbm,
-            latestReading?.FirmwareVersion,
-            ParseErrorFlags(latestReading?.ErrorFlagsJson));
+            wifiRssiDbm,
+            firmwareVersion,
+            ParseErrorFlags(latestReading?.ErrorFlagsJson),
+            installation.Device.LastSensorStatus,
+            installation.Device.LastSensorFault,
+            installation.Device.LastHealthReportedAtUtc,
+            installation.Device.LastClockSynchronized,
+            installation.Device.LastQueuedReadingCount,
+            installation.Device.LastDroppedReadingCount);
     }
 
     private static IEnumerable<FleetDeviceListItem> ApplyFilter(
@@ -414,6 +583,7 @@ public sealed class EfFleetQueryService(
     {
         DeviceReportingStatus.Offline => 0,
         DeviceReportingStatus.NeverReported => 1,
+        _ when item.SensorStatus == SensorHealthStatus.Faulted => 2,
         DeviceReportingStatus.Stale => 2,
         _ when item.ErrorFlags.Count > 0 => 3,
         _ when item.IsBelowThreshold => 4,

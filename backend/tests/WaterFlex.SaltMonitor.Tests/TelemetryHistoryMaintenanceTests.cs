@@ -28,16 +28,25 @@ public sealed class TelemetryHistoryMaintenanceTests
         Assert.Equal(2, first.RawReadingsDeleted);
         Assert.Equal(0, second.RawReadingsDeleted);
         Assert.Single(await database.Context.TelemetryReadings.ToArrayAsync());
-        var hourly = await database.Context.TelemetryHourlySummaries
-            .SingleAsync(summary => summary.ReadingCount == 2);
+        var hourlyBucket = new DateTimeOffset(
+            oldDay.Year,
+            oldDay.Month,
+            oldDay.Day,
+            2,
+            0,
+            0,
+            TimeSpan.Zero);
+        var hourly = await database.Context.TelemetryHourlySummaries.SingleAsync(
+            summary => summary.BucketStartUtc == hourlyBucket);
+        Assert.Equal(1, hourly.ReadingCount);
         Assert.Equal(20, hourly.FillPercentMin);
-        Assert.Equal(60, hourly.FillPercentMax);
-        Assert.Equal(40, hourly.FillPercentAverage);
-        Assert.Equal(60, hourly.FillPercentLatest);
-        Assert.Equal(55, hourly.WorstQuality);
-        Assert.Equal(1, hourly.ErrorCount);
-        var daily = await database.Context.TelemetryDailySummaries
-            .SingleAsync(summary => summary.ReadingCount == 2);
+        Assert.Equal(20, hourly.FillPercentMax);
+        Assert.Equal(20, hourly.FillPercentAverage);
+        Assert.Equal(20, hourly.FillPercentLatest);
+        Assert.Equal(80, hourly.WorstQuality);
+        Assert.Equal(0, hourly.ErrorCount);
+        var daily = await database.Context.TelemetryDailySummaries.SingleAsync();
+        Assert.Equal(1, daily.ReadingCount);
         Assert.Equal(hourly.FillPercentAverage, daily.FillPercentAverage);
         Assert.Single(await database.Context.TelemetryMaintenanceStates.ToArrayAsync());
     }
@@ -52,7 +61,7 @@ public sealed class TelemetryHistoryMaintenanceTests
         AddReading(database.Context, subject, 1, receivedAt, 50, 90, -60, "[]");
         database.Context.TelemetryMaintenanceStates.Add(new()
         {
-            Name = "telemetry-history-backfill-v1",
+            Name = "telemetry-history-backfill-v2-operational-only",
             CompletedAtUtc = Now
         });
         await database.Context.SaveChangesAsync();
@@ -250,7 +259,8 @@ public sealed class TelemetryHistoryMaintenanceTests
 
         public static async Task<TestDatabase> CreateAsync()
         {
-            var connectionString = $"Host=localhost;Port=5432;Database=WaterFlexHistoryTests_{Guid.NewGuid():N};Username=postgres;Password=postgres";
+            var connectionString = await TestPostgres.GetConnectionStringAsync(
+                $"WaterFlexHistoryTests_{Guid.NewGuid():N}");
             var context = new SaltMonitorDbContext(
                 new DbContextOptionsBuilder<SaltMonitorDbContext>().UseNpgsql(connectionString).Options);
             await context.Database.MigrateAsync();

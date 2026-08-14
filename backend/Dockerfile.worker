@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0.300 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.300@sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 AS build
 WORKDIR /src
 
 COPY ["NuGet.Config", "./"]
@@ -12,7 +12,7 @@ RUN dotnet publish backend/src/WaterFlex.SaltMonitor.Worker/WaterFlex.SaltMonito
     -o /app/publish \
     /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0
+FROM mcr.microsoft.com/dotnet/runtime:10.0@sha256:acad02eb5c4fbf57d15296f9c08d56cd4036e915bdae5b4dd48a06523d452617
 WORKDIR /app
 
 RUN apt-get update \
@@ -20,5 +20,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/publish .
+
+USER $APP_UID
 
 ENTRYPOINT ["dotnet", "WaterFlex.SaltMonitor.Worker.dll"]

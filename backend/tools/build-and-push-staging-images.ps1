@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accountId)) {
 }
 
 $registry = "$accountId.dkr.ecr.$Region.amazonaws.com"
-$repositories = @("waterflex-api", "waterflex-worker", "waterflex-web")
+$repositories = @("waterflex-api", "waterflex-worker", "waterflex-web", "waterflex-migrations")
 $existingRepositoryOutput = & $aws ecr describe-repositories --query "repositories[].repositoryName" --output text --region $Region
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to list ECR repositories in $Region."
@@ -69,7 +69,8 @@ if ($LASTEXITCODE -ne 0) {
 $images = @(
     @{ Name = "waterflex-api"; Dockerfile = "backend/Dockerfile" },
     @{ Name = "waterflex-worker"; Dockerfile = "backend/Dockerfile.worker" },
-    @{ Name = "waterflex-web"; Dockerfile = "web/Dockerfile" }
+    @{ Name = "waterflex-web"; Dockerfile = "web/Dockerfile" },
+    @{ Name = "waterflex-migrations"; Dockerfile = "backend/Dockerfile.migrations" }
 )
 
 foreach ($image in $images) {

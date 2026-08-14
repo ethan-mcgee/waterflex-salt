@@ -151,7 +151,7 @@ public sealed class TelemetryPersistenceTests
         public static async Task<TestDatabase> CreateAsync()
         {
             var databaseName = $"WaterFlexSaltMonitorTests_{Guid.NewGuid():N}";
-            var connectionString = $"Host=localhost;Port=5432;Database={databaseName};Username=postgres;Password=postgres";
+            var connectionString = await TestPostgres.GetConnectionStringAsync(databaseName);
             var options = new DbContextOptionsBuilder<SaltMonitorDbContext>()
                 .UseNpgsql(connectionString)
                 .Options;

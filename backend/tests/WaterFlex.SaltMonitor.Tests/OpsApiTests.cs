@@ -98,8 +98,8 @@ public sealed class OpsApiTests
             builder.ConfigureAppConfiguration((_, configuration) =>
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:SaltMonitor"] =
-                        "Host=localhost;Port=5432;Database=WaterFlexOpsApiTests;Username=postgres;Password=postgres"
+                    ["ConnectionStrings:SaltMonitor"] = TestPostgres.GetConnectionString(
+                        $"WaterFlexOpsApiTests_{Guid.NewGuid():N}")
                 }));
         }
     }

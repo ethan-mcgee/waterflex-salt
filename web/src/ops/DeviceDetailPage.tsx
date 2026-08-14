@@ -122,6 +122,11 @@ export default function DeviceDetailPage() {
 
         <section className="detail-panel">
           <h2><Cpu size={16} /> Device health</h2>
+          <DetailRow label="Sensor" value={device.sensorStatus === 'faulted' ? `Faulted: ${formatSensorFault(device.sensorFault)}` : device.sensorStatus} />
+          <DetailRow label="Health heartbeat" value={device.lastHealthReportedAtUtc ? formatDateTime(device.lastHealthReportedAtUtc) : 'Never'} />
+          <DetailRow label="Clock" value={device.clockSynchronized ? 'Synchronized' : 'Not synchronized'} />
+          <DetailRow label="Queued readings" value={device.queuedReadingCount.toString()} />
+          <DetailRow label="Dropped readings" value={device.droppedReadingCount.toString()} />
           <DetailRow label="Quality" value={device.quality === null ? 'No reading' : `${device.quality}%`} />
           <DetailRow label="Wi-Fi" value={device.wifiRssiDbm === null ? 'No reading' : `${device.wifiRssiDbm} dBm`} />
           <DetailRow label="Firmware" value={device.firmwareVersion ?? 'No reading'} />
@@ -199,4 +204,9 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return <div className="meta-item"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong></div></div>;
+}
+
+function formatSensorFault(value: FleetDevice['sensorFault']): string {
+  if (!value) return 'unknown sensor fault';
+  return value.replace(/([A-Z])/g, ' $1').toLowerCase();
 }

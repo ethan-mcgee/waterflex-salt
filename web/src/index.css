@@ -1016,6 +1016,14 @@ button:disabled {
   font-size: 11px;
 }
 
+.alerts-table th:nth-child(n) { width: auto; }
+.alerts-table td small { display: block; margin-top: 3px; color: var(--muted); }
+.table-link { border: 0; background: transparent; color: var(--brand); cursor: pointer; text-transform: capitalize; }
+.alert-actions { display: flex; gap: 6px; }
+.alert-actions button { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); cursor: pointer; }
+.alert-audit { margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.alert-audit h2 { margin-top: 0; }
+
 .history-error {
   display: flex;
   min-height: 110px;

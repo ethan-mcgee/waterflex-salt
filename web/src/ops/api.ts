@@ -7,7 +7,34 @@ import type {
   FleetPageResult,
   FleetReading,
   FleetSummary,
+  AlertDetail,
+  AlertListItem,
+  AlertPageResult,
+  LowSaltAlertStatus,
 } from './types';
+
+export async function getAlerts(status?: LowSaltAlertStatus, signal?: AbortSignal): Promise<AlertPageResult> {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
+  return getJson(`/api/v1/ops/alerts${suffix}`, signal);
+}
+
+export async function getAlert(alertId: string, signal?: AbortSignal): Promise<AlertDetail> {
+  return getJson(`/api/v1/ops/alerts/${encodeURIComponent(alertId)}`, signal);
+}
+
+export async function transitionAlert(
+  alert: AlertListItem,
+  transition: 'acknowledge' | 'approve' | 'dismiss',
+  reason?: string,
+): Promise<AlertDetail> {
+  const response = await fetch(`/api/v1/ops/alerts/${encodeURIComponent(alert.alertId)}/${transition}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...developmentIdentityHeaders() },
+    body: JSON.stringify({ expectedRowVersion: alert.rowVersion, reason }),
+  });
+  if (!response.ok) throw new OpsApiError(`Alert transition failed with status ${response.status}.`, response.status);
+  return response.json() as Promise<AlertDetail>;
+}
 
 export async function getFleetDealers(signal?: AbortSignal): Promise<FleetDealerOption[]> {
   return getJson('/api/v1/ops/dealers', signal);

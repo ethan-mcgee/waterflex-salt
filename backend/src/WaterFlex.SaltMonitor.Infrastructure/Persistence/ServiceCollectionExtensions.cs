@@ -55,9 +55,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWaterFlexCustomerDirectory, DevelopmentWaterFlexCustomerDirectory>();
         services.AddSingleton<IInstallationWorkOrderDirectory, DevelopmentInstallationWorkOrderDirectory>();
         services.AddScoped<IDeviceTokenValidator, DeviceTokenValidator>();
+        services.AddScoped<IDeviceCredentialUsageRecorder, DeviceCredentialUsageRecorder>();
         services.AddScoped<ITelemetryIngestionService, EfTelemetryIngestionService>();
+        services.AddScoped<IDeviceHealthService, EfDeviceHealthService>();
         services.AddScoped<ISensorCommissioningService, EfSensorCommissioningService>();
         services.AddScoped<IFleetQueryService, EfFleetQueryService>();
+        services.AddScoped<IAlertOperationsService, EfAlertOperationsService>();
+        services.AddScoped<IAlertWorkProcessor, EfAlertWorkProcessor>();
         services.AddScoped<IFactoryDeviceRegistrationService, EfFactoryDeviceRegistrationService>();
         services.AddScoped<ICommissioningSessionService, EfCommissioningSessionService>();
         services.AddScoped<IDeviceBootstrapActivationService, EfDeviceBootstrapActivationService>();

@@ -175,6 +175,18 @@ public sealed class EfTelemetryIngestionService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        foreach (var (_, reading) in pending)
+        {
+            dbContext.AlertEvaluationWorkItems.Add(new AlertEvaluationWorkItem
+            {
+                TelemetryReadingId = reading.Id,
+                Status = AlertWorkItemStatus.Pending,
+                CreatedAtUtc = serverTime,
+                AvailableAtUtc = serverTime
+            });
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         foreach (var (index, reading) in pending)
         {
             acknowledgements[index] = new(

@@ -22,6 +22,54 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.AlertEvaluationWorkItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("AvailableAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LeasedUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long>("TelemetryReadingId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TelemetryReadingId")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "AvailableAtUtc", "Id");
+
+                    b.ToTable("AlertEvaluationWorkItems", (string)null);
+                });
+
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.CommissioningSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -196,6 +244,37 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)");
 
                     b.Property<string>("HardwareId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("LastClockSynchronized")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LastDeviceReportedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("LastDroppedReadingCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastHealthFirmwareVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastHealthReportedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("LastHealthWifiRssiDbm")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LastQueuedReadingCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastSensorFault")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("LastSensorStatus")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
@@ -378,6 +457,151 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
                     b.ToTable("DeviceInstallations", (string)null);
                 });
 
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlert", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AcknowledgedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AcknowledgedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset?>("ApprovedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("DeviceInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DismissalReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("DismissedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DismissedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("LastEvidenceAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("LastEvidenceFillPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTimeOffset>("OpenedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ResolvedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceInstallationId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" IN ('Open', 'Acknowledged', 'Approved')");
+
+                    b.HasIndex("Status", "OpenedAtUtc");
+
+                    b.ToTable("LowSaltAlerts", (string)null);
+                });
+
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlertAuditEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ActorType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<double?>("FillPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid>("LowSaltAlertId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<long?>("TelemetryReadingId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LowSaltAlertId", "OccurredAtUtc");
+
+                    b.ToTable("LowSaltAlertAuditEvents", (string)null);
+                });
+
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlertEvaluationState", b =>
+                {
+                    b.Property<Guid>("DeviceInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("BelowEvidenceCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("FirstBelowEvidenceAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("FirstRecoveryEvidenceAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("LastProcessedTelemetryReadingId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("RecoveryEvidenceCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("SuppressedUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("DeviceInstallationId");
+
+                    b.ToTable("LowSaltAlertEvaluationStates", (string)null);
+                });
+
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.ProvisioningAuditEvent", b =>
                 {
                     b.Property<long>("Id")
@@ -459,6 +683,67 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ServiceLocations", (string)null);
+                });
+
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.StaffIdentityRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DealerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Issuer")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DealerId");
+
+                    b.HasIndex("IsActive", "Role");
+
+                    b.HasIndex("Issuer", "Subject")
+                        .IsUnique();
+
+                    b.ToTable("StaffIdentities", (string)null);
                 });
 
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.Tank", b =>
@@ -752,6 +1037,17 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
                     b.ToTable("TelemetryReadings", (string)null);
                 });
 
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.AlertEvaluationWorkItem", b =>
+                {
+                    b.HasOne("WaterFlex.SaltMonitor.Infrastructure.Persistence.TelemetryReadingRecord", "TelemetryReading")
+                        .WithMany()
+                        .HasForeignKey("TelemetryReadingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("TelemetryReading");
+                });
+
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.CommissioningSession", b =>
                 {
                     b.HasOne("WaterFlex.SaltMonitor.Infrastructure.Persistence.Dealer", "Dealer")
@@ -834,6 +1130,39 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
                     b.Navigation("Tank");
                 });
 
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlert", b =>
+                {
+                    b.HasOne("WaterFlex.SaltMonitor.Infrastructure.Persistence.DeviceInstallation", "DeviceInstallation")
+                        .WithMany()
+                        .HasForeignKey("DeviceInstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DeviceInstallation");
+                });
+
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlertAuditEvent", b =>
+                {
+                    b.HasOne("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlert", "LowSaltAlert")
+                        .WithMany("AuditEvents")
+                        .HasForeignKey("LowSaltAlertId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("LowSaltAlert");
+                });
+
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlertEvaluationState", b =>
+                {
+                    b.HasOne("WaterFlex.SaltMonitor.Infrastructure.Persistence.DeviceInstallation", "DeviceInstallation")
+                        .WithMany()
+                        .HasForeignKey("DeviceInstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DeviceInstallation");
+                });
+
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.ProvisioningAuditEvent", b =>
                 {
                     b.HasOne("WaterFlex.SaltMonitor.Infrastructure.Persistence.CommissioningSession", "CommissioningSession")
@@ -860,6 +1189,16 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("CustomerAccount");
+                });
+
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.StaffIdentityRecord", b =>
+                {
+                    b.HasOne("WaterFlex.SaltMonitor.Infrastructure.Persistence.Dealer", "Dealer")
+                        .WithMany()
+                        .HasForeignKey("DealerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Dealer");
                 });
 
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.Tank", b =>
@@ -962,6 +1301,11 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.DeviceInstallation", b =>
                 {
                     b.Navigation("Calibrations");
+                });
+
+            modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.LowSaltAlert", b =>
+                {
+                    b.Navigation("AuditEvents");
                 });
 
             modelBuilder.Entity("WaterFlex.SaltMonitor.Infrastructure.Persistence.ServiceLocation", b =>

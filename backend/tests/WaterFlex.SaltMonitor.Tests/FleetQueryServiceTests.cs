@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Infrastructure.Persistence;
+using WaterFlex.SaltMonitor.Ingestion;
 using WaterFlex.SaltMonitor.Operations;
 using Xunit;
 
@@ -84,6 +85,30 @@ public sealed class FleetQueryServiceTests
         var readings = await service.GetReadingsAsync(Guid.NewGuid(), TimeSpan.FromHours(24), 50);
 
         Assert.Null(readings);
+    }
+
+    [Fact]
+    public async Task SensorFault_MarksFillStaleAndPreservesLatestTrustworthyReading()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        reporting.Device.LastSensorStatus = SensorHealthStatus.Faulted;
+        reporting.Device.LastSensorFault = SensorFaultCode.ReadTimeout;
+        reporting.Device.LastHealthReportedAtUtc = Now;
+        reporting.Device.LastHealthFirmwareVersion = "pwm-pilot-0.1";
+        reporting.Device.LastHealthWifiRssiDbm = -72;
+        await database.Context.SaveChangesAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var page = await service.SearchAsync(new(new(), PageSize: 10));
+
+        var device = Assert.Single(page.Items, item => item.SerialNumber == "WF-FLEET-REPORTING");
+        Assert.Equal(20, device.FillPercent);
+        Assert.Equal(DeviceReportingStatus.Stale, device.ReportingStatus);
+        Assert.Equal(SensorHealthStatus.Faulted, device.SensorStatus);
+        Assert.Equal(SensorFaultCode.ReadTimeout, device.SensorFault);
+        Assert.Equal("pwm-pilot-0.1", device.FirmwareVersion);
+        Assert.Equal(-72, device.WifiRssiDbm);
     }
 
     [Fact]
@@ -172,6 +197,7 @@ public sealed class FleetQueryServiceTests
 
         AddReading(context, reporting, 1, Now.AddHours(-3), 70);
         AddReading(context, reporting, 2, Now.AddHours(-2), 20);
+        AddReading(context, reporting, 99, Now.AddHours(-1), 5, "[\"sensor_timeout\"]");
         AddReading(context, stale, 1, Now.AddHours(-6), 55);
         AddReading(context, offline, 1, Now.AddHours(-10), 60);
         await context.SaveChangesAsync();
@@ -232,7 +258,8 @@ public sealed class FleetQueryServiceTests
         (Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration) subject,
         long sequence,
         DateTimeOffset receivedAt,
-        double fillPercent) =>
+        double fillPercent,
+        string errorFlagsJson = "[]") =>
         context.TelemetryReadings.Add(new()
         {
             DeviceId = subject.Device.Id,
@@ -248,7 +275,7 @@ public sealed class FleetQueryServiceTests
             SampleCount = 8,
             WifiRssiDbm = -60,
             FirmwareVersion = "1.0.0",
-            ErrorFlagsJson = "[]"
+            ErrorFlagsJson = errorFlagsJson
         });
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
@@ -265,7 +292,7 @@ public sealed class FleetQueryServiceTests
         public static async Task<TestDatabase> CreateAsync()
         {
             var databaseName = $"WaterFlexFleetQueryTests_{Guid.NewGuid():N}";
-            var connectionString = $"Host=localhost;Port=5432;Database={databaseName};Username=postgres;Password=postgres";
+            var connectionString = await TestPostgres.GetConnectionStringAsync(databaseName);
             var options = new DbContextOptionsBuilder<SaltMonitorDbContext>()
                 .UseNpgsql(connectionString)
                 .Options;

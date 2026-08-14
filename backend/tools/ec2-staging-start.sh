@@ -64,11 +64,11 @@ else
 fi
 
 if [[ "${SECRET_VALUE}" =~ ^\{ ]]; then
-  SECRET_VALUE="$("${PYTHON_BIN}" - "${SECRET_VALUE}" "${DB_NAME}" <<'PY'
+  SECRET_VALUE="$("${PYTHON_BIN}" -c '
 import json
 import sys
-raw = sys.argv[1]
-default_database = sys.argv[2]
+raw = sys.stdin.read()
+default_database = sys.argv[1]
 
 if not raw or not raw.strip():
     print("")
@@ -105,8 +105,7 @@ if host and username and password and dbname:
     )
 else:
     raise SystemExit("The JSON secret does not contain connection-string or PostgreSQL credential fields.")
-PY
-)"
+' "${DB_NAME}" <<<"${SECRET_VALUE}")"
 fi
 
 if [[ -z "${SECRET_VALUE}" ]]; then
@@ -133,7 +132,7 @@ echo "Validating the staging Nginx configuration."
 
 echo "Verifying the same-origin health endpoint."
 "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T web \
-  wget --quiet --output-document=- http://127.0.0.1/health >/dev/null
+  wget --quiet --output-document=- http://127.0.0.1/health/ready >/dev/null
 
 echo "Verifying the operations endpoint is mapped and protected."
 OPS_STATUS="$("${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T api \

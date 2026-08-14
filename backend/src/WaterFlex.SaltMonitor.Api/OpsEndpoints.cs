@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.AspNetCore.RateLimiting;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Domain.Security;
 using WaterFlex.SaltMonitor.Operations;
@@ -12,7 +13,47 @@ public static class OpsEndpoints
     {
         var opsApi = endpoints.MapGroup("/api/v1/ops")
             .WithTags("Internal operations")
-            .RequireDevelopmentRole(StaffRole.WaterFlexEmployee);
+            .RequireRateLimiting(RateLimitPolicies.Staff)
+            .RequireStaffRole(StaffRole.WaterFlexEmployee);
+
+        opsApi.MapGet("/alerts", async (
+                string? status,
+                int? page,
+                int? pageSize,
+                IAlertOperationsService alerts,
+                CancellationToken cancellationToken) =>
+            {
+                if (!TryParseOptionalEnum<LowSaltAlertStatus>(status, out var parsedStatus)
+                    || page is < 1
+                    || pageSize is < 1 or > 100)
+                {
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["query"] = ["Status must be recognized, page must be positive, and pageSize must be between 1 and 100."]
+                    });
+                }
+                return Results.Ok(await alerts.SearchAsync(
+                    parsedStatus,
+                    page ?? 1,
+                    pageSize ?? 50,
+                    cancellationToken));
+            })
+            .WithName("GetLowSaltAlerts")
+            .WithSummary("List reviewable low-salt alerts");
+
+        opsApi.MapGet("/alerts/{alertId:guid}", async (
+                Guid alertId,
+                IAlertOperationsService alerts,
+                CancellationToken cancellationToken) =>
+            await alerts.GetAsync(alertId, cancellationToken) is { } alert
+                ? Results.Ok(alert)
+                : Results.NotFound())
+            .WithName("GetLowSaltAlert")
+            .WithSummary("Get an alert and its audit history");
+
+        MapAlertTransition(opsApi, "acknowledge", AlertTransition.Acknowledge);
+        MapAlertTransition(opsApi, "approve", AlertTransition.Approve);
+        MapAlertTransition(opsApi, "dismiss", AlertTransition.Dismiss);
 
         opsApi.MapGet("/dealers", async (
                 IFleetQueryService fleetQueryService,
@@ -203,6 +244,39 @@ public static class OpsEndpoints
         return endpoints;
     }
 
+    private static void MapAlertTransition(
+        RouteGroupBuilder group,
+        string route,
+        AlertTransition transition)
+    {
+        group.MapPost($"/alerts/{{alertId:guid}}/{route}", async (
+                Guid alertId,
+                AlertTransitionRequest request,
+                HttpContext httpContext,
+                IAlertOperationsService alerts,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await alerts.TransitionAsync(
+                    alertId,
+                    transition,
+                    request,
+                    httpContext.GetStaffActor(),
+                    cancellationToken);
+                return result.Failure switch
+                {
+                    AlertTransitionFailure.None => Results.Ok(result.Alert),
+                    AlertTransitionFailure.NotFound => Results.NotFound(),
+                    AlertTransitionFailure.InvalidRequest => Results.ValidationProblem(
+                        new Dictionary<string, string[]> { ["request"] = ["Expected row version and a valid dismissal reason are required."] }),
+                    AlertTransitionFailure.InvalidState => Results.Conflict(new { errorCode = "invalid_alert_state" }),
+                    AlertTransitionFailure.Conflict => Results.Conflict(new { errorCode = "alert_version_conflict" }),
+                    _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
+                };
+            })
+            .WithName($"{transition}LowSaltAlert")
+            .WithSummary($"{transition} a low-salt alert");
+    }
+
     private static FleetFilter CreateFilter(
         string? search,
         DeviceReportingStatus? reportingStatus,
@@ -289,7 +363,7 @@ public static class OpsEndpoints
         }
 
         if (!Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed)
-            || !Enum.IsDefined(typeof(TEnum), parsed))
+            || !Enum.IsDefined(parsed))
         {
             return false;
         }

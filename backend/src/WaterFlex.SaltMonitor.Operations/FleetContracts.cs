@@ -1,4 +1,5 @@
 using WaterFlex.SaltMonitor.Domain.Monitoring;
+using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Operations;
 
@@ -62,7 +63,13 @@ public sealed record FleetDeviceListItem(
     int? Quality,
     int? WifiRssiDbm,
     string? FirmwareVersion,
-    IReadOnlyList<string> ErrorFlags);
+    IReadOnlyList<string> ErrorFlags,
+    SensorHealthStatus SensorStatus,
+    SensorFaultCode? SensorFault,
+    DateTimeOffset? LastHealthReportedAtUtc,
+    bool ClockSynchronized,
+    int QueuedReadingCount,
+    int DroppedReadingCount);
 
 public sealed record FleetPage(
     DateTimeOffset GeneratedAtUtc,
