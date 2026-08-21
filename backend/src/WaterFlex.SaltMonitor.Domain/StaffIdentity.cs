@@ -57,6 +57,7 @@ public static class StaffRoleCapabilities
             (StaffRole.WaterFlexEmployee, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.WaterFlexStaffAdministration) => true,
+            (StaffRole.WaterFlexAdministrator, StaffCapability.TechnicianOperations) => true,
             _ => false
         };
 
