@@ -1,0 +1,251 @@
+name: Deploy staging
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [docker/deployment-staging]
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full commit SHA to deploy; defaults to the selected branch SHA
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: waterflex-staging
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish immutable images
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      release_sha: ${{ steps.release.outputs.sha }}
+      registry: ${{ steps.ecr.outputs.registry }}
+      bundle_sha256: ${{ steps.bundle.outputs.sha256 }}
+      bundle_uri: ${{ steps.bundle.outputs.uri }}
+      script_uri: ${{ steps.bundle.outputs.script_uri }}
+      script_sha256: ${{ steps.bundle.outputs.script_sha256 }}
+      api_digest: ${{ steps.build_api.outputs.digest }}
+      worker_digest: ${{ steps.build_worker.outputs.digest }}
+      web_digest: ${{ steps.build_web.outputs.digest }}
+      migrations_digest: ${{ steps.build_migrations.outputs.digest }}
+    steps:
+      - name: Resolve release SHA
+        id: release
+        env:
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_SHA: ${{ inputs.commit_sha }}
+          DEFAULT_SHA: ${{ github.sha }}
+        run: |
+          SHA="${WORKFLOW_RUN_SHA:-${MANUAL_SHA:-$DEFAULT_SHA}}"
+          [[ "$SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "A full commit SHA is required." >&2; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+      - name: Require deployment configuration
+        env:
+          ROLE_ARN: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
+          BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
+        run: |
+          [[ -n "$ROLE_ARN" ]] || { echo "Missing repository variable AWS_STAGING_PUBLISH_ROLE_ARN." >&2; exit 1; }
+          [[ -n "$BUCKET" ]] || { echo "Missing repository variable STAGING_DEPLOY_BUCKET." >&2; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
+      - name: Ensure release repositories exist
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+        run: |
+          for repository in waterflex-api waterflex-worker waterflex-web waterflex-migrations; do
+            aws ecr describe-repositories --repository-names "$repository" --region "$AWS_REGION" >/dev/null 2>&1 \
+              || aws ecr create-repository --repository-name "$repository" --region "$AWS_REGION" >/dev/null
+          done
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build and push API
+        id: build_api
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/waterflex-api:${{ steps.release.outputs.sha }}
+          cache-from: type=gha,scope=waterflex-api
+          cache-to: type=gha,mode=max,scope=waterflex-api
+          provenance: mode=max
+          sbom: true
+      - name: Build and push worker
+        id: build_worker
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: backend/Dockerfile.worker
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/waterflex-worker:${{ steps.release.outputs.sha }}
+          cache-from: type=gha,scope=waterflex-worker
+          cache-to: type=gha,mode=max,scope=waterflex-worker
+          provenance: mode=max
+          sbom: true
+      - name: Build and push web
+        id: build_web
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: web/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/waterflex-web:${{ steps.release.outputs.sha }}
+          cache-from: type=gha,scope=waterflex-web
+          cache-to: type=gha,mode=max,scope=waterflex-web
+          provenance: mode=max
+          sbom: true
+      - name: Build and push migration bundle
+        id: build_migrations
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: backend/Dockerfile.migrations
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/waterflex-migrations:${{ steps.release.outputs.sha }}
+          cache-from: type=gha,scope=waterflex-migrations
+          cache-to: type=gha,mode=max,scope=waterflex-migrations
+          provenance: mode=max
+          sbom: true
+      - name: Scan the published API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/waterflex-api:${{ steps.release.outputs.sha }}
+          version: v0.72.0
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Scan the published worker image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/waterflex-worker:${{ steps.release.outputs.sha }}
+          skip-setup-trivy: true
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Scan the published web image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/waterflex-web:${{ steps.release.outputs.sha }}
+          skip-setup-trivy: true
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Scan the published migration image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/waterflex-migrations:${{ steps.release.outputs.sha }}
+          skip-setup-trivy: true
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Package versioned deployment files
+        id: bundle
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
+        run: |
+          tar -czf deployment-bundle.tar.gz \
+            docker-compose.staging.yml \
+            backend/tools/ec2-staging-start.sh \
+            web/nginx/staging.conf
+          SHA256="$(sha256sum deployment-bundle.tar.gz | awk '{print $1}')"
+          SCRIPT_SHA256="$(sha256sum backend/tools/remote-deploy-staging.sh | awk '{print $1}')"
+          PREFIX="s3://$BUCKET/releases/$RELEASE_SHA"
+          aws s3 cp deployment-bundle.tar.gz "$PREFIX/deployment-bundle.tar.gz" --only-show-errors
+          aws s3 cp backend/tools/remote-deploy-staging.sh "$PREFIX/remote-deploy-staging.sh" --only-show-errors
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "uri=$PREFIX/deployment-bundle.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "script_uri=$PREFIX/remote-deploy-staging.sh" >> "$GITHUB_OUTPUT"
+          echo "script_sha256=$SCRIPT_SHA256" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy through AWS Systems Manager
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    steps:
+      - name: Require deployment target
+        env:
+          INSTANCE_ID: ${{ vars.STAGING_INSTANCE_ID }}
+        run: '[[ -n "$INSTANCE_ID" ]] || { echo "Missing repository variable STAGING_INSTANCE_ID." >&2; exit 1; }'
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_STAGING_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
+      - name: Run versioned deployment on EC2
+        env:
+          INSTANCE_ID: ${{ vars.STAGING_INSTANCE_ID }}
+          SCRIPT_URI: ${{ needs.publish.outputs.script_uri }}
+          SCRIPT_SHA256: ${{ needs.publish.outputs.script_sha256 }}
+          BUNDLE_URI: ${{ needs.publish.outputs.bundle_uri }}
+          BUNDLE_SHA256: ${{ needs.publish.outputs.bundle_sha256 }}
+          ECR_REGISTRY: ${{ needs.publish.outputs.registry }}
+          RELEASE_SHA: ${{ needs.publish.outputs.release_sha }}
+          API_DIGEST: ${{ needs.publish.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.publish.outputs.worker_digest }}
+          WEB_DIGEST: ${{ needs.publish.outputs.web_digest }}
+          MIGRATIONS_DIGEST: ${{ needs.publish.outputs.migrations_digest }}
+        run: |
+          PARAMETERS="$(jq -cn \
+            --arg script_uri "$SCRIPT_URI" \
+            --arg script_checksum "$SCRIPT_SHA256" \
+            --arg bundle_uri "$BUNDLE_URI" \
+            --arg checksum "$BUNDLE_SHA256" \
+            --arg registry "$ECR_REGISTRY" \
+            --arg tag "$RELEASE_SHA" \
+            --arg api_digest "$API_DIGEST" \
+            --arg worker_digest "$WORKER_DIGEST" \
+            --arg web_digest "$WEB_DIGEST" \
+            --arg migrations_digest "$MIGRATIONS_DIGEST" \
+            '{commands:[
+              "set -euo pipefail",
+              ("aws s3 cp " + ($script_uri|@sh) + " /tmp/waterflex-remote-deploy.sh --only-show-errors"),
+              ("printf '%s  %s\\n' " + ($script_checksum|@sh) + " /tmp/waterflex-remote-deploy.sh | sha256sum --check --strict -"),
+              "chmod 0700 /tmp/waterflex-remote-deploy.sh",
+              ("/tmp/waterflex-remote-deploy.sh " + ($bundle_uri|@sh) + " " + ($checksum|@sh) + " " + ($registry|@sh) + " " + ($tag|@sh) + " " + ($api_digest|@sh) + " " + ($worker_digest|@sh) + " " + ($web_digest|@sh) + " " + ($migrations_digest|@sh))
+            ]}')"
+          COMMAND_ID="$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Deploy WaterFlex $RELEASE_SHA" \
+            --parameters "$PARAMETERS" \
+            --query 'Command.CommandId' \
+            --output text)"
+          set +e
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID"
+          WAIT_STATUS=$?
+          set -e
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --output json
+          exit "$WAIT_STATUS"
+      - name: Verify public telemetry ingress
+        run: curl --fail --silent --show-error https://telemetry-staging.saltmonitor.dev/health/ready
