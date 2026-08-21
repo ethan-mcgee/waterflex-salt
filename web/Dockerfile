@@ -21,6 +21,7 @@ RUN apk del \
 	&& rm -f /etc/nginx/conf.d/default.conf \
 	&& sed -i '/^user[[:space:]]/d' /etc/nginx/nginx.conf \
 	&& sed -i 's#pid /var/run/nginx.pid;#pid /tmp/nginx.pid;#' /etc/nginx/nginx.conf \
+	&& sed -i -E '/^[[:space:]]*ssl_(protocols|session_cache|session_timeout|session_tickets)[[:space:]]/d' /etc/nginx/nginx.conf \
 	&& mkdir -p /usr/share/nginx/html \
 	&& chown -R nginx:nginx /var/cache/nginx /var/run /etc/nginx /usr/share/nginx/html
 COPY web/nginx/default.conf /etc/nginx/http.d/default.conf
