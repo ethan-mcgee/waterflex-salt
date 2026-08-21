@@ -27,6 +27,22 @@ public sealed class CloudflareStaffAccessGatewayTests
         Assert.DoesNotContain("stale@example.test", handler.PutBodies[1]);
     }
 
+    [Fact]
+    public async Task Synchronize_UsesNonMatchingSentinelWhenAccessTierHasNoMembers()
+    {
+        var handler = new RecordingHandler();
+        var gateway = new CloudflareStaffAccessGateway(new HttpClient(handler), Options.Create(new StaffProvisioningOptions
+        {
+            CloudflareAccountId = "account", CloudflareApiToken = "token",
+            CloudflarePrivilegedGroupId = "privileged", CloudflareDealerGroupId = "dealer"
+        }));
+
+        await gateway.SynchronizeAsync(["ADMIN@EXAMPLE.TEST"], [], CancellationToken.None);
+
+        Assert.Contains("unassigned-waterflex-access@invalid.waterflex.local", handler.PutBodies[1]);
+        Assert.DoesNotContain("stale@example.test", handler.PutBodies[1]);
+    }
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public List<string> PutBodies { get; } = [];

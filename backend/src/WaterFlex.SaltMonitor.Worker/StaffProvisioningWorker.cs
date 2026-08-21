@@ -83,7 +83,10 @@ public sealed class CloudflareStaffAccessGateway(HttpClient client, IOptions<Sta
         getResponse.EnsureSuccessStatusCode();
         var document = JsonNode.Parse(await getResponse.Content.ReadAsStringAsync(ct));
         var result = document?["result"]?.AsObject() ?? throw new InvalidOperationException("Cloudflare Access group response did not include a result.");
-        var include = new JsonArray(emails.Order(StringComparer.OrdinalIgnoreCase).Select(email => (JsonNode?)new JsonObject { ["email"] = new JsonObject { ["email"] = email } }).ToArray());
+        IEnumerable<string> synchronizedEmails = emails.Count > 0
+            ? emails.Order(StringComparer.OrdinalIgnoreCase)
+            : ["unassigned-waterflex-access@invalid.waterflex.local"];
+        var include = new JsonArray(synchronizedEmails.Select(email => (JsonNode?)new JsonObject { ["email"] = new JsonObject { ["email"] = email } }).ToArray());
         var payload = new JsonObject
         {
             ["name"] = result["name"]?.DeepClone(), ["include"] = include,
