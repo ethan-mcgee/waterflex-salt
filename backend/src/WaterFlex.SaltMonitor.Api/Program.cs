@@ -70,12 +70,26 @@ builder.Services.AddAuthorization(options =>
 	options.AddPolicy(DevelopmentIdentity.AuthenticatedPolicy, policy => policy
 		.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
 		.RequireAuthenticatedUser());
+	options.AddPolicy(DevelopmentIdentity.ActivationPolicy, policy => policy
+		.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
+		.RequireAuthenticatedUser()
+		.RequireClaim("staff_activation_candidate", "true"));
 	foreach (var role in Enum.GetValues<StaffRole>())
 	{
 		options.AddPolicy(DevelopmentIdentity.PolicyName(role), policy => policy
 			.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
 			.RequireAuthenticatedUser()
 			.RequireRole(role.ToString()));
+	}
+	foreach (var capability in Enum.GetValues<StaffCapability>())
+	{
+		options.AddPolicy(DevelopmentIdentity.CapabilityPolicyName(capability), policy => policy
+			.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
+			.RequireAuthenticatedUser()
+			.RequireAssertion(context => context.User.Claims
+				.Where(claim => claim.Type == System.Security.Claims.ClaimTypes.Role)
+				.Select(claim => Enum.TryParse<StaffRole>(claim.Value, out var role) ? role : (StaffRole?)null)
+				.Any(role => role?.HasCapability(capability) == true)));
 	}
 });
 if (!builder.Environment.IsDevelopment())
@@ -156,6 +170,18 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 		: StatusCodes.Status500InternalServerError
 });
 app.UseRateLimiter();
+app.Use(async (context, next) =>
+{
+	var isStaffMutation = context.Request.Method is not ("GET" or "HEAD" or "OPTIONS")
+		&& (context.Request.Path.StartsWithSegments("/api/v1/staff-admin") || context.Request.Path.StartsWithSegments("/api/v1/staff/activate"));
+	if (isStaffMutation && context.Request.Headers["X-WaterFlex-Request"] != "console")
+	{
+		context.Response.StatusCode = StatusCodes.Status400BadRequest;
+		await context.Response.WriteAsJsonAsync(new { errorCode = "staff_request_header_required" });
+		return;
+	}
+	await next(context);
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (context, next) =>
@@ -253,12 +279,31 @@ app.MapGet("/api/v1/staff/me", (HttpContext httpContext) =>
 	.Produces<StaffActor>(StatusCodes.Status200OK)
 	.Produces(StatusCodes.Status401Unauthorized);
 
+app.MapPost("/api/v1/staff/activate", async (
+		ActivateStaffInvitationRequest request,
+		HttpContext context,
+		IStaffAccessService service,
+		CancellationToken cancellationToken) =>
+	{
+		var issuer = context.User.FindFirstValue("staff_issuer");
+		var subject = context.User.FindFirstValue("staff_subject");
+		var email = context.User.FindFirstValue(System.Security.Claims.ClaimTypes.Email);
+		if (issuer is null || subject is null || email is null) return Results.Unauthorized();
+		var actor = await service.ActivateInvitationAsync(request.InvitationId, issuer, subject, email, cancellationToken);
+		return actor is null ? Results.Forbid() : Results.Ok(actor);
+	})
+	.RequireAuthorization(DevelopmentIdentity.ActivationPolicy)
+	.WithName("ActivateStaffInvitation")
+	.WithTags("Staff identity");
+
+app.MapStaffAccessEndpoints();
+
 if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 {
 	var technicianApi = app.MapGroup("/api/v1/technician")
 		.WithTags("Technician provisioning")
 		.RequireRateLimiting(RateLimitPolicies.Staff)
-		.RequireStaffRole(StaffRole.DealerTechnician);
+		.RequireStaffCapability(StaffCapability.TechnicianOperations);
 	technicianApi.MapCommissioningSessionEndpoints();
 
 	technicianApi.MapGet("/customers", async (

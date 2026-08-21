@@ -14,7 +14,7 @@ public static class OpsEndpoints
         var opsApi = endpoints.MapGroup("/api/v1/ops")
             .WithTags("Internal operations")
             .RequireRateLimiting(RateLimitPolicies.Staff)
-            .RequireStaffRole(StaffRole.WaterFlexEmployee);
+            .RequireStaffCapability(StaffCapability.FleetOperations);
 
         opsApi.MapGet("/alerts", async (
                 string? status,

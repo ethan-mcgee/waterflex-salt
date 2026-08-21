@@ -216,14 +216,67 @@ public sealed class StaffIdentityRecord
     public required string Issuer { get; set; }
     public required string Subject { get; set; }
     public required string Email { get; set; }
+    public string NormalizedEmail { get; set; } = string.Empty;
     public required string DisplayName { get; set; }
     public StaffRole Role { get; set; }
     public Guid? DealerId { get; set; }
     public bool IsActive { get; set; }
+    public StaffIdentityState State { get; set; }
+    public string? CognitoUsername { get; set; }
+    public DateTimeOffset? ActivatedAtUtc { get; set; }
+    public DateTimeOffset? SuspendedAtUtc { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
     public uint RowVersion { get; set; }
     public Dealer? Dealer { get; set; }
+}
+
+public sealed class StaffInvitation
+{
+    public Guid Id { get; set; }
+    public required string Email { get; set; }
+    public required string NormalizedEmail { get; set; }
+    public required string DisplayName { get; set; }
+    public StaffRole Role { get; set; }
+    public Guid? DealerId { get; set; }
+    public StaffInvitationStatus Status { get; set; }
+    public required string CreatedByStaffId { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? AcceptedAtUtc { get; set; }
+    public Guid? AcceptedStaffIdentityId { get; set; }
+    public string? FailureReason { get; set; }
+    public uint RowVersion { get; set; }
+    public Dealer? Dealer { get; set; }
+    public StaffIdentityRecord? AcceptedStaffIdentity { get; set; }
+}
+
+public sealed class StaffAccessAuditEvent
+{
+    public long Id { get; set; }
+    public required string EventType { get; set; }
+    public required string ActorStaffId { get; set; }
+    public Guid? TargetStaffIdentityId { get; set; }
+    public Guid? InvitationId { get; set; }
+    public required string Reason { get; set; }
+    public required string DetailsJson { get; set; }
+    public DateTimeOffset OccurredAtUtc { get; set; }
+}
+
+public sealed class StaffProvisioningWorkItem
+{
+    public long Id { get; set; }
+    public required string WorkType { get; set; }
+    public StaffProvisioningWorkStatus Status { get; set; }
+    public Guid? StaffIdentityId { get; set; }
+    public Guid? InvitationId { get; set; }
+    public required string IdempotencyKey { get; set; }
+    public required string PayloadJson { get; set; }
+    public int AttemptCount { get; set; }
+    public DateTimeOffset AvailableAtUtc { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? CompletedAtUtc { get; set; }
+    public string? LastError { get; set; }
 }
 
 public sealed class TelemetryHourlySummary

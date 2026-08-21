@@ -7,6 +7,9 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
 {
     public DbSet<Dealer> Dealers => Set<Dealer>();
     public DbSet<StaffIdentityRecord> StaffIdentities => Set<StaffIdentityRecord>();
+    public DbSet<StaffInvitation> StaffInvitations => Set<StaffInvitation>();
+    public DbSet<StaffAccessAuditEvent> StaffAccessAuditEvents => Set<StaffAccessAuditEvent>();
+    public DbSet<StaffProvisioningWorkItem> StaffProvisioningWorkItems => Set<StaffProvisioningWorkItem>();
     public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
     public DbSet<ServiceLocation> ServiceLocations => Set<ServiceLocation>();
     public DbSet<Tank> Tanks => Set<Tank>();
@@ -35,15 +38,62 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(identity => identity.Issuer).HasMaxLength(500);
             entity.Property(identity => identity.Subject).HasMaxLength(200);
             entity.Property(identity => identity.Email).HasMaxLength(320);
+            entity.Property(identity => identity.NormalizedEmail).HasMaxLength(320);
             entity.Property(identity => identity.DisplayName).HasMaxLength(200);
             entity.Property(identity => identity.Role).HasConversion<string>().HasMaxLength(32);
+            entity.Property(identity => identity.State).HasConversion<string>().HasMaxLength(32);
+            entity.Property(identity => identity.CognitoUsername).HasMaxLength(200);
             entity.Property(identity => identity.RowVersion).IsRowVersion();
             entity.HasIndex(identity => new { identity.Issuer, identity.Subject }).IsUnique();
+            entity.HasIndex(identity => identity.NormalizedEmail).IsUnique();
             entity.HasIndex(identity => new { identity.IsActive, identity.Role });
             entity.HasOne(identity => identity.Dealer)
                 .WithMany()
                 .HasForeignKey(identity => identity.DealerId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StaffInvitation>(entity =>
+        {
+            entity.ToTable("StaffInvitations");
+            entity.HasKey(invitation => invitation.Id);
+            entity.Property(invitation => invitation.Email).HasMaxLength(320);
+            entity.Property(invitation => invitation.NormalizedEmail).HasMaxLength(320);
+            entity.Property(invitation => invitation.DisplayName).HasMaxLength(200);
+            entity.Property(invitation => invitation.Role).HasConversion<string>().HasMaxLength(32);
+            entity.Property(invitation => invitation.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(invitation => invitation.CreatedByStaffId).HasMaxLength(100);
+            entity.Property(invitation => invitation.FailureReason).HasMaxLength(1000);
+            entity.Property(invitation => invitation.RowVersion).IsRowVersion();
+            entity.HasIndex(invitation => invitation.NormalizedEmail)
+                .HasFilter("\"Status\" IN ('PendingProvisioning', 'Ready')")
+                .IsUnique();
+            entity.HasOne(invitation => invitation.Dealer).WithMany().HasForeignKey(invitation => invitation.DealerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(invitation => invitation.AcceptedStaffIdentity).WithMany().HasForeignKey(invitation => invitation.AcceptedStaffIdentityId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StaffAccessAuditEvent>(entity =>
+        {
+            entity.ToTable("StaffAccessAuditEvents");
+            entity.HasKey(audit => audit.Id);
+            entity.Property(audit => audit.EventType).HasMaxLength(100);
+            entity.Property(audit => audit.ActorStaffId).HasMaxLength(100);
+            entity.Property(audit => audit.Reason).HasMaxLength(500);
+            entity.Property(audit => audit.DetailsJson).HasColumnType("jsonb");
+            entity.HasIndex(audit => audit.OccurredAtUtc);
+        });
+
+        modelBuilder.Entity<StaffProvisioningWorkItem>(entity =>
+        {
+            entity.ToTable("StaffProvisioningWorkItems");
+            entity.HasKey(work => work.Id);
+            entity.Property(work => work.WorkType).HasMaxLength(100);
+            entity.Property(work => work.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(work => work.IdempotencyKey).HasMaxLength(200);
+            entity.Property(work => work.PayloadJson).HasColumnType("jsonb");
+            entity.Property(work => work.LastError).HasMaxLength(2000);
+            entity.HasIndex(work => work.IdempotencyKey).IsUnique();
+            entity.HasIndex(work => new { work.Status, work.AvailableAtUtc });
         });
 
         modelBuilder.Entity<Dealer>(entity =>

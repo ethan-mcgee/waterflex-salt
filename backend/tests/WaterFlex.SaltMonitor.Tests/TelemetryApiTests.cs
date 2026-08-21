@@ -100,7 +100,7 @@ public sealed class TelemetryApiTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", token);
         var heartbeat = new DeviceHealthHeartbeat(
             1,
-            "pwm-pilot-0.1",
+            "uart-pilot-0.1",
             DateTimeOffset.UtcNow,
             12_000,
             SensorHealthStatus.Faulted,
@@ -117,7 +117,7 @@ public sealed class TelemetryApiTests
         Assert.Equal(0, await factory.CountReadingsAsync());
         Assert.Equal(SensorHealthStatus.Faulted, device.LastSensorStatus);
         Assert.Equal(SensorFaultCode.ReadTimeout, device.LastSensorFault);
-        Assert.Equal("pwm-pilot-0.1", device.LastHealthFirmwareVersion);
+        Assert.Equal("uart-pilot-0.1", device.LastHealthFirmwareVersion);
         Assert.Equal(3, device.LastDroppedReadingCount);
         Assert.NotNull(device.LastHealthReportedAtUtc);
     }
@@ -132,7 +132,7 @@ public sealed class TelemetryApiTests
         var body = """
             {
               "schemaVersion": 1,
-              "firmwareVersion": "pwm-pilot-0.1",
+              "firmwareVersion": "uart-pilot-0.1",
               "uptimeMilliseconds": 12000,
               "sensorStatus": 99,
               "sensorFault": null,

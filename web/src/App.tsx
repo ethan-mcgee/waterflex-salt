@@ -1,14 +1,20 @@
-import { AlertTriangle, Droplets, ExternalLink, Gauge, HelpCircle, RadioTower } from 'lucide-react';
+import { AlertTriangle, Droplets, ExternalLink, Gauge, HelpCircle, RadioTower, Users } from 'lucide-react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { DevelopmentIdentitySelector } from './development/DevelopmentIdentity';
+import { DevelopmentIdentitySelector, useDevelopmentIdentity } from './development/DevelopmentIdentity';
 import DeviceDetailPage from './ops/DeviceDetailPage';
 import FleetPage from './ops/FleetPage';
 import AlertsPage from './ops/AlertsPage';
 import ProvisioningWorkflow from './provisioning/ProvisioningWorkflow';
+import StaffPage from './staff/StaffPage';
 
 export default function App() {
   const location = useLocation();
-  const section = location.pathname.startsWith('/provision') ? 'Sensor provisioning' : 'Fleet operations';
+  const { currentUser } = useDevelopmentIdentity();
+  const canOperateFleet = currentUser?.role === 'waterFlexEmployee' || currentUser?.role === 'waterFlexAdministrator';
+  const canProvision = currentUser?.role === 'dealerTechnician' || currentUser?.role === 'dealerAdministrator';
+  const canManageStaff = currentUser?.role === 'dealerAdministrator' || currentUser?.role === 'waterFlexAdministrator';
+  const home = canOperateFleet ? '/fleet' : canProvision ? '/provision' : '/fleet';
+  const section = location.pathname.startsWith('/provision') ? 'Sensor provisioning' : location.pathname.startsWith('/staff') ? 'Staff administration' : 'Fleet operations';
 
   return (
     <div className="app-shell">
@@ -18,9 +24,10 @@ export default function App() {
           <span><strong>WaterFlex</strong><small>FieldOps</small></span>
         </Link>
         <nav className="primary-nav" aria-label="FieldOps sections">
-          <NavLink to="/fleet"><Gauge size={16} /> Fleet</NavLink>
-          <NavLink to="/alerts"><AlertTriangle size={16} /> Alerts</NavLink>
-          <NavLink to="/provision"><RadioTower size={16} /> Provision</NavLink>
+          {canOperateFleet && <NavLink to="/fleet"><Gauge size={16} /> Fleet</NavLink>}
+          {canOperateFleet && <NavLink to="/alerts"><AlertTriangle size={16} /> Alerts</NavLink>}
+          {canProvision && <NavLink to="/provision"><RadioTower size={16} /> Provision</NavLink>}
+          {canManageStaff && <NavLink to="/staff"><Users size={16} /> Staff</NavLink>}
         </nav>
         <div className="header-context">
           <span className="environment-badge">Pilot</span>
@@ -37,12 +44,13 @@ export default function App() {
       </header>
       <main className="app-main">
         <Routes>
-          <Route index element={<Navigate to="/fleet" replace />} />
-          <Route path="fleet" element={<FleetPage />} />
-          <Route path="fleet/:deviceId" element={<DeviceDetailPage />} />
-          <Route path="alerts" element={<AlertsPage />} />
-          <Route path="provision" element={<ProvisioningWorkflow />} />
-          <Route path="*" element={<Navigate to="/fleet" replace />} />
+          <Route index element={<Navigate to={home} replace />} />
+          <Route path="fleet" element={canOperateFleet ? <FleetPage /> : <Navigate to={home} replace />} />
+          <Route path="fleet/:deviceId" element={canOperateFleet ? <DeviceDetailPage /> : <Navigate to={home} replace />} />
+          <Route path="alerts" element={canOperateFleet ? <AlertsPage /> : <Navigate to={home} replace />} />
+          <Route path="provision" element={canProvision ? <ProvisioningWorkflow /> : <Navigate to={home} replace />} />
+          <Route path="staff" element={canManageStaff ? <StaffPage /> : <Navigate to={home} replace />} />
+          <Route path="*" element={<Navigate to={home} replace />} />
         </Routes>
       </main>
     </div>

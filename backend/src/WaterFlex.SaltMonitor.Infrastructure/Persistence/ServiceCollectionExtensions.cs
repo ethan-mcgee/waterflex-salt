@@ -62,6 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFleetQueryService, EfFleetQueryService>();
         services.AddScoped<IAlertOperationsService, EfAlertOperationsService>();
         services.AddScoped<IAlertWorkProcessor, EfAlertWorkProcessor>();
+        services.AddScoped<IStaffAccessService, EfStaffAccessService>();
         services.AddScoped<IFactoryDeviceRegistrationService, EfFactoryDeviceRegistrationService>();
         services.AddScoped<ICommissioningSessionService, EfCommissioningSessionService>();
         services.AddScoped<IDeviceBootstrapActivationService, EfDeviceBootstrapActivationService>();

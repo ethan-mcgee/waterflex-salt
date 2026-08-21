@@ -95,7 +95,7 @@ public sealed class FleetQueryServiceTests
         reporting.Device.LastSensorStatus = SensorHealthStatus.Faulted;
         reporting.Device.LastSensorFault = SensorFaultCode.ReadTimeout;
         reporting.Device.LastHealthReportedAtUtc = Now;
-        reporting.Device.LastHealthFirmwareVersion = "pwm-pilot-0.1";
+        reporting.Device.LastHealthFirmwareVersion = "uart-pilot-0.1";
         reporting.Device.LastHealthWifiRssiDbm = -72;
         await database.Context.SaveChangesAsync();
         var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
@@ -107,7 +107,7 @@ public sealed class FleetQueryServiceTests
         Assert.Equal(DeviceReportingStatus.Stale, device.ReportingStatus);
         Assert.Equal(SensorHealthStatus.Faulted, device.SensorStatus);
         Assert.Equal(SensorFaultCode.ReadTimeout, device.SensorFault);
-        Assert.Equal("pwm-pilot-0.1", device.FirmwareVersion);
+        Assert.Equal("uart-pilot-0.1", device.FirmwareVersion);
         Assert.Equal(-72, device.WifiRssiDbm);
     }
 

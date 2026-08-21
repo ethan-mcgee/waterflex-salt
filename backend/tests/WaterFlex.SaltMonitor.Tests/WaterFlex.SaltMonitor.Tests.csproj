@@ -20,5 +20,6 @@
     <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Ingestion/WaterFlex.SaltMonitor.Ingestion.csproj" />
     <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Operations/WaterFlex.SaltMonitor.Operations.csproj" />
     <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Provisioning/WaterFlex.SaltMonitor.Provisioning.csproj" />
+    <ProjectReference Include="../../src/WaterFlex.SaltMonitor.Worker/WaterFlex.SaltMonitor.Worker.csproj" />
   </ItemGroup>
 </Project>

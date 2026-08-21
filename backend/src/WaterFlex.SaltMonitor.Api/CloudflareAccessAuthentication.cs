@@ -182,7 +182,17 @@ public sealed class StaffAuthenticationHandler(
                 Context.RequestAborted);
         if (record is null)
         {
-            return AuthenticateResult.Fail("Cloudflare Access identity is not authorized.");
+            var email = accessPrincipal?.FindFirstValue(ClaimTypes.Email) ?? accessPrincipal?.FindFirstValue("email");
+            if (string.IsNullOrWhiteSpace(email)) return AuthenticateResult.Fail("Cloudflare Access identity is not authorized.");
+            var normalizedEmail = email.Trim().ToUpperInvariant();
+            var invitation = await dbContext.StaffInvitations.AsNoTracking().SingleOrDefaultAsync(
+                item => item.NormalizedEmail == normalizedEmail
+                    && item.Status == StaffInvitationStatus.Ready
+                    && item.ExpiresAtUtc > DateTimeOffset.UtcNow,
+                Context.RequestAborted);
+            return invitation is null
+                ? AuthenticateResult.Fail("Cloudflare Access identity is not authorized.")
+                : ActivationCandidate(issuer, subject, email, invitation.Id);
         }
 
         var actor = new StaffActor(
@@ -222,5 +232,16 @@ public sealed class StaffAuthenticationHandler(
 
         var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, SchemeName));
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
+    }
+
+    private static AuthenticateResult ActivationCandidate(string issuer, string subject, string email, Guid invitationId)
+    {
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, subject), new Claim(ClaimTypes.Email, email),
+            new Claim("staff_issuer", issuer), new Claim("staff_subject", subject),
+            new Claim("staff_activation_candidate", "true"), new Claim("staff_invitation_id", invitationId.ToString("D"))
+        };
+        return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, SchemeName)), SchemeName));
     }
 }

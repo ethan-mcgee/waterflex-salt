@@ -7,7 +7,14 @@ public sealed class DevelopmentIdentityDirectory : IDevelopmentIdentityDirectory
 {
     private static readonly IReadOnlyList<StaffActor> Users =
     [
+        new("wf-admin-avery", "Avery Patel", StaffRole.WaterFlexAdministrator, null, null),
         new("wf-ops-alex", "Alex Morgan", StaffRole.WaterFlexEmployee, null, null),
+        new(
+            "north-star-admin-taylor",
+            "Taylor Brooks",
+            StaffRole.DealerAdministrator,
+            "WF-D-NORTH-STAR",
+            "North Star Water Systems"),
         new(
             "north-star-jordan",
             "Jordan Lee",
