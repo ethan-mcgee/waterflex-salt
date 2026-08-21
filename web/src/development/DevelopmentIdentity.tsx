@@ -98,7 +98,12 @@ export function DevelopmentIdentityProvider({
   return (
     <DevelopmentIdentityContext.Provider value={{ users, selectedUserId, currentUser, selectUser }}>
       {status === 'active' ? children : (
-        <IdentityStatusPage status={status} onRetry={() => setRetry((value) => value + 1)} />
+        <IdentityStatusPage
+          status={status}
+          // Unauthorized needs a real navigation, not just a re-fetch: Cloudflare Access
+          // only silently renews an expired session cookie during a top-level navigation.
+          onRetry={status === 'unauthorized' ? () => window.location.reload() : () => setRetry((value) => value + 1)}
+        />
       )}
     </DevelopmentIdentityContext.Provider>
   );
