@@ -132,7 +132,7 @@ echo "Validating the staging Nginx configuration."
 
 echo "Verifying the same-origin health endpoint."
 "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T web \
-  wget --quiet --output-document=- http://127.0.0.1/health/ready >/dev/null
+  wget --quiet --output-document=- http://127.0.0.1:8080/health/ready >/dev/null
 
 echo "Verifying the operations endpoint is mapped and protected."
 OPS_STATUS="$("${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" exec -T api \
