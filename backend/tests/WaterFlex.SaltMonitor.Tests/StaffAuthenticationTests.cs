@@ -46,6 +46,55 @@ public sealed class StaffAuthenticationTests
     }
 
     [Fact]
+    public async Task InvitedUser_SessionActivatesAutomaticallyAndActivationIsIdempotent()
+    {
+        await using var factory = new StaffApiFactory();
+        await factory.InitializeAsync();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+            database.StaffInvitations.Add(new StaffInvitation
+            {
+                Id = Guid.NewGuid(),
+                Email = "invited.admin@example.test",
+                NormalizedEmail = "INVITED.ADMIN@EXAMPLE.TEST",
+                DisplayName = "Invited Administrator",
+                Role = StaffRole.WaterFlexAdministrator,
+                Status = StaffInvitationStatus.Ready,
+                CreatedByStaffId = "system:test",
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(1)
+            });
+            await database.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateHttpsClient();
+        client.DefaultRequestHeaders.Add(StaffAuthenticationHandler.AccessAssertionHeader, "invited-administrator");
+        var sessionResponse = await client.GetAsync("/api/v1/staff/session");
+        var session = JsonDocument.Parse(await sessionResponse.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, sessionResponse.StatusCode);
+        Assert.Equal("activationRequired", session.RootElement.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, session.RootElement.GetProperty("user").ValueKind);
+
+        using var firstActivation = new HttpRequestMessage(HttpMethod.Post, "/api/v1/staff/activate");
+        firstActivation.Headers.Add("X-WaterFlex-Request", "console");
+        var firstResponse = await client.SendAsync(firstActivation);
+        using var secondActivation = new HttpRequestMessage(HttpMethod.Post, "/api/v1/staff/activate");
+        secondActivation.Headers.Add("X-WaterFlex-Request", "console");
+        var secondResponse = await client.SendAsync(secondActivation);
+
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDatabase = verificationScope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+        Assert.Equal(1, await verificationDatabase.StaffIdentities.CountAsync(
+            item => item.NormalizedEmail == "INVITED.ADMIN@EXAMPLE.TEST"));
+        Assert.Equal(1, await verificationDatabase.StaffAccessAuditEvents.CountAsync(
+            item => item.EventType == "staff.invitation.accepted"));
+    }
+
+    [Fact]
     public async Task Staging_RejectsDealerTechnicianFromWaterFlexOperations()
     {
         await using var factory = new StaffApiFactory();
@@ -249,15 +298,16 @@ public sealed class StaffAuthenticationTests
     {
         public Task<ClaimsPrincipal?> ValidateAsync(string token, CancellationToken cancellationToken)
         {
-            var subject = token switch
+            var identityData = token switch
             {
-                "waterflex-employee" => "employee-subject",
-                "dealer-technician" => "dealer-subject",
-                "waterflex-administrator" => "administrator-subject",
-                "dealer-administrator" => "dealer-administrator-subject",
-                _ => null
+                "waterflex-employee" => (Subject: "employee-subject", Email: (string?)null),
+                "dealer-technician" => (Subject: "dealer-subject", Email: (string?)null),
+                "waterflex-administrator" => (Subject: "administrator-subject", Email: (string?)null),
+                "dealer-administrator" => (Subject: "dealer-administrator-subject", Email: (string?)null),
+                "invited-administrator" => (Subject: "invited-administrator-subject", Email: "invited.admin@example.test"),
+                _ => (Subject: (string?)null, Email: (string?)null)
             };
-            if (subject is null)
+            if (identityData.Subject is null)
             {
                 return Task.FromResult<ClaimsPrincipal?>(null);
             }
@@ -265,8 +315,9 @@ public sealed class StaffAuthenticationTests
             var identity = new ClaimsIdentity(
             [
                 new Claim("iss", issuer),
-                new Claim("sub", subject)
+                new Claim("sub", identityData.Subject)
             ], "TestCloudflareAccess");
+            if (identityData.Email is not null) identity.AddClaim(new Claim(ClaimTypes.Email, identityData.Email));
             return Task.FromResult<ClaimsPrincipal?>(new ClaimsPrincipal(identity));
         }
     }

@@ -41,7 +41,7 @@ public sealed record ChangeStaffRoleRequest(
 
 public sealed record ChangeStaffStateRequest(string Reason, uint RowVersion);
 
-public sealed record ActivateStaffInvitationRequest(Guid InvitationId);
+public sealed record StaffSessionSummary(string Status, StaffActor? User);
 
 public interface IStaffAccessService
 {

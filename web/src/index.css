@@ -75,6 +75,53 @@ button:disabled {
   min-height: 100vh;
 }
 
+.identity-state-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 28px;
+}
+
+.identity-state-card {
+  display: grid;
+  width: min(460px, 100%);
+  justify-items: center;
+  gap: 16px;
+  padding: 42px 34px;
+  color: var(--ink-soft);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.identity-state-card h1,
+.identity-state-card p {
+  margin: 0;
+}
+
+.identity-state-card h1 {
+  color: var(--ink);
+  font-size: 24px;
+}
+
+.identity-state-card p {
+  max-width: 360px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.identity-state-mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  color: #7fcef4;
+  background: var(--nav);
+  border-radius: 10px;
+}
+
 .app-header {
   position: relative;
   z-index: 10;

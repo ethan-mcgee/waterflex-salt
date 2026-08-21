@@ -270,30 +270,55 @@ if (app.Environment.IsDevelopment())
 
 }
 
+app.MapGet("/api/v1/staff/session", (HttpContext httpContext) =>
+	{
+		if (httpContext.User.HasClaim("staff_activation_candidate", "true"))
+		{
+			return Results.Ok(new StaffSessionSummary("activationRequired", null));
+		}
+
+		return Results.Ok(new StaffSessionSummary("active", httpContext.GetStaffActor()));
+	})
+	.RequireAuthorization(DevelopmentIdentity.AuthenticatedPolicy)
+	.WithName("GetCurrentStaffSession")
+	.WithSummary("Get the authenticated WaterFlex staff session state")
+	.WithTags("Staff identity")
+	.Produces<StaffSessionSummary>(StatusCodes.Status200OK)
+	.Produces(StatusCodes.Status401Unauthorized);
+
 app.MapGet("/api/v1/staff/me", (HttpContext httpContext) =>
 		Results.Ok(httpContext.GetStaffActor()))
 	.RequireAuthorization(DevelopmentIdentity.AuthenticatedPolicy)
 	.WithName("GetCurrentStaffIdentity")
-	.WithSummary("Get the authenticated WaterFlex staff identity")
+	.WithSummary("Get the active WaterFlex staff identity")
 	.WithTags("Staff identity")
 	.Produces<StaffActor>(StatusCodes.Status200OK)
 	.Produces(StatusCodes.Status401Unauthorized);
 
 app.MapPost("/api/v1/staff/activate", async (
-		ActivateStaffInvitationRequest request,
 		HttpContext context,
 		IStaffAccessService service,
 		CancellationToken cancellationToken) =>
 	{
+		if (!context.User.HasClaim("staff_activation_candidate", "true"))
+		{
+			return Results.Ok(context.GetStaffActor());
+		}
+
 		var issuer = context.User.FindFirstValue("staff_issuer");
 		var subject = context.User.FindFirstValue("staff_subject");
 		var email = context.User.FindFirstValue(System.Security.Claims.ClaimTypes.Email);
-		if (issuer is null || subject is null || email is null) return Results.Unauthorized();
-		var actor = await service.ActivateInvitationAsync(request.InvitationId, issuer, subject, email, cancellationToken);
+		var invitationValue = context.User.FindFirstValue("staff_invitation_id");
+		if (issuer is null || subject is null || email is null || !Guid.TryParse(invitationValue, out var invitationId))
+		{
+			return Results.Unauthorized();
+		}
+		var actor = await service.ActivateInvitationAsync(invitationId, issuer, subject, email, cancellationToken);
 		return actor is null ? Results.Forbid() : Results.Ok(actor);
 	})
-	.RequireAuthorization(DevelopmentIdentity.ActivationPolicy)
+	.RequireAuthorization(DevelopmentIdentity.AuthenticatedPolicy)
 	.WithName("ActivateStaffInvitation")
+	.WithSummary("Activate the current authenticated staff invitation")
 	.WithTags("Staff identity");
 
 app.MapStaffAccessEndpoints();
