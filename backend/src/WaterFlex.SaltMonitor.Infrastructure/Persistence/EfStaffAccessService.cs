@@ -79,7 +79,6 @@ public sealed class EfStaffAccessService(SaltMonitorDbContext dbContext, TimePro
         var dealer = await ResolveDealerAsync(request.Role, request.DealerExternalId, cancellationToken);
         var before = new { staff.Role, Dealer = staff.Dealer?.ExternalId };
         staff.Role = request.Role; staff.DealerId = dealer?.Id; staff.Dealer = dealer; staff.UpdatedAtUtc = timeProvider.GetUtcNow();
-        staff.IsActive = false; staff.State = StaffIdentityState.Deprovisioning;
         QueueStaffSync(staff, "SynchronizeRole");
         AddAudit("staff.role.changed", actor, staff.Id, null, RequireReason(request.Reason), new { Before = before, After = new { staff.Role, Dealer = dealer?.ExternalId } });
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -119,8 +118,9 @@ public sealed class EfStaffAccessService(SaltMonitorDbContext dbContext, TimePro
         if (staff.RowVersion != request.RowVersion) throw new StaffAccessConflictException("The staff record changed; refresh before retrying.");
         if (state == StaffIdentityState.Suspended) await ProtectLastAdministratorAsync(staff, null, cancellationToken);
         var requestedState = state;
-        staff.State = state == StaffIdentityState.Active ? StaffIdentityState.Deprovisioning : state;
-        staff.IsActive = false; staff.UpdatedAtUtc = timeProvider.GetUtcNow();
+        staff.State = state;
+        staff.IsActive = state == StaffIdentityState.Active;
+        staff.UpdatedAtUtc = timeProvider.GetUtcNow();
         staff.SuspendedAtUtc = requestedState == StaffIdentityState.Suspended ? staff.UpdatedAtUtc : null;
         QueueStaffSync(staff, state == StaffIdentityState.Active ? "ReactivateIdentity" : "SuspendIdentity");
         AddAudit(requestedState == StaffIdentityState.Active ? "staff.reactivation.requested" : "staff.suspended", actor, staff.Id, null, RequireReason(request.Reason), new { RequestedState = requestedState });
