@@ -162,6 +162,6 @@ if ! systemctl is-active --quiet waterflex-api.service; then
 fi
 
 cd "${DEPLOY_ROOT}"
-docker compose -f docker-compose.staging.yml ps
+docker compose --env-file "${ENV_FILE}" -f docker-compose.staging.yml ps
 trap - ERR
 echo "WaterFlex staging deployed image tag ${IMAGE_TAG_VALUE}."
