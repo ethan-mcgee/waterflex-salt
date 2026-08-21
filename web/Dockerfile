@@ -20,7 +20,8 @@ RUN apk del \
 	&& apk upgrade --no-cache \
 	&& rm -f /etc/nginx/conf.d/default.conf \
 	&& sed -i '/^user[[:space:]]/d' /etc/nginx/nginx.conf \
-	&& sed -i 's#pid /var/run/nginx.pid;#pid /tmp/nginx.pid;#' /etc/nginx/nginx.conf \
+	&& sed -i -E '/^[[:space:]]*pid[[:space:]]/d' /etc/nginx/nginx.conf \
+	&& sed -i '1ipid /tmp/nginx.pid;' /etc/nginx/nginx.conf \
 	&& sed -i -E '/^[[:space:]]*ssl_(protocols|session_cache|session_timeout|session_tickets)[[:space:]]/d' /etc/nginx/nginx.conf \
 	&& mkdir -p /usr/share/nginx/html \
 	&& chown -R nginx:nginx /var/cache/nginx /var/run /etc/nginx /usr/share/nginx/html
