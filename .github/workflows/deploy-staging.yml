@@ -53,6 +53,26 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ steps.release.outputs.sha }}
+      - name: Verify GitHub OIDC claims
+        shell: bash
+        run: |
+          RESPONSE="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
+          TOKEN="$(jq -r '.value' <<<"$RESPONSE")"
+          export OIDC_PAYLOAD="$(cut -d. -f2 <<<"$TOKEN")"
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+
+          payload = os.environ["OIDC_PAYLOAD"]
+          payload += "=" * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+          allowed = ("aud", "sub", "repository", "ref", "workflow", "job_workflow_ref")
+          print(json.dumps({key: claims.get(key) for key in allowed}, sort_keys=True))
+          PY
+          unset TOKEN OIDC_PAYLOAD RESPONSE
       - name: Require deployment configuration
         env:
           ROLE_ARN: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
