@@ -59,10 +59,6 @@ ACTUAL_SHA256="$(sha256sum "${TEMP_DIR}/deployment-bundle.tar.gz" | awk '{print 
 [[ "${ACTUAL_SHA256}" == "${EXPECTED_SHA256}" ]] || { echo "Deployment bundle checksum mismatch." >&2; exit 1; }
 tar -xzf "${TEMP_DIR}/deployment-bundle.tar.gz" -C "${TEMP_DIR}"
 
-install -m 0644 "${TEMP_DIR}/docker-compose.staging.yml" "${DEPLOY_ROOT}/docker-compose.staging.yml"
-install -m 0755 "${TEMP_DIR}/backend/tools/ec2-staging-start.sh" "${DEPLOY_ROOT}/backend/tools/ec2-staging-start.sh"
-install -m 0644 "${TEMP_DIR}/web/nginx/staging.conf" "${DEPLOY_ROOT}/web/nginx/staging.conf"
-
 set_environment_value() {
   local key="$1"
   local value="$2"
@@ -96,6 +92,11 @@ deployment_error() {
 }
 
 trap 'deployment_error $?' ERR
+
+systemctl stop waterflex-api.service
+install -m 0644 "${TEMP_DIR}/docker-compose.staging.yml" "${DEPLOY_ROOT}/docker-compose.staging.yml"
+install -m 0755 "${TEMP_DIR}/backend/tools/ec2-staging-start.sh" "${DEPLOY_ROOT}/backend/tools/ec2-staging-start.sh"
+install -m 0644 "${TEMP_DIR}/web/nginx/staging.conf" "${DEPLOY_ROOT}/web/nginx/staging.conf"
 
 set_environment_value ECR_REGISTRY "${ECR_REGISTRY_VALUE}"
 set_environment_value IMAGE_TAG "${IMAGE_TAG_VALUE}"
@@ -142,7 +143,6 @@ aws ecr get-login-password --region "${AWS_REGION_VALUE}" \
   | docker login --username AWS --password-stdin "${ECR_REGISTRY_VALUE}" >/dev/null
 MIGRATION_IMAGE="${ECR_REGISTRY_VALUE}/waterflex-migrations@${MIGRATIONS_DIGEST}"
 docker pull "${MIGRATION_IMAGE}"
-systemctl stop waterflex-api.service
 if ! printf '%s\n' "${MIGRATION_CONNECTION_STRING}" | docker run --rm --interactive \
   --volume /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro \
   "${MIGRATION_IMAGE}"; then
