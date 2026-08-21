@@ -230,7 +230,7 @@ jobs:
             '{commands:[
               "set -euo pipefail",
               ("aws s3 cp " + ($script_uri|@sh) + " /tmp/waterflex-remote-deploy.sh --only-show-errors"),
-              ("printf '%s  %s\\n' " + ($script_checksum|@sh) + " /tmp/waterflex-remote-deploy.sh | sha256sum --check --strict -"),
+              ("printf \"%s\\n\" " + (($script_checksum + "  /tmp/waterflex-remote-deploy.sh")|@sh) + " | sha256sum --check --strict -"),
               "chmod 0700 /tmp/waterflex-remote-deploy.sh",
               ("/tmp/waterflex-remote-deploy.sh " + ($bundle_uri|@sh) + " " + ($checksum|@sh) + " " + ($registry|@sh) + " " + ($tag|@sh) + " " + ($api_digest|@sh) + " " + ($worker_digest|@sh) + " " + ($web_digest|@sh) + " " + ($migrations_digest|@sh))
             ]}')"
