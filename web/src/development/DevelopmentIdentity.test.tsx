@@ -72,4 +72,17 @@ describe('production staff identity', () => {
     await waitFor(() => expect(screen.getByText('WaterFlex Administrator')).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('reloads the page instead of re-fetching when retrying an unauthorized session', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const reloadMock = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload: reloadMock });
+
+    render(<DevelopmentIdentityProvider mode="production"><CurrentUser /></DevelopmentIdentityProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
