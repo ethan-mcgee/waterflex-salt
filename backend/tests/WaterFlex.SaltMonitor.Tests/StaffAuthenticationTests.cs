@@ -194,6 +194,79 @@ public sealed class StaffAuthenticationTests
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
+    [Fact]
+    public async Task RoleChange_KeepsStaffIdentityActiveAndAbleToSignIn()
+    {
+        await using var factory = new StaffApiFactory();
+        await factory.InitializeAsync();
+        using var adminClient = factory.CreateHttpsClient();
+        adminClient.DefaultRequestHeaders.Add(StaffAuthenticationHandler.AccessAssertionHeader, "waterflex-administrator");
+        adminClient.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
+        var staff = JsonDocument.Parse(await (await adminClient.GetAsync("/api/v1/staff-admin/staff")).Content.ReadAsStringAsync());
+        var operatorStaff = staff.RootElement.EnumerateArray().Single(item => item.GetProperty("email").GetString() == "operator@example.test");
+
+        var changeResponse = await adminClient.PutAsJsonAsync($"/api/v1/staff-admin/staff/{operatorStaff.GetProperty("id").GetGuid()}/role", new
+        {
+            role = "waterFlexAdministrator", dealerExternalId = (string?)null,
+            reason = "Promoting to administrator", rowVersion = operatorStaff.GetProperty("rowVersion").GetUInt32()
+        });
+        Assert.Equal(HttpStatusCode.OK, changeResponse.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var database = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+        var record = await database.StaffIdentities.SingleAsync(item => item.NormalizedEmail == "OPERATOR@EXAMPLE.TEST");
+        Assert.True(record.IsActive);
+        Assert.Equal(StaffIdentityState.Active, record.State);
+
+        using var operatorClient = factory.CreateHttpsClient();
+        operatorClient.DefaultRequestHeaders.Add(StaffAuthenticationHandler.AccessAssertionHeader, "waterflex-employee");
+        var sessionResponse = await operatorClient.GetAsync("/api/v1/staff/session");
+        Assert.Equal(HttpStatusCode.OK, sessionResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reactivate_ImmediatelyRestoresAccessWithoutWaitingForProvisioningWorker()
+    {
+        await using var factory = new StaffApiFactory();
+        await factory.InitializeAsync();
+        using var adminClient = factory.CreateHttpsClient();
+        adminClient.DefaultRequestHeaders.Add(StaffAuthenticationHandler.AccessAssertionHeader, "waterflex-administrator");
+        adminClient.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
+        var staffBeforeSuspend = JsonDocument.Parse(await (await adminClient.GetAsync("/api/v1/staff-admin/staff")).Content.ReadAsStringAsync());
+        var technician = staffBeforeSuspend.RootElement.EnumerateArray().Single(item => item.GetProperty("email").GetString() == "technician@example.test");
+
+        var suspendResponse = await adminClient.PostAsJsonAsync($"/api/v1/staff-admin/staff/{technician.GetProperty("id").GetGuid()}/suspend", new
+        {
+            reason = "Temporary suspension", rowVersion = technician.GetProperty("rowVersion").GetUInt32()
+        });
+        Assert.Equal(HttpStatusCode.OK, suspendResponse.StatusCode);
+
+        await using (var suspendScope = factory.Services.CreateAsyncScope())
+        {
+            var database = suspendScope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+            Assert.False((await database.StaffIdentities.SingleAsync(item => item.NormalizedEmail == "TECHNICIAN@EXAMPLE.TEST")).IsActive);
+        }
+
+        var staffAfterSuspend = JsonDocument.Parse(await (await adminClient.GetAsync("/api/v1/staff-admin/staff")).Content.ReadAsStringAsync());
+        var suspendedTechnician = staffAfterSuspend.RootElement.EnumerateArray().Single(item => item.GetProperty("email").GetString() == "technician@example.test");
+        var reactivateResponse = await adminClient.PostAsJsonAsync($"/api/v1/staff-admin/staff/{suspendedTechnician.GetProperty("id").GetGuid()}/reactivate", new
+        {
+            reason = "Restoring access", rowVersion = suspendedTechnician.GetProperty("rowVersion").GetUInt32()
+        });
+        Assert.Equal(HttpStatusCode.OK, reactivateResponse.StatusCode);
+
+        await using var reactivateScope = factory.Services.CreateAsyncScope();
+        var reactivatedDatabase = reactivateScope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+        var record = await reactivatedDatabase.StaffIdentities.SingleAsync(item => item.NormalizedEmail == "TECHNICIAN@EXAMPLE.TEST");
+        Assert.True(record.IsActive);
+        Assert.Equal(StaffIdentityState.Active, record.State);
+
+        using var technicianClient = factory.CreateHttpsClient();
+        technicianClient.DefaultRequestHeaders.Add(StaffAuthenticationHandler.AccessAssertionHeader, "dealer-technician");
+        var sessionResponse = await technicianClient.GetAsync("/api/v1/staff/session");
+        Assert.Equal(HttpStatusCode.OK, sessionResponse.StatusCode);
+    }
+
     private sealed class StaffApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
     {
         private const string Issuer = "https://waterflex.cloudflareaccess.com";
