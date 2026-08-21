@@ -43,8 +43,13 @@ sudoedit /etc/waterflex/tls/origin.pem
 sudoedit /etc/waterflex/tls/origin.key
 sudo chown root:root /etc/waterflex/tls/origin.pem /etc/waterflex/tls/origin.key
 sudo chmod 0644 /etc/waterflex/tls/origin.pem
-sudo chmod 0600 /etc/waterflex/tls/origin.key
+sudo chmod 0640 /etc/waterflex/tls/origin.key
 ```
+
+The staging web container remains a non-root process and joins supplementary group `0` only so it can read the
+group-readable origin private key. The container remains read-only, drops all Linux capabilities, and uses
+`no-new-privileges`. Its Nginx cache and request-body working directories are isolated in size-limited tmpfs
+mounts so the image filesystem stays read-only.
 
 Paste the **Origin Certificate** into `origin.pem` and the **Private Key** into `origin.key`. Preserve the PEM
 begin/end lines. Validate only the non-secret certificate metadata:

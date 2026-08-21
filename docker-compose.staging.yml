@@ -73,9 +73,12 @@ services:
         condition: service_healthy
     restart: unless-stopped
     read_only: true
+    group_add:
+      - "0"
     tmpfs:
       - /tmp:size=16m,mode=1777
       - /var/cache/nginx:size=32m,uid=101,gid=101
+      - /var/lib/nginx/tmp:size=32m,uid=101,gid=101
       - /var/run:size=4m,uid=101,gid=101
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
