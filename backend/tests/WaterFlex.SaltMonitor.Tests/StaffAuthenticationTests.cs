@@ -135,7 +135,7 @@ public sealed class StaffAuthenticationTests
     }
 
     [Fact]
-    public async Task DealerAdministrator_CannotAccessWaterFlexFleetButCanListOwnDealerStaff()
+    public async Task DealerAdministrator_SeesOnlyOwnDealerFleetAndCanListOwnDealerStaff()
     {
         await using var factory = new StaffApiFactory();
         await factory.InitializeAsync();
@@ -145,7 +145,9 @@ public sealed class StaffAuthenticationTests
         var fleetResponse = await client.GetAsync("/api/v1/ops/dealers");
         var staffResponse = await client.GetAsync("/api/v1/staff-admin/staff");
 
-        Assert.Equal(HttpStatusCode.Forbidden, fleetResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, fleetResponse.StatusCode);
+        var fleetBody = await fleetResponse.Content.ReadAsStringAsync();
+        Assert.Contains("WF-D-TEST", fleetBody);
         Assert.Equal(HttpStatusCode.OK, staffResponse.StatusCode);
         var body = await staffResponse.Content.ReadAsStringAsync();
         Assert.Contains("technician@example.test", body);

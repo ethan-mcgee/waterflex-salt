@@ -14,26 +14,40 @@ public sealed class EfAlertOperationsService(
         LowSaltAlertStatus? status,
         int page,
         int pageSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? scopeDealerExternalId = null)
     {
         var query = dbContext.LowSaltAlerts.AsNoTracking();
         if (status is not null) query = query.Where(alert => alert.Status == status);
+        if (scopeDealerExternalId is not null)
+        {
+            query = query.Where(alert => alert.DeviceInstallation.Dealer != null
+                && alert.DeviceInstallation.Dealer.ExternalId == scopeDealerExternalId);
+        }
 
         var total = await query.CountAsync(cancellationToken);
-        var items = await Project(query)
-            .OrderByDescending(alert => alert.OpenedAtUtc)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        var items = await Project(query
+                .OrderByDescending(alert => alert.OpenedAtUtc)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize))
             .ToListAsync(cancellationToken);
         var deadLetters = await dbContext.AlertEvaluationWorkItems
             .CountAsync(item => item.Status == AlertWorkItemStatus.DeadLetter, cancellationToken);
         return new(items, total, page, pageSize, deadLetters);
     }
 
-    public async Task<AlertDetail?> GetAsync(Guid alertId, CancellationToken cancellationToken)
+    public async Task<AlertDetail?> GetAsync(
+        Guid alertId,
+        CancellationToken cancellationToken,
+        string? scopeDealerExternalId = null)
     {
-        var alert = await Project(dbContext.LowSaltAlerts.AsNoTracking().Where(item => item.Id == alertId))
-            .SingleOrDefaultAsync(cancellationToken);
+        var query = dbContext.LowSaltAlerts.AsNoTracking().Where(item => item.Id == alertId);
+        if (scopeDealerExternalId is not null)
+        {
+            query = query.Where(item => item.DeviceInstallation.Dealer != null
+                && item.DeviceInstallation.Dealer.ExternalId == scopeDealerExternalId);
+        }
+        var alert = await Project(query).SingleOrDefaultAsync(cancellationToken);
         if (alert is null) return null;
 
         var audit = await dbContext.LowSaltAlertAuditEvents
@@ -59,7 +73,8 @@ public sealed class EfAlertOperationsService(
         AlertTransition transition,
         AlertTransitionRequest request,
         StaffActor actor,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? scopeDealerExternalId = null)
     {
         if (!uint.TryParse(request.ExpectedRowVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var expectedVersion)
             || (transition == AlertTransition.Dismiss
@@ -68,8 +83,16 @@ public sealed class EfAlertOperationsService(
             return new(null, AlertTransitionFailure.InvalidRequest);
         }
 
-        var alert = await dbContext.LowSaltAlerts.SingleOrDefaultAsync(item => item.Id == alertId, cancellationToken);
+        var alert = await dbContext.LowSaltAlerts
+            .Include(item => item.DeviceInstallation)
+                .ThenInclude(installation => installation.Dealer)
+            .SingleOrDefaultAsync(item => item.Id == alertId, cancellationToken);
         if (alert is null) return new(null, AlertTransitionFailure.NotFound);
+        if (scopeDealerExternalId is not null
+            && !string.Equals(alert.DeviceInstallation.Dealer?.ExternalId, scopeDealerExternalId, StringComparison.Ordinal))
+        {
+            return new(null, AlertTransitionFailure.NotFound);
+        }
         if (alert.RowVersion != expectedVersion) return new(null, AlertTransitionFailure.Conflict);
 
         var now = timeProvider.GetUtcNow();
@@ -153,6 +176,7 @@ public sealed class EfAlertOperationsService(
             alert.DeviceInstallation.DeviceId,
             alert.DeviceInstallationId,
             alert.DeviceInstallation.Device.SerialNumber,
+            alert.DeviceInstallation.Dealer != null ? alert.DeviceInstallation.Dealer.ExternalId : null,
             alert.DeviceInstallation.Dealer != null ? alert.DeviceInstallation.Dealer.DisplayName : "Unassigned",
             alert.DeviceInstallation.Tank.ServiceLocation.CustomerAccount.DisplayName,
             alert.DeviceInstallation.Tank.ServiceLocation.DisplayName,
