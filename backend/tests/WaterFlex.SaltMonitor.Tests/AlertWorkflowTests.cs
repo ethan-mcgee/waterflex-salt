@@ -68,6 +68,47 @@ public sealed class AlertWorkflowTests
     }
 
     [Fact]
+    public async Task DealerScope_RestrictsAlertVisibilityAndTransitions()
+    {
+        await using var database = await AlertDatabase.CreateAsync(SensorHealthStatus.Healthy);
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
+        var schedule = new MonitoringSchedule(TimeSpan.FromMinutes(1));
+        var ingestion = new EfTelemetryIngestionService(
+            database.Context, new TelemetryBatchValidator(clock), clock, schedule);
+        var processor = new EfAlertWorkProcessor(database.Context, clock, schedule);
+        var bootId = Guid.NewGuid();
+
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 1, 800))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+        clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 2, 800))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+        var alert = Assert.Single(await database.Context.LowSaltAlerts.ToListAsync());
+
+        var operations = new EfAlertOperationsService(database.Context, clock);
+        var actor = new StaffActor("dealer-admin", "Dealer Admin", StaffRole.DealerAdministrator, "WF-D-OTHER", "Other Dealer");
+
+        var ownScopeResults = await operations.SearchAsync(
+            null, 1, 50, CancellationToken.None, scopeDealerExternalId: "WF-D-ALERT");
+        var foreignScopeResults = await operations.SearchAsync(
+            null, 1, 50, CancellationToken.None, scopeDealerExternalId: "WF-D-OTHER");
+        var foreignGet = await operations.GetAsync(alert.Id, CancellationToken.None, scopeDealerExternalId: "WF-D-OTHER");
+        var deniedTransition = await operations.TransitionAsync(
+            alert.Id,
+            AlertTransition.Acknowledge,
+            new(alert.RowVersion.ToString()),
+            actor,
+            CancellationToken.None,
+            scopeDealerExternalId: "WF-D-OTHER");
+
+        Assert.Single(ownScopeResults.Items);
+        Assert.Empty(foreignScopeResults.Items);
+        Assert.Null(foreignGet);
+        Assert.Equal(AlertTransitionFailure.NotFound, deniedTransition.Failure);
+        Assert.Equal(LowSaltAlertStatus.Open, (await database.Context.LowSaltAlerts.SingleAsync()).Status);
+    }
+
+    [Fact]
     public async Task FaultedSensor_ReadingsNeverOpenAlert()
     {
         await using var database = await AlertDatabase.CreateAsync(SensorHealthStatus.Faulted);
