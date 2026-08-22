@@ -160,7 +160,7 @@ export default function DeviceDetailPage() {
               <thead><tr><th>Observed</th><th>Fill</th><th>Distance</th><th>Quality</th><th>Wi-Fi</th><th>Firmware</th></tr></thead>
               <tbody>
                 {range === '24h'
-                  ? readings.slice(-50).reverse().map((reading) => (
+                  ? readings.map((reading) => (
                     <tr key={reading.readingId}>
                       <td>{formatDateTime(reading.timestampUtc)}{!reading.usesObservedTimestamp && <small>Received time</small>}</td>
                       <td><strong>{reading.fillPercent.toFixed(1)}%</strong></td>
