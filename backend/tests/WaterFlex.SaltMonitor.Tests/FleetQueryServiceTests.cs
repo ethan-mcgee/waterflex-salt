@@ -77,6 +77,56 @@ public sealed class FleetQueryServiceTests
     }
 
     [Fact]
+    public async Task DealerScope_RestrictsResultsToOwningDealer()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        var otherDealer = new Dealer
+        {
+            Id = Guid.NewGuid(),
+            ExternalId = "WF-D-OTHER",
+            DisplayName = "Other Dealer Co",
+            IsActive = true
+        };
+        var otherLocation = new ServiceLocation
+        {
+            Id = Guid.NewGuid(),
+            CustomerAccountId = (await database.Context.CustomerAccounts.SingleAsync()).Id,
+            WaterFlexLocationId = "WF-L-OTHER",
+            DisplayName = "Other utility room",
+            AddressSummary = "200 Other Way",
+            IsActive = true,
+            LastSyncedAtUtc = Now
+        };
+        database.Context.AddRange(otherDealer, otherLocation);
+        var otherInstallation = AddInstallation(database.Context, otherDealer, otherLocation, "OTHER");
+        await database.Context.SaveChangesAsync();
+        AddReading(database.Context, otherInstallation, 1, Now.AddHours(-1), 50);
+        await database.Context.SaveChangesAsync();
+
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        const string scope = "WF-D-NORTH-STAR";
+
+        var dealers = await service.GetDealersAsync(scopeDealerExternalId: scope);
+        var summary = await service.GetSummaryAsync(new(), scopeDealerExternalId: scope);
+        var page = await service.SearchAsync(new(new(), PageSize: 10), scopeDealerExternalId: scope);
+        var ownDevice = await service.GetDeviceAsync(reporting.Device.Id, scopeDealerExternalId: scope);
+        var foreignDevice = await service.GetDeviceAsync(otherInstallation.Device.Id, scopeDealerExternalId: scope);
+        var foreignReadings = await service.GetReadingsAsync(
+            otherInstallation.Device.Id, TimeSpan.FromHours(24), 10, scopeDealerExternalId: scope);
+        var foreignHistory = await service.GetHistoryAsync(
+            otherInstallation.Device.Id, Now.AddDays(-7), TelemetryHistoryResolution.Hour, scopeDealerExternalId: scope);
+
+        Assert.Equal("WF-D-NORTH-STAR", Assert.Single(dealers).ExternalId);
+        Assert.Equal(4, summary.TotalProvisioned);
+        Assert.DoesNotContain(page.Items, item => item.SerialNumber == "WF-FLEET-OTHER");
+        Assert.NotNull(ownDevice);
+        Assert.Null(foreignDevice);
+        Assert.Null(foreignReadings);
+        Assert.Null(foreignHistory);
+    }
+
+    [Fact]
     public async Task GetReadings_ReturnsNullForMissingDevice()
     {
         await using var database = await TestDatabase.CreateAsync();

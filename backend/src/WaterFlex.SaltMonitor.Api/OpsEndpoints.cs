@@ -20,6 +20,7 @@ public static class OpsEndpoints
                 string? status,
                 int? page,
                 int? pageSize,
+                HttpContext httpContext,
                 IAlertOperationsService alerts,
                 CancellationToken cancellationToken) =>
             {
@@ -36,16 +37,18 @@ public static class OpsEndpoints
                     parsedStatus,
                     page ?? 1,
                     pageSize ?? 50,
-                    cancellationToken));
+                    cancellationToken,
+                    DealerScope(httpContext.GetStaffActor())));
             })
             .WithName("GetLowSaltAlerts")
             .WithSummary("List reviewable low-salt alerts");
 
         opsApi.MapGet("/alerts/{alertId:guid}", async (
                 Guid alertId,
+                HttpContext httpContext,
                 IAlertOperationsService alerts,
                 CancellationToken cancellationToken) =>
-            await alerts.GetAsync(alertId, cancellationToken) is { } alert
+            await alerts.GetAsync(alertId, cancellationToken, DealerScope(httpContext.GetStaffActor())) is { } alert
                 ? Results.Ok(alert)
                 : Results.NotFound())
             .WithName("GetLowSaltAlert")
@@ -56,9 +59,12 @@ public static class OpsEndpoints
         MapAlertTransition(opsApi, "dismiss", AlertTransition.Dismiss);
 
         opsApi.MapGet("/dealers", async (
+                HttpContext httpContext,
                 IFleetQueryService fleetQueryService,
                 CancellationToken cancellationToken) =>
-            Results.Ok(await fleetQueryService.GetDealersAsync(cancellationToken)))
+            Results.Ok(await fleetQueryService.GetDealersAsync(
+                cancellationToken,
+                DealerScope(httpContext.GetStaffActor()))))
             .WithName("GetFleetDealers")
             .WithSummary("List dealers represented in the sensor fleet");
 
@@ -69,6 +75,7 @@ public static class OpsEndpoints
                 string? lifecycleStatus,
                 string? firmwareVersion,
                 string? dealerId,
+                HttpContext httpContext,
                 IFleetQueryService fleetQueryService,
                 CancellationToken cancellationToken) =>
             {
@@ -88,7 +95,8 @@ public static class OpsEndpoints
                         lifecycleStatus,
                         firmwareVersion,
                         dealerId),
-                    cancellationToken));
+                    cancellationToken,
+                    DealerScope(httpContext.GetStaffActor())));
             })
             .WithName("GetFleetSummary")
             .WithSummary("Get sensor fleet summary");
@@ -103,6 +111,7 @@ public static class OpsEndpoints
                 string? sort,
                 int? page,
                 int? pageSize,
+                HttpContext httpContext,
                 IFleetQueryService fleetQueryService,
                 CancellationToken cancellationToken) =>
             {
@@ -135,7 +144,8 @@ public static class OpsEndpoints
                         parsedSort ?? FleetSort.Attention,
                         page ?? 1,
                         pageSize ?? 50),
-                    cancellationToken);
+                    cancellationToken,
+                    DealerScope(httpContext.GetStaffActor()));
                 return Results.Ok(result);
             })
             .WithName("SearchFleetDevices")
@@ -143,9 +153,10 @@ public static class OpsEndpoints
 
         opsApi.MapGet("/devices/{deviceId:guid}", async (
                 Guid deviceId,
+                HttpContext httpContext,
                 IFleetQueryService fleetQueryService,
                 CancellationToken cancellationToken) =>
-            await fleetQueryService.GetDeviceAsync(deviceId, cancellationToken) is { } device
+            await fleetQueryService.GetDeviceAsync(deviceId, cancellationToken, DealerScope(httpContext.GetStaffActor())) is { } device
                 ? Results.Ok(device)
                 : Results.NotFound())
             .WithName("GetFleetDevice")
@@ -155,6 +166,7 @@ public static class OpsEndpoints
                 Guid deviceId,
                 string? range,
                 int? limit,
+                HttpContext httpContext,
                 IFleetQueryService fleetQueryService,
                 CancellationToken cancellationToken) =>
             {
@@ -174,7 +186,8 @@ public static class OpsEndpoints
                     });
                 }
 
-                return await fleetQueryService.GetReadingsAsync(deviceId, duration, limit ?? 50, cancellationToken) is { } readings
+                return await fleetQueryService.GetReadingsAsync(
+                    deviceId, duration, limit ?? 50, cancellationToken, DealerScope(httpContext.GetStaffActor())) is { } readings
                     ? Results.Ok(readings)
                     : Results.NotFound();
             })
@@ -221,7 +234,8 @@ public static class OpsEndpoints
                     deviceId,
                     fromUtc,
                     parsedResolution,
-                    cancellationToken);
+                    cancellationToken,
+                    DealerScope(httpContext.GetStaffActor()));
                 if (history is null)
                 {
                     return Results.NotFound();
@@ -256,12 +270,14 @@ public static class OpsEndpoints
                 IAlertOperationsService alerts,
                 CancellationToken cancellationToken) =>
             {
+                var actor = httpContext.GetStaffActor();
                 var result = await alerts.TransitionAsync(
                     alertId,
                     transition,
                     request,
-                    httpContext.GetStaffActor(),
-                    cancellationToken);
+                    actor,
+                    cancellationToken,
+                    DealerScope(actor));
                 return result.Failure switch
                 {
                     AlertTransitionFailure.None => Results.Ok(result.Alert),
@@ -276,6 +292,10 @@ public static class OpsEndpoints
             .WithName($"{transition}LowSaltAlert")
             .WithSummary($"{transition} a low-salt alert");
     }
+
+    // A dealer administrator only sees their own dealer's sensors and alerts; WaterFlex staff see the whole fleet.
+    private static string? DealerScope(StaffActor actor) =>
+        actor.Role == StaffRole.DealerAdministrator ? actor.DealerExternalId : null;
 
     private static FleetFilter CreateFilter(
         string? search,

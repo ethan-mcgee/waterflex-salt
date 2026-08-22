@@ -54,6 +54,7 @@ public static class StaffRoleCapabilities
             (StaffRole.DealerTechnician, StaffCapability.TechnicianOperations) => true,
             (StaffRole.DealerAdministrator, StaffCapability.TechnicianOperations) => true,
             (StaffRole.DealerAdministrator, StaffCapability.DealerStaffAdministration) => true,
+            (StaffRole.DealerAdministrator, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexEmployee, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.WaterFlexStaffAdministration) => true,

@@ -13,20 +13,26 @@ public sealed class EfFleetQueryService(
     MonitoringSchedule monitoringSchedule) : IFleetQueryService
 {
     public async Task<IReadOnlyList<FleetDealerOption>> GetDealersAsync(
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null) =>
         await dbContext.Dealers
             .AsNoTracking()
             .Where(dealer => dealer.IsActive)
+            .Where(dealer => scopeDealerExternalId == null || dealer.ExternalId == scopeDealerExternalId)
             .OrderBy(dealer => dealer.DisplayName)
             .Select(dealer => new FleetDealerOption(dealer.ExternalId, dealer.DisplayName))
             .ToArrayAsync(cancellationToken);
 
     public async Task<FleetSummary> GetSummaryAsync(
         FleetFilter filter,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null)
     {
+        var effectiveFilter = scopeDealerExternalId is null
+            ? filter
+            : filter with { DealerExternalId = scopeDealerExternalId };
         var now = timeProvider.GetUtcNow();
-        var items = ApplyFilter(await LoadFleetAsync(now, cancellationToken), filter).ToArray();
+        var items = ApplyFilter(await LoadFleetAsync(now, cancellationToken), effectiveFilter).ToArray();
 
         return new(
             now,
@@ -41,7 +47,8 @@ public sealed class EfFleetQueryService(
 
     public async Task<FleetPage> SearchAsync(
         FleetQuery query,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null)
     {
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
@@ -92,7 +99,9 @@ public sealed class EfFleetQueryService(
                 LatestErrorFlagsJson = latest == null ? null : latest.ErrorFlagsJson
             };
 
-        var filter = query.Filter;
+        var filter = scopeDealerExternalId is null
+            ? query.Filter
+            : query.Filter with { DealerExternalId = scopeDealerExternalId };
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var escaped = filter.Search.Trim()
@@ -198,7 +207,8 @@ public sealed class EfFleetQueryService(
 
     public async Task<FleetDeviceDetail?> GetDeviceAsync(
         Guid deviceId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null)
     {
         var installation = await dbContext.DeviceInstallations
             .AsNoTracking()
@@ -216,6 +226,12 @@ public sealed class EfFleetQueryService(
             .FirstOrDefaultAsync(cancellationToken);
 
         if (installation is null)
+        {
+            return null;
+        }
+
+        if (scopeDealerExternalId is not null
+            && !string.Equals(installation.Dealer?.ExternalId, scopeDealerExternalId, StringComparison.Ordinal))
         {
             return null;
         }
@@ -253,11 +269,10 @@ public sealed class EfFleetQueryService(
         Guid deviceId,
         TimeSpan range,
         int limit,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null)
     {
-        if (!await dbContext.Devices.AsNoTracking().AnyAsync(
-            device => device.Id == deviceId,
-            cancellationToken))
+        if (!await DeviceIsInScopeAsync(deviceId, scopeDealerExternalId, cancellationToken))
         {
             return null;
         }
@@ -306,11 +321,10 @@ public sealed class EfFleetQueryService(
         Guid deviceId,
         DateTimeOffset fromUtc,
         TelemetryHistoryResolution resolution,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null)
     {
-        if (!await dbContext.Devices.AsNoTracking().AnyAsync(
-            device => device.Id == deviceId,
-            cancellationToken))
+        if (!await DeviceIsInScopeAsync(deviceId, scopeDealerExternalId, cancellationToken))
         {
             return null;
         }
@@ -375,6 +389,18 @@ public sealed class EfFleetQueryService(
 
         return new(resolution, fromUtc, throughUtc, points);
     }
+
+    private async Task<bool> DeviceIsInScopeAsync(
+        Guid deviceId,
+        string? scopeDealerExternalId,
+        CancellationToken cancellationToken) =>
+        await dbContext.Devices
+            .AsNoTracking()
+            .Where(device => device.Id == deviceId)
+            .Where(device => scopeDealerExternalId == null
+                || device.Installations.Any(installation => installation.Dealer != null
+                    && installation.Dealer.ExternalId == scopeDealerExternalId))
+            .AnyAsync(cancellationToken);
 
     private static DateTimeOffset TruncateToBucket(
         DateTimeOffset value,

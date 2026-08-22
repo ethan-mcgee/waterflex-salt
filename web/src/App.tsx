@@ -38,7 +38,7 @@ export default function App() {
     setViewAsRole(next);
   }
 
-  const canOperateFleet = effectiveRole === 'waterFlexEmployee' || effectiveRole === 'waterFlexAdministrator';
+  const canOperateFleet = effectiveRole === 'waterFlexEmployee' || effectiveRole === 'waterFlexAdministrator' || effectiveRole === 'dealerAdministrator';
   const canProvision = effectiveRole === 'dealerTechnician' || effectiveRole === 'dealerAdministrator';
   const canManageStaff = effectiveRole === 'dealerAdministrator' || effectiveRole === 'waterFlexAdministrator';
   const home = canOperateFleet ? '/fleet' : canProvision ? '/provision' : '/fleet';
