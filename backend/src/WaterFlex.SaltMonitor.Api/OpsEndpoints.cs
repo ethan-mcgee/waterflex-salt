@@ -178,16 +178,16 @@ public static class OpsEndpoints
                     });
                 }
 
-                if (limit is < 1 or > 500)
+                if (limit is < 1 or > 1500)
                 {
                     return Results.ValidationProblem(new Dictionary<string, string[]>
                     {
-                        ["limit"] = ["Limit must be between 1 and 500."]
+                        ["limit"] = ["Limit must be between 1 and 1500."]
                     });
                 }
 
                 return await fleetQueryService.GetReadingsAsync(
-                    deviceId, duration, limit ?? 50, cancellationToken, DealerScope(httpContext.GetStaffActor())) is { } readings
+                    deviceId, duration, limit ?? 1500, cancellationToken, DealerScope(httpContext.GetStaffActor())) is { } readings
                     ? Results.Ok(readings)
                     : Results.NotFound();
             })

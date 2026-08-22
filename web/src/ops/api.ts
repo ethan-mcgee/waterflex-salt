@@ -72,7 +72,7 @@ export async function getFleetReadings(
   range: '24h' | '7d' | '30d',
   signal?: AbortSignal,
 ): Promise<FleetReading[]> {
-  const url = `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/readings?range=${range}&limit=50`;
+  const url = `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/readings?range=${range}&limit=1500`;
   try {
     return await getJson(url, signal);
   } catch (reason) {

@@ -18,14 +18,14 @@ public sealed class OpsApiTests
         client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-ops-alex");
 
         var response = await client.GetAsync(
-            $"/api/v1/ops/devices/{Guid.NewGuid()}/readings?range=24h&limit=50");
+            $"/api/v1/ops/devices/{Guid.NewGuid()}/readings?range=24h&limit=1500");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(501)]
+    [InlineData(1501)]
     public async Task ReadingsEndpoint_RejectsLimitOutsideAllowedRange(int limit)
     {
         await using var factory = new OpsApiFactory();
@@ -36,7 +36,7 @@ public sealed class OpsApiTests
             $"/api/v1/ops/devices/{Guid.NewGuid()}/readings?range=24h&limit={limit}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("Limit must be between 1 and 500", await response.Content.ReadAsStringAsync());
+        Assert.Contains("Limit must be between 1 and 1500", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
