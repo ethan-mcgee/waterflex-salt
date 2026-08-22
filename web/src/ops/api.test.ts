@@ -7,14 +7,14 @@ describe('getFleetReadings', () => {
     vi.unstubAllGlobals();
   });
 
-  it('requests the selected range with the 50-reading limit', async () => {
+  it('requests the selected range with a limit that covers a full 24 hours', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse([]));
     vi.stubGlobal('fetch', fetchMock);
 
     await getFleetReadings('device/id', '24h');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/ops/devices/device%2Fid/readings?range=24h&limit=50',
+      '/api/v1/ops/devices/device%2Fid/readings?range=24h&limit=1500',
       expect.objectContaining({ headers: expect.any(Object) }),
     );
   });
