@@ -127,6 +127,7 @@ button:disabled {
   z-index: 10;
   display: grid;
   grid-template-columns: minmax(190px, auto) auto 1fr auto;
+  column-gap: 32px;
   align-items: center;
   min-height: 64px;
   padding: 0 28px;
@@ -235,7 +236,7 @@ button:disabled {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .identity-selector {
@@ -2395,6 +2396,7 @@ p {
 @media (max-width: 820px) {
   .app-header {
     grid-template-columns: 1fr auto auto;
+    column-gap: 16px;
     padding: 0 16px;
   }
 
