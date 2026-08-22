@@ -139,29 +139,35 @@ public sealed record FleetHistory(
 public interface IFleetQueryService
 {
     Task<IReadOnlyList<FleetDealerOption>> GetDealersAsync(
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<FleetSummary> GetSummaryAsync(
         FleetFilter filter,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<FleetPage> SearchAsync(
         FleetQuery query,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<FleetDeviceDetail?> GetDeviceAsync(
         Guid deviceId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<IReadOnlyList<FleetReadingPoint>?> GetReadingsAsync(
         Guid deviceId,
         TimeSpan range,
         int limit,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<FleetHistory?> GetHistoryAsync(
         Guid deviceId,
         DateTimeOffset fromUtc,
         TelemetryHistoryResolution resolution,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 }

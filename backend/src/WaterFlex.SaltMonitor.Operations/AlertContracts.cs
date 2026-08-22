@@ -8,6 +8,7 @@ public sealed record AlertListItem(
     Guid DeviceId,
     Guid InstallationId,
     string SerialNumber,
+    string? DealerExternalId,
     string DealerName,
     string CustomerDisplayName,
     string LocationDisplayName,
@@ -62,14 +63,23 @@ public sealed record AlertTransitionResult(AlertDetail? Alert, AlertTransitionFa
 
 public interface IAlertOperationsService
 {
-    Task<AlertPage> SearchAsync(LowSaltAlertStatus? status, int page, int pageSize, CancellationToken cancellationToken);
-    Task<AlertDetail?> GetAsync(Guid alertId, CancellationToken cancellationToken);
+    Task<AlertPage> SearchAsync(
+        LowSaltAlertStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken,
+        string? scopeDealerExternalId = null);
+    Task<AlertDetail?> GetAsync(
+        Guid alertId,
+        CancellationToken cancellationToken,
+        string? scopeDealerExternalId = null);
     Task<AlertTransitionResult> TransitionAsync(
         Guid alertId,
         AlertTransition transition,
         AlertTransitionRequest request,
         StaffActor actor,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? scopeDealerExternalId = null);
 }
 
 public interface IAlertWorkProcessor
