@@ -3,10 +3,38 @@ import type {
   FleetDealerOption,
   FleetDeviceDetail,
   FleetFilters,
+  FleetHistory,
   FleetPageResult,
   FleetReading,
   FleetSummary,
+  AlertDetail,
+  AlertListItem,
+  AlertPageResult,
+  LowSaltAlertStatus,
 } from './types';
+
+export async function getAlerts(status?: LowSaltAlertStatus, signal?: AbortSignal): Promise<AlertPageResult> {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
+  return getJson(`/api/v1/ops/alerts${suffix}`, signal);
+}
+
+export async function getAlert(alertId: string, signal?: AbortSignal): Promise<AlertDetail> {
+  return getJson(`/api/v1/ops/alerts/${encodeURIComponent(alertId)}`, signal);
+}
+
+export async function transitionAlert(
+  alert: AlertListItem,
+  transition: 'acknowledge' | 'approve' | 'dismiss',
+  reason?: string,
+): Promise<AlertDetail> {
+  const response = await fetch(`/api/v1/ops/alerts/${encodeURIComponent(alert.alertId)}/${transition}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...developmentIdentityHeaders() },
+    body: JSON.stringify({ expectedRowVersion: alert.rowVersion, reason }),
+  });
+  if (!response.ok) throw new OpsApiError(`Alert transition failed with status ${response.status}.`, response.status);
+  return response.json() as Promise<AlertDetail>;
+}
 
 export async function getFleetDealers(signal?: AbortSignal): Promise<FleetDealerOption[]> {
   return getJson('/api/v1/ops/dealers', signal);
@@ -44,10 +72,55 @@ export async function getFleetReadings(
   range: '24h' | '7d' | '30d',
   signal?: AbortSignal,
 ): Promise<FleetReading[]> {
-  return getJson(
-    `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/readings?range=${range}`,
-    signal,
-  );
+  const url = `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/readings?range=${range}&limit=1500`;
+  try {
+    return await getJson(url, signal);
+  } catch (reason) {
+    if (!shouldRetryHistory(reason, signal)) throw reason;
+    await retryDelay(750, signal);
+    return getJson(url, signal);
+  }
+}
+
+export async function getFleetHistory(
+  deviceId: string,
+  range: '7d' | '30d' | '13m' | '3y',
+  resolution: 'auto' | 'hour' | 'day' = 'auto',
+  signal?: AbortSignal,
+): Promise<FleetHistory> {
+  const url = `/api/v1/ops/devices/${encodeURIComponent(deviceId)}/history?range=${range}&resolution=${resolution}`;
+  try {
+    return await getJson(url, signal);
+  } catch (reason) {
+    if (!shouldRetryHistory(reason, signal)) throw reason;
+    await retryDelay(750, signal);
+    return getJson(url, signal);
+  }
+}
+
+function shouldRetryHistory(reason: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return false;
+  if (reason instanceof OpsApiError) return reason.status >= 500;
+  return !(reason instanceof DOMException && reason.name === 'AbortError');
+}
+
+function retryDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+      return;
+    }
+    let timeout = 0;
+    const abort = () => {
+      window.clearTimeout(timeout);
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    timeout = window.setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {

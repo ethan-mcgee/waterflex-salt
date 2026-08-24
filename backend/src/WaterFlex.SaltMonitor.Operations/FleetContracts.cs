@@ -1,4 +1,5 @@
 using WaterFlex.SaltMonitor.Domain.Monitoring;
+using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Operations;
 
@@ -62,7 +63,13 @@ public sealed record FleetDeviceListItem(
     int? Quality,
     int? WifiRssiDbm,
     string? FirmwareVersion,
-    IReadOnlyList<string> ErrorFlags);
+    IReadOnlyList<string> ErrorFlags,
+    SensorHealthStatus SensorStatus,
+    SensorFaultCode? SensorFault,
+    DateTimeOffset? LastHealthReportedAtUtc,
+    bool ClockSynchronized,
+    int QueuedReadingCount,
+    int DroppedReadingCount);
 
 public sealed record FleetPage(
     DateTimeOffset GeneratedAtUtc,
@@ -98,25 +105,69 @@ public sealed record FleetReadingPoint(
     string FirmwareVersion,
     IReadOnlyList<string> ErrorFlags);
 
+public enum TelemetryHistoryResolution
+{
+    Hour,
+    Day
+}
+
+public sealed record FleetHistoryPoint(
+    DateTimeOffset BucketStartUtc,
+    DateTimeOffset BucketEndUtc,
+    DateTimeOffset LastReadingAtUtc,
+    long ReadingCount,
+    double FillPercentMin,
+    double FillPercentMax,
+    double FillPercentAverage,
+    double FillPercentLatest,
+    int RawDistanceMmMin,
+    int RawDistanceMmMax,
+    double RawDistanceMmAverage,
+    int WifiRssiDbmMin,
+    int WifiRssiDbmMax,
+    double WifiRssiDbmAverage,
+    int WorstQuality,
+    long ErrorCount,
+    string LatestFirmwareVersion);
+
+public sealed record FleetHistory(
+    TelemetryHistoryResolution Resolution,
+    DateTimeOffset FromUtc,
+    DateTimeOffset ThroughUtc,
+    IReadOnlyList<FleetHistoryPoint> Points);
+
 public interface IFleetQueryService
 {
     Task<IReadOnlyList<FleetDealerOption>> GetDealersAsync(
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<FleetSummary> GetSummaryAsync(
         FleetFilter filter,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<FleetPage> SearchAsync(
         FleetQuery query,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<FleetDeviceDetail?> GetDeviceAsync(
         Guid deviceId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 
     Task<IReadOnlyList<FleetReadingPoint>?> GetReadingsAsync(
         Guid deviceId,
         TimeSpan range,
-        CancellationToken cancellationToken = default);
+        int limit,
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
+
+    Task<FleetHistory?> GetHistoryAsync(
+        Guid deviceId,
+        DateTimeOffset fromUtc,
+        TelemetryHistoryResolution resolution,
+        CancellationToken cancellationToken = default,
+        string? scopeDealerExternalId = null);
 }

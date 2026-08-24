@@ -1,7 +1,7 @@
 using System.Data;
 using System.Security.Cryptography;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using WaterFlex.SaltMonitor.Domain.Level;
 using WaterFlex.SaltMonitor.Domain.Model;
 using WaterFlex.SaltMonitor.Domain.Security;
@@ -349,5 +349,5 @@ public sealed class EfSensorCommissioningService(
     private static decimal MillimetersToCentimeters(int millimeters) => millimeters / 10m;
 
     private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
-        exception.InnerException is SqlException { Number: 2601 or 2627 };
+        exception.InnerException is PostgresException { SqlState: "23505" };
 }

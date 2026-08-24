@@ -42,6 +42,19 @@ public sealed class TelemetryBatchValidatorTests
         Assert.Contains(result.Errors, error => error.Code == "duplicate_reading_key");
     }
 
+    [Fact]
+    public void Validate_RejectsFaultedOrLowQualitySamplesAsMeasurements()
+    {
+        var result = _validator.Validate(CreateBatch(CreateReading() with
+        {
+            Quality = TelemetryBatchValidator.MinimumOperationalQuality - 1,
+            ErrorFlags = ["sensor_timeout"]
+        }));
+
+        Assert.Contains(result.Errors, error => error.Code == "quality_too_low");
+        Assert.Contains(result.Errors, error => error.Code == "sensor_fault_not_measurement");
+    }
+
     private static TelemetryBatch CreateBatch(params TelemetryReadingInput[] readings) =>
         new(1, "1.0.0", readings);
 

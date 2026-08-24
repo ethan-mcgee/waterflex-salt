@@ -1,4 +1,6 @@
 export type ReportingStatus = 'reporting' | 'stale' | 'offline' | 'neverReported';
+export type SensorHealthStatus = 'unknown' | 'healthy' | 'faulted';
+export type SensorFaultCode = 'readTimeout' | 'invalidSignal' | 'outOfRange' | 'unstableSignal' | 'stuckHigh' | 'stuckLow';
 export type FleetSort = 'attention' | 'lastReported' | 'fillAscending' | 'fillDescending' | 'customer';
 
 export interface FleetFilters {
@@ -53,6 +55,12 @@ export interface FleetDevice {
   wifiRssiDbm: number | null;
   firmwareVersion: string | null;
   errorFlags: string[];
+  sensorStatus: SensorHealthStatus;
+  sensorFault: SensorFaultCode | null;
+  lastHealthReportedAtUtc: string | null;
+  clockSynchronized: boolean;
+  queuedReadingCount: number;
+  droppedReadingCount: number;
 }
 
 export interface FleetPageResult {
@@ -90,4 +98,71 @@ export interface FleetReading {
   wifiRssiDbm: number;
   firmwareVersion: string;
   errorFlags: string[];
+}
+
+export type TelemetryHistoryResolution = 'hour' | 'day';
+
+export interface FleetHistoryPoint {
+  bucketStartUtc: string;
+  bucketEndUtc: string;
+  lastReadingAtUtc: string;
+  readingCount: number;
+  fillPercentMin: number;
+  fillPercentMax: number;
+  fillPercentAverage: number;
+  fillPercentLatest: number;
+  rawDistanceMmMin: number;
+  rawDistanceMmMax: number;
+  rawDistanceMmAverage: number;
+  wifiRssiDbmMin: number;
+  wifiRssiDbmMax: number;
+  wifiRssiDbmAverage: number;
+  worstQuality: number;
+  errorCount: number;
+  latestFirmwareVersion: string;
+}
+
+export interface FleetHistory {
+  resolution: TelemetryHistoryResolution;
+  fromUtc: string;
+  throughUtc: string;
+  points: FleetHistoryPoint[];
+}
+
+export type LowSaltAlertStatus = 'open' | 'acknowledged' | 'approved' | 'dismissed' | 'resolved';
+
+export interface AlertListItem {
+  alertId: string;
+  deviceId: string;
+  installationId: string;
+  serialNumber: string;
+  dealerName: string;
+  customerDisplayName: string;
+  locationDisplayName: string;
+  tankLabel: string;
+  status: LowSaltAlertStatus;
+  openedAtUtc: string;
+  lastEvidenceAtUtc: string;
+  lastEvidenceFillPercent: number;
+  rowVersion: string;
+}
+
+export interface AlertAuditItem {
+  id: number;
+  eventType: string;
+  actorType: string;
+  actorId: string;
+  reason: string | null;
+  telemetryReadingId: number | null;
+  fillPercent: number | null;
+  occurredAtUtc: string;
+}
+
+export interface AlertDetail { alert: AlertListItem; auditHistory: AlertAuditItem[]; }
+export interface AlertPageResult {
+  items: AlertListItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  deadLetterCount: number;
 }

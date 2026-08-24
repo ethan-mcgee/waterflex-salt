@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Infrastructure.Persistence;
+using WaterFlex.SaltMonitor.Ingestion;
 using WaterFlex.SaltMonitor.Operations;
 using Xunit;
 
@@ -49,7 +50,166 @@ public sealed class FleetQueryServiceTests
         Assert.Equal("WF-FLEET-OFFLINE", device.SerialNumber);
     }
 
-    private static async Task SeedFleetAsync(SaltMonitorDbContext context)
+    [Fact]
+    public async Task GetReadings_HonorsRangeAndLimitAndReturnsChronologicalOrder()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        AddReading(database.Context, reporting, 3, Now.AddHours(-1), 30);
+        AddReading(database.Context, reporting, 4, Now.AddHours(-25), 40);
+        await database.Context.SaveChangesAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var readings = await service.GetReadingsAsync(reporting.Device.Id, TimeSpan.FromHours(24), 10);
+        var limitedReadings = await service.GetReadingsAsync(reporting.Device.Id, TimeSpan.FromHours(24), 2);
+
+        Assert.NotNull(readings);
+        Assert.Collection(
+            readings,
+            reading => Assert.Equal(70, reading.FillPercent),
+            reading => Assert.Equal(20, reading.FillPercent),
+            reading => Assert.Equal(30, reading.FillPercent));
+        Assert.NotNull(limitedReadings);
+        Assert.Collection(
+            limitedReadings,
+            reading => Assert.Equal(20, reading.FillPercent),
+            reading => Assert.Equal(30, reading.FillPercent));
+    }
+
+    [Fact]
+    public async Task DealerScope_RestrictsResultsToOwningDealer()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        var otherDealer = new Dealer
+        {
+            Id = Guid.NewGuid(),
+            ExternalId = "WF-D-OTHER",
+            DisplayName = "Other Dealer Co",
+            IsActive = true
+        };
+        var otherLocation = new ServiceLocation
+        {
+            Id = Guid.NewGuid(),
+            CustomerAccountId = (await database.Context.CustomerAccounts.SingleAsync()).Id,
+            WaterFlexLocationId = "WF-L-OTHER",
+            DisplayName = "Other utility room",
+            AddressSummary = "200 Other Way",
+            IsActive = true,
+            LastSyncedAtUtc = Now
+        };
+        database.Context.AddRange(otherDealer, otherLocation);
+        var otherInstallation = AddInstallation(database.Context, otherDealer, otherLocation, "OTHER");
+        await database.Context.SaveChangesAsync();
+        AddReading(database.Context, otherInstallation, 1, Now.AddHours(-1), 50);
+        await database.Context.SaveChangesAsync();
+
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        const string scope = "WF-D-NORTH-STAR";
+
+        var dealers = await service.GetDealersAsync(scopeDealerExternalId: scope);
+        var summary = await service.GetSummaryAsync(new(), scopeDealerExternalId: scope);
+        var page = await service.SearchAsync(new(new(), PageSize: 10), scopeDealerExternalId: scope);
+        var ownDevice = await service.GetDeviceAsync(reporting.Device.Id, scopeDealerExternalId: scope);
+        var foreignDevice = await service.GetDeviceAsync(otherInstallation.Device.Id, scopeDealerExternalId: scope);
+        var foreignReadings = await service.GetReadingsAsync(
+            otherInstallation.Device.Id, TimeSpan.FromHours(24), 10, scopeDealerExternalId: scope);
+        var foreignHistory = await service.GetHistoryAsync(
+            otherInstallation.Device.Id, Now.AddDays(-7), TelemetryHistoryResolution.Hour, scopeDealerExternalId: scope);
+
+        Assert.Equal("WF-D-NORTH-STAR", Assert.Single(dealers).ExternalId);
+        Assert.Equal(4, summary.TotalProvisioned);
+        Assert.DoesNotContain(page.Items, item => item.SerialNumber == "WF-FLEET-OTHER");
+        Assert.NotNull(ownDevice);
+        Assert.Null(foreignDevice);
+        Assert.Null(foreignReadings);
+        Assert.Null(foreignHistory);
+    }
+
+    [Fact]
+    public async Task GetReadings_ReturnsNullForMissingDevice()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var readings = await service.GetReadingsAsync(Guid.NewGuid(), TimeSpan.FromHours(24), 50);
+
+        Assert.Null(readings);
+    }
+
+    [Fact]
+    public async Task SensorFault_MarksFillStaleAndPreservesLatestTrustworthyReading()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        reporting.Device.LastSensorStatus = SensorHealthStatus.Faulted;
+        reporting.Device.LastSensorFault = SensorFaultCode.ReadTimeout;
+        reporting.Device.LastHealthReportedAtUtc = Now;
+        reporting.Device.LastHealthFirmwareVersion = "uart-pilot-0.1";
+        reporting.Device.LastHealthWifiRssiDbm = -72;
+        await database.Context.SaveChangesAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var page = await service.SearchAsync(new(new(), PageSize: 10));
+
+        var device = Assert.Single(page.Items, item => item.SerialNumber == "WF-FLEET-REPORTING");
+        Assert.Equal(20, device.FillPercent);
+        Assert.Equal(DeviceReportingStatus.Stale, device.ReportingStatus);
+        Assert.Equal(SensorHealthStatus.Faulted, device.SensorStatus);
+        Assert.Equal(SensorFaultCode.ReadTimeout, device.SensorFault);
+        Assert.Equal("uart-pilot-0.1", device.FirmwareVersion);
+        Assert.Equal(-72, device.WifiRssiDbm);
+    }
+
+    [Fact]
+    public async Task GetHistory_ReturnsCompletedBucketsInChronologicalOrder()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        database.Context.TelemetryHourlySummaries.AddRange(
+            CreateSummary(reporting.Device.Id, Now.AddHours(-3), 20),
+            CreateSummary(reporting.Device.Id, Now.AddHours(-2), 30));
+        await database.Context.SaveChangesAsync();
+        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+
+        var history = await service.GetHistoryAsync(
+            reporting.Device.Id,
+            Now.AddDays(-7),
+            TelemetryHistoryResolution.Hour);
+
+        Assert.NotNull(history);
+        Assert.Equal(TelemetryHistoryResolution.Hour, history.Resolution);
+        Assert.Collection(
+            history.Points,
+            point => Assert.Equal(20, point.FillPercentLatest),
+            point => Assert.Equal(30, point.FillPercentLatest));
+    }
+
+    private static TelemetryHourlySummary CreateSummary(Guid deviceId, DateTimeOffset bucket, double fill) =>
+        new()
+        {
+            DeviceId = deviceId,
+            BucketStartUtc = new DateTimeOffset(bucket.Year, bucket.Month, bucket.Day, bucket.Hour, 0, 0, TimeSpan.Zero),
+            LastReadingAtUtc = bucket.AddMinutes(59),
+            ReadingCount = 60,
+            FillPercentMin = fill - 1,
+            FillPercentMax = fill + 1,
+            FillPercentAverage = fill,
+            FillPercentLatest = fill,
+            RawDistanceMmMin = 990,
+            RawDistanceMmMax = 1010,
+            RawDistanceMmAverage = 1000,
+            WifiRssiDbmMin = -70,
+            WifiRssiDbmMax = -50,
+            WifiRssiDbmAverage = -60,
+            WorstQuality = 80,
+            ErrorCount = 0,
+            LatestFirmwareVersion = "1.0.0",
+            UpdatedAtUtc = Now
+        };
+
+    private static async Task<(Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration)>
+        SeedFleetAsync(SaltMonitorDbContext context)
     {
         var dealer = new Dealer
         {
@@ -87,9 +247,11 @@ public sealed class FleetQueryServiceTests
 
         AddReading(context, reporting, 1, Now.AddHours(-3), 70);
         AddReading(context, reporting, 2, Now.AddHours(-2), 20);
+        AddReading(context, reporting, 99, Now.AddHours(-1), 5, "[\"sensor_timeout\"]");
         AddReading(context, stale, 1, Now.AddHours(-6), 55);
         AddReading(context, offline, 1, Now.AddHours(-10), 60);
         await context.SaveChangesAsync();
+        return reporting;
     }
 
     private static (Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration)
@@ -146,7 +308,8 @@ public sealed class FleetQueryServiceTests
         (Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration) subject,
         long sequence,
         DateTimeOffset receivedAt,
-        double fillPercent) =>
+        double fillPercent,
+        string errorFlagsJson = "[]") =>
         context.TelemetryReadings.Add(new()
         {
             DeviceId = subject.Device.Id,
@@ -162,7 +325,7 @@ public sealed class FleetQueryServiceTests
             SampleCount = 8,
             WifiRssiDbm = -60,
             FirmwareVersion = "1.0.0",
-            ErrorFlagsJson = "[]"
+            ErrorFlagsJson = errorFlagsJson
         });
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
@@ -179,9 +342,9 @@ public sealed class FleetQueryServiceTests
         public static async Task<TestDatabase> CreateAsync()
         {
             var databaseName = $"WaterFlexFleetQueryTests_{Guid.NewGuid():N}";
-            var connectionString = $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Trusted_Connection=True;TrustServerCertificate=True";
+            var connectionString = await TestPostgres.GetConnectionStringAsync(databaseName);
             var options = new DbContextOptionsBuilder<SaltMonitorDbContext>()
-                .UseSqlServer(connectionString)
+                .UseNpgsql(connectionString)
                 .Options;
             var context = new SaltMonitorDbContext(options);
             await context.Database.MigrateAsync();
