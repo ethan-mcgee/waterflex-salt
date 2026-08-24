@@ -2,7 +2,7 @@
 
 ## Pipeline behavior
 
-`CI` runs for pull requests and pushes to `main` or `docker/deployment-staging`:
+`CI` runs for pull requests and pushes to `main`:
 
 - .NET Release build, migration-model check, PostgreSQL integration tests, and NuGet vulnerability check.
 - Web install, tests, production build, and full dependency audit.
@@ -10,7 +10,7 @@
 - Local/staging Compose validation, builds of the API, worker, web, and migration images, and a failing security
   gate for fixed high or critical image vulnerabilities.
 
-After CI succeeds on `docker/deployment-staging`, `Deploy staging` publishes images tagged with the full Git commit
+After CI succeeds on `main`, `Deploy staging` publishes images tagged with the full Git commit
 SHA and scans those exact ECR images again. A fixed high or critical finding stops the release before deployment.
 The protected `staging` environment gates the deployment. The deployment uploads a checksum-protected bundle to S3
 and invokes the managed EC2 instance through Systems Manager; inbound SSH is not required.
@@ -33,22 +33,21 @@ Create these repository variables under **Settings -> Secrets and variables -> A
 
 No long-lived AWS access key or database password belongs in GitHub.
 
-Create a GitHub environment named `staging`. Permit `main` (used by the `workflow_run` orchestration) and
-`docker/deployment-staging` (used by manual dispatch), require approval for pilot deployments when the repository
-plan supports reviewers, prevent self-approval, and do not allow administrators to bypass the protection rule.
-The workflow itself accepts automatic releases only from a successful CI run whose head branch is
-`docker/deployment-staging`. Protect that branch with all four CI jobs as required status checks.
+Create a GitHub environment named `staging`. Permit `main` (used by both the `workflow_run` orchestration and manual
+dispatch), require approval for pilot deployments when the repository plan supports reviewers, prevent
+self-approval, and do not allow administrators to bypass the protection rule. The workflow itself accepts automatic
+releases only from a successful CI run whose head branch is `main`. Protect that branch with all four CI jobs as
+required status checks.
 
 ## AWS OIDC role
 
 Configure the AWS account to trust `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`.
 Use two least-privilege roles. A `workflow_run` workflow executes from the default branch even though it checks out
-the successful CI run's head SHA. Allow the publishing role's `sub` claim for `main` and, if manual dispatch from the
-deployment branch is required, `docker/deployment-staging`:
+the successful CI run's head SHA; since `main` is both the default branch and the deployment branch, only its `sub`
+claim needs to be allowed for the publishing role:
 
 ```text
 repo:ethan-mcgee/waterflex-salt:ref:refs/heads/main
-repo:ethan-mcgee/waterflex-salt:ref:refs/heads/docker/deployment-staging
 ```
 
 Also require `token.actions.githubusercontent.com:workflow` to equal `Deploy staging`, along with audience

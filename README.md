@@ -24,5 +24,5 @@ Run the CLI steps noted in each folder's README to restore dependencies and star
 ## Continuous integration and staging delivery
 
 GitHub Actions builds and tests the backend, web console, firmware, and deployable containers. Successful changes
-on `docker/deployment-staging` can publish full-commit-tagged images to ECR and deploy through AWS Systems Manager
+on `main` can publish full-commit-tagged images to ECR and deploy through AWS Systems Manager
 after approval in the protected `staging` environment. See [`backend/CI_CD_RUNBOOK.md`](backend/CI_CD_RUNBOOK.md).
