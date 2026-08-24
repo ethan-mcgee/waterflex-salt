@@ -58,10 +58,7 @@ public sealed class DeviceTokenValidator(
             return DeviceTokenValidationResult.Failed(DeviceTokenFailure.DeviceUnavailable);
         }
 
-        credential.LastUsedAtUtc = now;
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return DeviceTokenValidationResult.Valid(credential.DeviceId);
+        return DeviceTokenValidationResult.Valid(credential.DeviceId, credential.Id);
     }
 
     private static bool TryDecodeSecret(string value, out byte[] secret)
@@ -85,4 +82,18 @@ public sealed class DeviceTokenValidator(
             return false;
         }
     }
+}
+
+public sealed class DeviceCredentialUsageRecorder(
+    SaltMonitorDbContext dbContext,
+    TimeProvider timeProvider) : IDeviceCredentialUsageRecorder
+{
+    public Task RecordAsync(Guid credentialRecordId, CancellationToken cancellationToken = default) =>
+        dbContext.DeviceCredentials
+            .Where(credential => credential.Id == credentialRecordId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    credential => credential.LastUsedAtUtc,
+                    timeProvider.GetUtcNow()),
+                cancellationToken);
 }

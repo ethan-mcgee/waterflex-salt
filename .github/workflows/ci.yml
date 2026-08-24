@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - docker/deployment-staging
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend build and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Restore tools and packages
+        run: |
+          dotnet tool restore
+          dotnet restore backend/WaterFlex.SaltMonitor.slnx --configfile NuGet.Config
+      - name: Build
+        run: dotnet build backend/WaterFlex.SaltMonitor.slnx --configuration Release --no-restore --nologo
+      - name: Verify the EF model has a migration
+        run: >-
+          dotnet tool run dotnet-ef migrations has-pending-model-changes
+          --project backend/src/WaterFlex.SaltMonitor.Infrastructure
+          --startup-project backend/src/WaterFlex.SaltMonitor.Infrastructure
+          --configuration Release
+          --no-build
+      - name: Test
+        run: dotnet test backend/WaterFlex.SaltMonitor.slnx --configuration Release --no-build --nologo --logger "trx;LogFileName=backend-tests.trx"
+      - name: Check vulnerable NuGet dependencies
+        run: dotnet list backend/WaterFlex.SaltMonitor.slnx package --vulnerable --include-transitive
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-test-results
+          path: backend/**/TestResults/*.trx
+          if-no-files-found: ignore
+
+  web:
+    name: Web build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Check dependencies
+        run: npm audit --audit-level=high
+
+  firmware:
+    name: Firmware build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned PlatformIO Core
+        run: pip install platformio==6.1.19
+      - name: Build Arduino Nano ESP32 firmware
+        run: pio run
+      - name: Upload firmware binaries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nano-esp32-firmware-${{ github.sha }}
+          path: |
+            firmware/.pio/build/arduino_nano_esp32/firmware.bin
+            firmware/.pio/build/arduino_nano_esp32/firmware.elf
+          if-no-files-found: error
+
+  containers:
+    name: Deployment scripts and containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate deployment shell scripts
+        run: |
+          bash -n backend/tools/*.sh
+          shellcheck backend/tools/*.sh
+      - name: Scan repository for committed secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: table
+          exit-code: "1"
+      - name: Validate local Compose
+        run: docker compose -f docker-compose.yml config --quiet
+      - name: Validate staging Compose
+        env:
+          ECR_REGISTRY: 000000000000.dkr.ecr.us-east-2.amazonaws.com
+          IMAGE_TAG: ci-${{ github.sha }}
+          API_IMAGE: 000000000000.dkr.ecr.us-east-2.amazonaws.com/waterflex-api@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          WORKER_IMAGE: 000000000000.dkr.ecr.us-east-2.amazonaws.com/waterflex-worker@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          WEB_IMAGE: 000000000000.dkr.ecr.us-east-2.amazonaws.com/waterflex-web@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          CloudflareAccess__Issuer: https://ci.cloudflareaccess.com
+          CloudflareAccess__Audience: ci-audience
+        run: docker compose -f docker-compose.staging.yml config --quiet
+      - name: Build deployable images
+        run: |
+          docker compose -f docker-compose.yml build api worker web
+          docker build --file backend/Dockerfile.migrations --tag waterflex-migrations:ci .
+      - name: Validate the Nginx runtime configuration
+        run: docker run --rm --add-host api:127.0.0.1 waterflex-web:local nginx -t
+      - name: Scan API image for fixed high or critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: waterflex-api:local
+          version: v0.72.0
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Scan worker image for fixed high or critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: waterflex-worker:local
+          skip-setup-trivy: true
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Scan web image for fixed high or critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: waterflex-web:local
+          skip-setup-trivy: true
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Scan migration image for fixed high or critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: waterflex-migrations:ci
+          skip-setup-trivy: true
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL

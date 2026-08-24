@@ -1,11 +1,17 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using WaterFlex.SaltMonitor.Api;
 using WaterFlex.SaltMonitor.Domain.Security;
 using WaterFlex.SaltMonitor.Infrastructure.Persistence;
@@ -15,12 +21,24 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The API is container-first. Console logging is deterministic in containers,
+// local development, and unprivileged test processes; the Windows Event Log
+// provider can throw when the process cannot create or write an event source.
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options => options.IncludeScopes = true);
+
 const int maximumTelemetryBodyBytes = 64 * 1024;
-const string deviceTelemetryRateLimit = "device-telemetry";
 
 builder.WebHost.ConfigureKestrel(options =>
 	options.Limits.MaxRequestBodySize = maximumTelemetryBodyBytes);
 builder.Services.AddProblemDetails();
+builder.Services.AddResponseCompression(options =>
+{
+	options.EnableForHttps = true;
+	options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+	options.Level = System.IO.Compression.CompressionLevel.Fastest);
 builder.Services.AddOpenApi(options =>
 {
 	options.AddDocumentTransformer<DeviceTokenSecuritySchemeTransformer>();
@@ -33,11 +51,62 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 builder.Services.AddSaltMonitorPersistence();
 builder.Services
-	.AddAuthentication(DeviceTokenAuthenticationHandler.SchemeName)
+    .AddAuthentication()
 	.AddScheme<AuthenticationSchemeOptions, DeviceTokenAuthenticationHandler>(
 		DeviceTokenAuthenticationHandler.SchemeName,
+		_ => { })
+	.AddScheme<AuthenticationSchemeOptions, StaffAuthenticationHandler>(
+		StaffAuthenticationHandler.SchemeName,
 		_ => { });
-builder.Services.AddAuthorization();
+builder.Services.AddHttpClient(nameof(CloudflareAccessTokenValidator), client =>
+{
+	client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.Configure<CloudflareAccessOptions>(
+	builder.Configuration.GetSection(CloudflareAccessOptions.SectionName));
+builder.Services.AddSingleton<ICloudflareAccessTokenValidator, CloudflareAccessTokenValidator>();
+builder.Services.AddAuthorization(options =>
+{
+	options.AddPolicy(DevelopmentIdentity.AuthenticatedPolicy, policy => policy
+		.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
+		.RequireAuthenticatedUser());
+	options.AddPolicy(DevelopmentIdentity.ActivationPolicy, policy => policy
+		.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
+		.RequireAuthenticatedUser()
+		.RequireClaim("staff_activation_candidate", "true"));
+	foreach (var role in Enum.GetValues<StaffRole>())
+	{
+		options.AddPolicy(DevelopmentIdentity.PolicyName(role), policy => policy
+			.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
+			.RequireAuthenticatedUser()
+			.RequireRole(role.ToString()));
+	}
+	foreach (var capability in Enum.GetValues<StaffCapability>())
+	{
+		options.AddPolicy(DevelopmentIdentity.CapabilityPolicyName(capability), policy => policy
+			.AddAuthenticationSchemes(StaffAuthenticationHandler.SchemeName)
+			.RequireAuthenticatedUser()
+			.RequireAssertion(context => context.User.Claims
+				.Where(claim => claim.Type == System.Security.Claims.ClaimTypes.Role)
+				.Select(claim => Enum.TryParse<StaffRole>(claim.Value, out var role) ? role : (StaffRole?)null)
+				.Any(role => role?.HasCapability(capability) == true)));
+	}
+});
+if (!builder.Environment.IsDevelopment())
+{
+	builder.Services.Configure<ForwardedHeadersOptions>(options =>
+	{
+		options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+			| ForwardedHeaders.XForwardedProto
+			| ForwardedHeaders.XForwardedHost;
+		// The API is reachable only from the Nginx service on the private Docker
+		// network in staging. Container addresses are dynamic, so trust the
+		// immediate private proxy rather than pinning an ephemeral address.
+		options.KnownIPNetworks.Clear();
+		options.KnownProxies.Clear();
+		options.ForwardLimit = 1;
+	});
+}
 builder.Services.AddRateLimiter(options =>
 {
 	options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -48,25 +117,33 @@ builder.Services.AddRateLimiter(options =>
 			new { errorCode = "rate_limited", retryAfterSeconds = 60 },
 			cancellationToken);
 	};
-	options.AddPolicy(deviceTelemetryRateLimit, context =>
+	static RateLimitPartition<string> FixedIpLimit(HttpContext context, string policy, int permits, TimeSpan window)
 	{
-		var partitionKey = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
-			?? context.Connection.RemoteIpAddress?.ToString()
-			?? "unknown";
-
+		var address = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 		return RateLimitPartition.GetFixedWindowLimiter(
-			partitionKey,
+			$"{policy}:{address}",
 			_ => new FixedWindowRateLimiterOptions
 			{
-				PermitLimit = 10,
-				Window = TimeSpan.FromMinutes(1),
+				PermitLimit = permits,
+				Window = window,
 				QueueLimit = 0,
 				AutoReplenishment = true
 			});
-	});
+	}
+	options.AddPolicy(RateLimitPolicies.Device, context => FixedIpLimit(context, RateLimitPolicies.Device, 30, TimeSpan.FromMinutes(1)));
+	options.AddPolicy(RateLimitPolicies.Activation, context => FixedIpLimit(context, RateLimitPolicies.Activation, 10, TimeSpan.FromMinutes(15)));
+	options.AddPolicy(RateLimitPolicies.Staff, context => FixedIpLimit(context, RateLimitPolicies.Staff, 120, TimeSpan.FromMinutes(1)));
+	options.AddPolicy(RateLimitPolicies.Factory, context => FixedIpLimit(context, RateLimitPolicies.Factory, 20, TimeSpan.FromHours(1)));
 });
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+	using var scope = app.Services.CreateScope();
+	var dbContext = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+	await dbContext.Database.MigrateAsync();
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -82,6 +159,7 @@ if (app.Environment.IsDevelopment())
 
 if (!app.Environment.IsDevelopment())
 {
+	app.UseForwardedHeaders();
 	app.UseHttpsRedirection();
 }
 
@@ -91,16 +169,96 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 		? badRequest.StatusCode
 		: StatusCodes.Status500InternalServerError
 });
+app.UseRateLimiter();
+app.Use(async (context, next) =>
+{
+	var isStaffMutation = context.Request.Method is not ("GET" or "HEAD" or "OPTIONS")
+		&& (context.Request.Path.StartsWithSegments("/api/v1/staff-admin") || context.Request.Path.StartsWithSegments("/api/v1/staff/activate"));
+	if (isStaffMutation && context.Request.Headers["X-WaterFlex-Request"] != "console")
+	{
+		context.Response.StatusCode = StatusCodes.Status400BadRequest;
+		await context.Response.WriteAsJsonAsync(new { errorCode = "staff_request_header_required" });
+		return;
+	}
+	await next(context);
+});
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseRateLimiter();
+app.Use(async (context, next) =>
+{
+	var requestId = context.Request.Headers["X-Correlation-ID"].ToString();
+	if (!Guid.TryParse(requestId, out _)) requestId = Guid.NewGuid().ToString("D");
+	context.Response.Headers["X-Correlation-ID"] = requestId;
+	var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("WaterFlex.Request");
+	var started = Stopwatch.GetTimestamp();
+	using (logger.BeginScope(new Dictionary<string, object?>
+	{
+		["CorrelationId"] = requestId,
+		["TraceId"] = Activity.Current?.TraceId.ToString(),
+		["DeviceId"] = context.User.FindFirstValue("device_id"),
+		["StaffSubject"] = context.User.FindFirstValue("staff_subject")
+	}))
+	{
+		await next(context);
+		logger.LogInformation(
+			"HTTP {Method} {Path} completed {StatusCode} in {ElapsedMilliseconds:F1} ms",
+			context.Request.Method,
+			context.Request.Path.Value,
+			context.Response.StatusCode,
+			Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+	}
+});
+app.UseResponseCompression();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
+app.MapGet("/health/live", () => Results.Ok(new { status = "ok" }))
 	.WithName("GetHealth")
 	.WithSummary("Check API health")
 	.WithDescription("Returns a successful response when the API process is available.")
 	.WithTags("System")
 	.Produces(StatusCodes.Status200OK);
+
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
+	.WithName("GetLegacyHealth")
+	.WithSummary("Check API process health")
+	.WithTags("System")
+	.Produces(StatusCodes.Status200OK);
+
+app.MapGet("/health/ready", async (
+		SaltMonitorDbContext database,
+		IHostEnvironment environment,
+		IOptions<CloudflareAccessOptions> accessOptions,
+		CancellationToken cancellationToken) =>
+	{
+		try
+		{
+			if (!await database.Database.CanConnectAsync(cancellationToken))
+			{
+				return Results.Json(new { status = "not_ready", component = "database" }, statusCode: 503);
+			}
+			var pendingMigrations = await database.Database.GetPendingMigrationsAsync(cancellationToken);
+			if (pendingMigrations.Any())
+			{
+				return Results.Json(new { status = "not_ready", component = "schema" }, statusCode: 503);
+			}
+			if (environment.IsStaging()
+				&& (string.IsNullOrWhiteSpace(accessOptions.Value.Issuer)
+					|| string.IsNullOrWhiteSpace(accessOptions.Value.Audience)))
+			{
+				return Results.Json(new { status = "not_ready", component = "staff_identity" }, statusCode: 503);
+			}
+			return Results.Ok(new { status = "ready" });
+		}
+		catch (Exception exception) when (exception is not OperationCanceledException)
+		{
+			return Results.Json(new { status = "not_ready", component = "database" }, statusCode: 503);
+		}
+	})
+	.WithName("GetReadiness")
+	.WithSummary("Check required API dependencies")
+	.WithDescription("Checks database and schema compatibility without exposing configuration or secrets.")
+	.WithTags("System")
+	.Produces(StatusCodes.Status200OK)
+	.Produces(StatusCodes.Status503ServiceUnavailable);
 
 if (app.Environment.IsDevelopment())
 {
@@ -110,9 +268,67 @@ if (app.Environment.IsDevelopment())
 		.WithSummary("List seeded development identities")
 		.WithTags("Development");
 
+}
+
+app.MapGet("/api/v1/staff/session", (HttpContext httpContext) =>
+	{
+		if (httpContext.User.HasClaim("staff_activation_candidate", "true"))
+		{
+			return Results.Ok(new StaffSessionSummary("activationRequired", null));
+		}
+
+		return Results.Ok(new StaffSessionSummary("active", httpContext.GetStaffActor()));
+	})
+	.RequireAuthorization(DevelopmentIdentity.AuthenticatedPolicy)
+	.WithName("GetCurrentStaffSession")
+	.WithSummary("Get the authenticated WaterFlex staff session state")
+	.WithTags("Staff identity")
+	.Produces<StaffSessionSummary>(StatusCodes.Status200OK)
+	.Produces(StatusCodes.Status401Unauthorized);
+
+app.MapGet("/api/v1/staff/me", (HttpContext httpContext) =>
+		Results.Ok(httpContext.GetStaffActor()))
+	.RequireAuthorization(DevelopmentIdentity.AuthenticatedPolicy)
+	.WithName("GetCurrentStaffIdentity")
+	.WithSummary("Get the active WaterFlex staff identity")
+	.WithTags("Staff identity")
+	.Produces<StaffActor>(StatusCodes.Status200OK)
+	.Produces(StatusCodes.Status401Unauthorized);
+
+app.MapPost("/api/v1/staff/activate", async (
+		HttpContext context,
+		IStaffAccessService service,
+		CancellationToken cancellationToken) =>
+	{
+		if (!context.User.HasClaim("staff_activation_candidate", "true"))
+		{
+			return Results.Ok(context.GetStaffActor());
+		}
+
+		var issuer = context.User.FindFirstValue("staff_issuer");
+		var subject = context.User.FindFirstValue("staff_subject");
+		var email = context.User.FindFirstValue(System.Security.Claims.ClaimTypes.Email);
+		var invitationValue = context.User.FindFirstValue("staff_invitation_id");
+		if (issuer is null || subject is null || email is null || !Guid.TryParse(invitationValue, out var invitationId))
+		{
+			return Results.Unauthorized();
+		}
+		var actor = await service.ActivateInvitationAsync(invitationId, issuer, subject, email, cancellationToken);
+		return actor is null ? Results.Forbid() : Results.Ok(actor);
+	})
+	.RequireAuthorization(DevelopmentIdentity.AuthenticatedPolicy)
+	.WithName("ActivateStaffInvitation")
+	.WithSummary("Activate the current authenticated staff invitation")
+	.WithTags("Staff identity");
+
+app.MapStaffAccessEndpoints();
+
+if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
+{
 	var technicianApi = app.MapGroup("/api/v1/technician")
 		.WithTags("Technician provisioning")
-		.RequireDevelopmentRole(StaffRole.DealerTechnician);
+		.RequireRateLimiting(RateLimitPolicies.Staff)
+		.RequireStaffCapability(StaffCapability.TechnicianOperations);
 	technicianApi.MapCommissioningSessionEndpoints();
 
 	technicianApi.MapGet("/customers", async (
@@ -134,7 +350,7 @@ if (app.Environment.IsDevelopment())
 		{
 			var result = await commissioningService.CommissionAsync(
 				request,
-				httpContext.GetDevelopmentActor(),
+				httpContext.GetStaffActor(),
 				cancellationToken);
 			if (result.IsSuccess)
 			{
@@ -169,7 +385,7 @@ if (app.Environment.IsDevelopment())
 		.WithName("CommissionSensor")
 		.WithSummary("Commission a salt sensor")
 		.WithDescription(
-			"Atomically registers the ESP32, binds it to the selected WaterFlex tank, records calibration, and returns its device token exactly once. Development-only until WaterFlex staff authentication is configured.")
+			"Atomically registers the ESP32, binds it to the selected WaterFlex tank, records calibration, and returns its device token exactly once. Development/Staging only until WaterFlex staff authentication is configured.")
 		.Accepts<CommissionSensorRequest>("application/json")
 		.Produces<CommissionSensorResponse>(StatusCodes.Status200OK)
 		.ProducesValidationProblem(StatusCodes.Status400BadRequest)
@@ -183,15 +399,64 @@ if (app.Environment.IsDevelopment())
 app.MapBootstrapActivationEndpoints();
 
 var deviceApi = app.MapGroup("/api/v1/device")
-	.RequireAuthorization();
+	.RequireAuthorization(new AuthorizeAttribute
+	{
+		AuthenticationSchemes = DeviceTokenAuthenticationHandler.SchemeName
+	});
+
+deviceApi.MapPost("/health", async (
+		ClaimsPrincipal principal,
+		DeviceHealthHeartbeat heartbeat,
+		IDeviceHealthService healthService,
+		IDeviceCredentialUsageRecorder usageRecorder,
+		CancellationToken cancellationToken) =>
+	{
+		var deviceId = Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier)!);
+		var credentialRecordId = Guid.Parse(principal.FindFirstValue("device_credential_record_id")!);
+		await usageRecorder.RecordAsync(credentialRecordId, cancellationToken);
+		var result = await healthService.ReportAsync(deviceId, heartbeat, cancellationToken);
+
+		if (result.IsSuccess)
+		{
+			return Results.Ok(result.Acknowledgement);
+		}
+
+		return result.Failure switch
+		{
+			DeviceHealthFailure.InvalidPayload => Results.ValidationProblem(
+				result.ValidationErrors
+					.GroupBy(error => char.ToLowerInvariant(error.Field[0]) + error.Field[1..])
+					.ToDictionary(
+						group => group.Key,
+						group => group.Select(error => error.Message).ToArray())),
+			DeviceHealthFailure.DeviceUnavailable => Results.Problem(
+				statusCode: StatusCodes.Status403Forbidden,
+				title: "Device unavailable"),
+			_ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
+		};
+	})
+	.RequireRateLimiting(RateLimitPolicies.Device)
+	.WithName("ReportDeviceHealth")
+	.WithSummary("Report device and sensor health")
+	.WithDescription("Records health without creating a distance or changing the operational fill level.")
+	.WithTags("Device telemetry")
+	.Accepts<DeviceHealthHeartbeat>("application/json")
+	.Produces<DeviceHealthAcknowledgement>(StatusCodes.Status200OK)
+	.ProducesValidationProblem(StatusCodes.Status400BadRequest)
+	.Produces(StatusCodes.Status401Unauthorized)
+	.ProducesProblem(StatusCodes.Status403Forbidden)
+	.Produces(StatusCodes.Status429TooManyRequests);
 
 deviceApi.MapPost("/telemetry", async (
 		ClaimsPrincipal principal,
 		TelemetryBatch batch,
 		ITelemetryIngestionService ingestionService,
+		IDeviceCredentialUsageRecorder usageRecorder,
 		CancellationToken cancellationToken) =>
 	{
 		var deviceId = Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier)!);
+		var credentialRecordId = Guid.Parse(principal.FindFirstValue("device_credential_record_id")!);
+		await usageRecorder.RecordAsync(credentialRecordId, cancellationToken);
 		var result = await ingestionService.IngestAsync(deviceId, batch, cancellationToken);
 
 		if (result.IsSuccess)
@@ -221,7 +486,7 @@ deviceApi.MapPost("/telemetry", async (
 			_ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
 		};
 	})
-	.RequireRateLimiting(deviceTelemetryRateLimit)
+	.RequireRateLimiting(RateLimitPolicies.Device)
 	.WithName("SubmitDeviceTelemetry")
 	.WithSummary("Submit device telemetry")
 	.WithDescription(
@@ -267,8 +532,6 @@ deviceApi.MapPost("/telemetry", async (
 
 		return Task.CompletedTask;
 	});
-
-// TODO(plan-c): secure technician and operations endpoints with staff/dealer identity outside Development.
 
 app.Run();
 

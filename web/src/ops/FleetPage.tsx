@@ -319,7 +319,9 @@ function FleetRow({ device, now }: { device: FleetDevice; now: string }) {
         <span className="table-secondary">{device.locationDisplayName} · {device.tankLabel}</span>
       </td>
       <td>
-        {device.quality === null ? <span className="not-available">—</span> : (
+        {device.sensorStatus === 'faulted' ? (
+          <><strong className="table-primary"><AlertTriangle size={13} /> Sensor fault</strong><span className="table-secondary">{formatSensorFault(device.sensorFault)}</span></>
+        ) : device.quality === null ? <span className="not-available">—</span> : (
           <><strong className="table-primary">{device.quality}% quality</strong><span className="table-secondary">{device.wifiRssiDbm} dBm</span></>
         )}
       </td>
@@ -381,4 +383,9 @@ function asFleetSort(value: string | null): FleetSort {
   return value === 'lastReported' || value === 'fillAscending' || value === 'fillDescending' || value === 'customer'
     ? value
     : 'attention';
+}
+
+function formatSensorFault(value: FleetDevice['sensorFault']): string {
+  if (!value) return 'Unknown sensor fault';
+  return value.replace(/([A-Z])/g, ' $1').replace(/^./, (character) => character.toUpperCase());
 }

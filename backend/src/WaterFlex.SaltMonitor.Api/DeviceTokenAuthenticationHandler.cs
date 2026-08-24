@@ -35,7 +35,8 @@ public sealed class DeviceTokenAuthenticationHandler(
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, result.DeviceId!.Value.ToString("D")),
-            new Claim("device_id", result.DeviceId.Value.ToString("D"))
+            new Claim("device_id", result.DeviceId.Value.ToString("D")),
+            new Claim("device_credential_record_id", result.CredentialRecordId!.Value.ToString("D"))
         };
         var identity = new ClaimsIdentity(claims, SchemeName);
         var principal = new ClaimsPrincipal(identity);

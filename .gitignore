@@ -13,3 +13,6 @@
 .env
 *.env
 *.local
+
+# Database exports
+*.dump
