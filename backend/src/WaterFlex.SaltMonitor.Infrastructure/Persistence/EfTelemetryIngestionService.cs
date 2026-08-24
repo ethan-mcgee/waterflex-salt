@@ -1,7 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using WaterFlex.SaltMonitor.Domain.Level;
 using WaterFlex.SaltMonitor.Domain.Model;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
@@ -175,6 +175,18 @@ public sealed class EfTelemetryIngestionService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        foreach (var (_, reading) in pending)
+        {
+            dbContext.AlertEvaluationWorkItems.Add(new AlertEvaluationWorkItem
+            {
+                TelemetryReadingId = reading.Id,
+                Status = AlertWorkItemStatus.Pending,
+                CreatedAtUtc = serverTime,
+                AvailableAtUtc = serverTime
+            });
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         foreach (var (index, reading) in pending)
         {
             acknowledgements[index] = new(
@@ -193,5 +205,5 @@ public sealed class EfTelemetryIngestionService(
     }
 
     private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
-        exception.InnerException is SqlException { Number: 2601 or 2627 };
+        exception.InnerException is PostgresException { SqlState: "23505" };
 }

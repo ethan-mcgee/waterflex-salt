@@ -60,3 +60,12 @@ public static class MonitoringPolicy
             : DeviceReportingStatus.Offline;
     }
 }
+
+public enum LowSaltAlertStatus
+{
+    Open,
+    Acknowledged,
+    Approved,
+    Dismissed,
+    Resolved
+}

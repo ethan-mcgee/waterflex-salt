@@ -1,8 +1,0 @@
-listening on http://0.0.0.0:8000
-writing telemetry to C:\Users\mcgee\OneDrive\Desktop\waterflex\waterflex-salt\firmware\telemetry.db
-telemetry device=bench-check distance=999 synthetic=True rssi=-55
-telemetry device=bench-check-2 distance=777 synthetic=True rssi=-40
-telemetry device=bench-final distance=701 synthetic=True rssi=-42
-telemetry device=python-probe distance=650 synthetic=True rssi=-50
-telemetry device=None distance=None synthetic=None rssi=None
-telemetry device=python-probe-2 distance=640 synthetic=True rssi=-51

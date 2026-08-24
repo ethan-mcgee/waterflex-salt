@@ -894,8 +894,10 @@ function CompletionScreen({
   const browserHost = window.location.hostname;
   const telemetryHost = browserHost === 'localhost' || browserHost === '127.0.0.1'
     ? '<this-computer-LAN-IP>'
-    : browserHost;
-  const telemetryUrl = `http://${telemetryHost}:5188/api/v1/device/telemetry`;
+    : 'telemetry-staging.saltmonitor.dev';
+  const telemetryUrl = telemetryHost.startsWith('<')
+    ? `http://${telemetryHost}:5188/api/v1/device/telemetry`
+    : `https://${telemetryHost}/api/v1/device/telemetry`;
 
   return (
     <section className="completion-screen" aria-labelledby="complete-title">

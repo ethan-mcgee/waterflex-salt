@@ -11,5 +11,5 @@ public sealed class LowSaltEvaluator
     public const double ThresholdPercent = MonitoringPolicy.LowFillThresholdPercent;
 
     /// <summary>Returns true when the fill level is below the delivery threshold.</summary>
-    public bool ShouldTrigger(double fillPercent) => MonitoringPolicy.IsBelowFillThreshold(fillPercent);
+    public static bool ShouldTrigger(double fillPercent) => MonitoringPolicy.IsBelowFillThreshold(fillPercent);
 }

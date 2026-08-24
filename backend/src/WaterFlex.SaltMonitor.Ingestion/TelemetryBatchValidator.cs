@@ -4,6 +4,7 @@ public sealed class TelemetryBatchValidator(TimeProvider timeProvider)
 {
     public const int CurrentSchemaVersion = 1;
     public const int MaximumReadingsPerBatch = 50;
+    public const int MinimumOperationalQuality = 70;
 
     public TelemetryBatchValidationResult Validate(TelemetryBatch? batch)
     {
@@ -72,7 +73,7 @@ public sealed class TelemetryBatchValidator(TimeProvider timeProvider)
         TelemetryReadingInput? reading,
         int index,
         DateTimeOffset now,
-        ICollection<TelemetryValidationError> errors)
+        List<TelemetryValidationError> errors)
     {
         if (reading is null)
         {
@@ -109,6 +110,14 @@ public sealed class TelemetryBatchValidator(TimeProvider timeProvider)
         {
             errors.Add(new(index, nameof(reading.Quality), "out_of_range", "Quality must be between 0 and 100."));
         }
+        else if (reading.Quality < MinimumOperationalQuality)
+        {
+            errors.Add(new(
+                index,
+                nameof(reading.Quality),
+                "quality_too_low",
+                $"Operational readings require quality of at least {MinimumOperationalQuality}. Report sensor faults through device health instead."));
+        }
 
         if (reading.SampleCount is < 1 or > 1024)
         {
@@ -128,6 +137,15 @@ public sealed class TelemetryBatchValidator(TimeProvider timeProvider)
         if (errorFlags.Count > 16)
         {
             errors.Add(new(index, nameof(reading.ErrorFlags), "too_many_items", "At most 16 error flags are allowed."));
+        }
+
+        if (errorFlags.Count > 0)
+        {
+            errors.Add(new(
+                index,
+                nameof(reading.ErrorFlags),
+                "sensor_fault_not_measurement",
+                "Faulted samples cannot update fill. Report sensor faults through device health instead."));
         }
 
         if (errorFlags.Any(flag => string.IsNullOrWhiteSpace(flag) || flag.Length > 64))

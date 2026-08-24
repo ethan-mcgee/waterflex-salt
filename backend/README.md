@@ -36,18 +36,37 @@ Run from this folder:
 
   ## Local database
 
-  Development uses SQL Server LocalDB and a `WaterFlexSaltMonitor` database. From the repository root:
+  Development targets PostgreSQL for the database layer and the AWS deployment target is RDS PostgreSQL. From the repository root:
 
     dotnet tool restore
     dotnet tool run dotnet-ef database update --project backend/src/WaterFlex.SaltMonitor.Infrastructure
 
   Set `ConnectionStrings__SaltMonitor` to override the database in another environment. Production startup
-  requires that setting; the LocalDB fallback is Development-only.
+  requires that setting; the development fallback assumes a local PostgreSQL instance on `localhost:5432`.
+
+  AWS staging runs the API on EC2 and PostgreSQL on private Amazon RDS. Do not install PostgreSQL on the
+  application EC2 instance or connect AWS to a developer workstation database. Follow
+  [`AWS_RDS_STAGING_RUNBOOK.md`](AWS_RDS_STAGING_RUNBOOK.md) to configure networking, TLS, roles, migrations,
+  and the EC2 service. The local-to-RDS copy script is only for an intentional full data migration; it must not
+  be used when creating an empty staging database.
 
   Set `Monitoring__TelemetryIntervalSeconds` to control the expected sensor reporting interval. It defaults to
   60 seconds and accepts 1 through 86,400. A sensor is reporting until it misses three expected reports, stale
   after three misses, and offline after five. Successful telemetry acknowledgements return the configured interval
   so firmware can adopt changes without being reflashed.
+
+  ## Telemetry history retention
+
+  The worker rolls completed raw readings into hourly and daily summaries every 15 minutes. Raw readings are
+  retained for 30 days, hourly summaries for 13 months, and daily summaries for 3 years. Cleanup is batched and
+  a raw row is deleted only after its hourly and daily summaries exist. Configure the policy with
+  `TelemetryHistory__RawRetentionDays`, `TelemetryHistory__HourlyRetentionMonths`,
+  `TelemetryHistory__DailyRetentionYears`, `TelemetryHistory__DeleteBatchSize`, and
+  `TelemetryHistory__MaintenanceIntervalMinutes`.
+
+  The operations console uses `/readings` for bounded 24-hour raw diagnostics and
+  `/history?range=7d&resolution=auto` for completed hourly or daily buckets. History responses include ETags,
+  a private 60-second cache policy, and gzip compression when the client requests it.
 
   ## Device telemetry API
 
@@ -59,6 +78,15 @@ Run from this folder:
   calibration server-side, so firmware cannot select its WaterFlex customer, location, tank, or tenant. Duplicate
   `(device, bootId, sequenceNumber)` uploads return successful duplicate acknowledgements.
 
+  Authenticated devices report sensor and controller health separately to:
+
+    POST /api/v1/device/health
+
+  Health heartbeats record sensor status, sensor fault, Wi-Fi RSSI, clock synchronization, queue depth, firmware,
+  and uptime without creating a distance or changing fill. Operational telemetry requires quality of at least 70
+  and no error flags; faulted samples must use the health endpoint instead. Fleet views retain the last trustworthy
+  fill while showing the latest sensor fault, and history rollups exclude historical fault-tagged readings.
+
   ## Swagger
 
   Swagger UI and the OpenAPI 3.1 document are available in Development only. Start the API, then open:
@@ -67,17 +95,17 @@ Run from this folder:
 
   The generated document is available at `http://localhost:5188/openapi/v1.json`. To test a protected device
   endpoint, select **Authorize** and enter only `<credential-id>.<device-secret>`; Swagger adds the `Bearer`
-  prefix. Device credentials will be issued by the commissioning workflow. The health endpoint can be tested
-  without authorization.
+  prefix. Device credentials will be issued by the commissioning workflow. The device-health endpoint requires
+  that bearer token; only the service liveness endpoint at `GET /health` is anonymous.
 
   ## Technician provisioning
 
-  The technician UI uses two Development-only endpoints until WaterFlex staff authentication is connected:
+  The technician UI uses temporary Development/Staging endpoints until WaterFlex staff authentication is connected:
 
     GET  /api/v1/technician/customers
     POST /api/v1/technician/commission
 
-  Customer search currently uses a deterministic WaterFlex directory adapter. Commissioning resolves the selected
+  These routes remain unavailable in Production. Customer search currently uses a deterministic WaterFlex directory adapter. Commissioning resolves the selected
   customer, location, and tank server-side, then creates the device, installation, calibration, and hashed device
   credential in one serializable transaction. The plaintext device token is returned once. These routes are not
   mapped outside Development; production deployment must replace the directory adapter and protect the route group

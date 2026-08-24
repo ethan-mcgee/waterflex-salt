@@ -151,9 +151,9 @@ public sealed class TelemetryPersistenceTests
         public static async Task<TestDatabase> CreateAsync()
         {
             var databaseName = $"WaterFlexSaltMonitorTests_{Guid.NewGuid():N}";
-            var connectionString = $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Trusted_Connection=True;TrustServerCertificate=True";
+            var connectionString = await TestPostgres.GetConnectionStringAsync(databaseName);
             var options = new DbContextOptionsBuilder<SaltMonitorDbContext>()
-                .UseSqlServer(connectionString)
+                .UseNpgsql(connectionString)
                 .Options;
             var context = new SaltMonitorDbContext(options);
             await context.Database.MigrateAsync();

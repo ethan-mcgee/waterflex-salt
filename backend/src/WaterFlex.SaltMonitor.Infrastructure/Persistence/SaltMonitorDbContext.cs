@@ -6,6 +6,10 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     : DbContext(options)
 {
     public DbSet<Dealer> Dealers => Set<Dealer>();
+    public DbSet<StaffIdentityRecord> StaffIdentities => Set<StaffIdentityRecord>();
+    public DbSet<StaffInvitation> StaffInvitations => Set<StaffInvitation>();
+    public DbSet<StaffAccessAuditEvent> StaffAccessAuditEvents => Set<StaffAccessAuditEvent>();
+    public DbSet<StaffProvisioningWorkItem> StaffProvisioningWorkItems => Set<StaffProvisioningWorkItem>();
     public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
     public DbSet<ServiceLocation> ServiceLocations => Set<ServiceLocation>();
     public DbSet<Tank> Tanks => Set<Tank>();
@@ -17,9 +21,81 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<ProvisioningAuditEvent> ProvisioningAuditEvents => Set<ProvisioningAuditEvent>();
     public DbSet<TankCalibrationRecord> TankCalibrations => Set<TankCalibrationRecord>();
     public DbSet<TelemetryReadingRecord> TelemetryReadings => Set<TelemetryReadingRecord>();
+    public DbSet<TelemetryHourlySummary> TelemetryHourlySummaries => Set<TelemetryHourlySummary>();
+    public DbSet<TelemetryDailySummary> TelemetryDailySummaries => Set<TelemetryDailySummary>();
+    public DbSet<TelemetryMaintenanceState> TelemetryMaintenanceStates => Set<TelemetryMaintenanceState>();
+    public DbSet<LowSaltAlert> LowSaltAlerts => Set<LowSaltAlert>();
+    public DbSet<LowSaltAlertAuditEvent> LowSaltAlertAuditEvents => Set<LowSaltAlertAuditEvent>();
+    public DbSet<LowSaltAlertEvaluationState> LowSaltAlertEvaluationStates => Set<LowSaltAlertEvaluationState>();
+    public DbSet<AlertEvaluationWorkItem> AlertEvaluationWorkItems => Set<AlertEvaluationWorkItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<StaffIdentityRecord>(entity =>
+        {
+            entity.ToTable("StaffIdentities");
+            entity.HasKey(identity => identity.Id);
+            entity.Property(identity => identity.Issuer).HasMaxLength(500);
+            entity.Property(identity => identity.Subject).HasMaxLength(200);
+            entity.Property(identity => identity.Email).HasMaxLength(320);
+            entity.Property(identity => identity.NormalizedEmail).HasMaxLength(320);
+            entity.Property(identity => identity.DisplayName).HasMaxLength(200);
+            entity.Property(identity => identity.Role).HasConversion<string>().HasMaxLength(32);
+            entity.Property(identity => identity.State).HasConversion<string>().HasMaxLength(32);
+            entity.Property(identity => identity.CognitoUsername).HasMaxLength(200);
+            entity.Property(identity => identity.RowVersion).IsRowVersion();
+            entity.HasIndex(identity => new { identity.Issuer, identity.Subject }).IsUnique();
+            entity.HasIndex(identity => identity.NormalizedEmail).IsUnique();
+            entity.HasIndex(identity => new { identity.IsActive, identity.Role });
+            entity.HasOne(identity => identity.Dealer)
+                .WithMany()
+                .HasForeignKey(identity => identity.DealerId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StaffInvitation>(entity =>
+        {
+            entity.ToTable("StaffInvitations");
+            entity.HasKey(invitation => invitation.Id);
+            entity.Property(invitation => invitation.Email).HasMaxLength(320);
+            entity.Property(invitation => invitation.NormalizedEmail).HasMaxLength(320);
+            entity.Property(invitation => invitation.DisplayName).HasMaxLength(200);
+            entity.Property(invitation => invitation.Role).HasConversion<string>().HasMaxLength(32);
+            entity.Property(invitation => invitation.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(invitation => invitation.CreatedByStaffId).HasMaxLength(100);
+            entity.Property(invitation => invitation.FailureReason).HasMaxLength(1000);
+            entity.Property(invitation => invitation.RowVersion).IsRowVersion();
+            entity.HasIndex(invitation => invitation.NormalizedEmail)
+                .HasFilter("\"Status\" IN ('PendingProvisioning', 'Ready')")
+                .IsUnique();
+            entity.HasOne(invitation => invitation.Dealer).WithMany().HasForeignKey(invitation => invitation.DealerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(invitation => invitation.AcceptedStaffIdentity).WithMany().HasForeignKey(invitation => invitation.AcceptedStaffIdentityId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StaffAccessAuditEvent>(entity =>
+        {
+            entity.ToTable("StaffAccessAuditEvents");
+            entity.HasKey(audit => audit.Id);
+            entity.Property(audit => audit.EventType).HasMaxLength(100);
+            entity.Property(audit => audit.ActorStaffId).HasMaxLength(100);
+            entity.Property(audit => audit.Reason).HasMaxLength(500);
+            entity.Property(audit => audit.DetailsJson).HasColumnType("jsonb");
+            entity.HasIndex(audit => audit.OccurredAtUtc);
+        });
+
+        modelBuilder.Entity<StaffProvisioningWorkItem>(entity =>
+        {
+            entity.ToTable("StaffProvisioningWorkItems");
+            entity.HasKey(work => work.Id);
+            entity.Property(work => work.WorkType).HasMaxLength(100);
+            entity.Property(work => work.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(work => work.IdempotencyKey).HasMaxLength(200);
+            entity.Property(work => work.PayloadJson).HasColumnType("jsonb");
+            entity.Property(work => work.LastError).HasMaxLength(2000);
+            entity.HasIndex(work => work.IdempotencyKey).IsUnique();
+            entity.HasIndex(work => new { work.Status, work.AvailableAtUtc });
+        });
+
         modelBuilder.Entity<Dealer>(entity =>
         {
             entity.ToTable("Dealers");
@@ -76,6 +152,9 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(device => device.FactoryFirmwareVersion).HasMaxLength(64);
             entity.Property(device => device.FactoryConfigurationVersion).HasMaxLength(64);
             entity.Property(device => device.FactoryProvisionedBy).HasMaxLength(200);
+            entity.Property(device => device.LastSensorStatus).HasConversion<string>().HasMaxLength(32);
+            entity.Property(device => device.LastSensorFault).HasConversion<string>().HasMaxLength(32);
+            entity.Property(device => device.LastHealthFirmwareVersion).HasMaxLength(64);
             entity.HasIndex(device => device.SerialNumber).IsUnique();
             entity.HasIndex(device => device.HardwareId).IsUnique();
         });
@@ -90,7 +169,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasIndex(credential => credential.CredentialId).IsUnique();
             entity.HasIndex(credential => credential.DeviceId)
                 .IsUnique()
-                .HasFilter("[RevokedAtUtc] IS NULL AND [ConsumedAtUtc] IS NULL");
+                .HasFilter("\"RevokedAtUtc\" IS NULL AND \"ConsumedAtUtc\" IS NULL");
             entity.HasOne(credential => credential.Device)
                 .WithMany(device => device.BootstrapCredentials)
                 .HasForeignKey(credential => credential.DeviceId)
@@ -119,10 +198,10 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(installation => installation.RowVersion).IsRowVersion();
             entity.HasIndex(installation => installation.DeviceId)
                 .IsUnique()
-                .HasFilter("[RemovedAtUtc] IS NULL");
+                .HasFilter("\"RemovedAtUtc\" IS NULL");
             entity.HasIndex(installation => installation.TankId)
                 .IsUnique()
-                .HasFilter("[RemovedAtUtc] IS NULL");
+                .HasFilter("\"RemovedAtUtc\" IS NULL");
             entity.HasIndex(installation => installation.DealerId);
             entity.HasOne(installation => installation.Device)
                 .WithMany(device => device.Installations)
@@ -150,14 +229,14 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(session => session.RowVersion).IsRowVersion();
             entity.HasIndex(session => session.DeviceId)
                 .IsUnique()
-                .HasFilter("[Status] IN ('PendingSensor', 'AwaitingFirstTelemetry')");
+                .HasFilter("\"Status\" IN ('PendingSensor', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => session.TankId)
                 .IsUnique()
-                .HasFilter("[Status] IN ('PendingSensor', 'AwaitingFirstTelemetry')");
+                .HasFilter("\"Status\" IN ('PendingSensor', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => new { session.Status, session.ExpiresAtUtc });
             entity.HasIndex(session => session.ActivationAttemptId)
                 .IsUnique()
-                .HasFilter("[ActivationAttemptId] IS NOT NULL");
+                .HasFilter("\"ActivationAttemptId\" IS NOT NULL");
             entity.HasOne(session => session.Device)
                 .WithMany(device => device.CommissioningSessions)
                 .HasForeignKey(session => session.DeviceId)
@@ -204,7 +283,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasIndex(calibration => new { calibration.DeviceInstallationId, calibration.Version }).IsUnique();
             entity.HasIndex(calibration => calibration.DeviceInstallationId)
                 .IsUnique()
-                .HasFilter("[EffectiveToUtc] IS NULL");
+                .HasFilter("\"EffectiveToUtc\" IS NULL");
             entity.HasOne(calibration => calibration.DeviceInstallation)
                 .WithMany(installation => installation.Calibrations)
                 .HasForeignKey(calibration => calibration.DeviceInstallationId)
@@ -219,6 +298,8 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(reading => reading.ErrorFlagsJson).HasMaxLength(2048);
             entity.HasIndex(reading => new { reading.DeviceId, reading.BootId, reading.SequenceNumber }).IsUnique();
             entity.HasIndex(reading => new { reading.DeviceInstallationId, reading.ReceivedAtUtc });
+            entity.HasIndex(reading => new { reading.DeviceId, reading.ReceivedAtUtc, reading.Id })
+                .IsDescending(false, true, true);
             entity.HasOne(reading => reading.Device)
                 .WithMany()
                 .HasForeignKey(reading => reading.DeviceId)
@@ -232,5 +313,89 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
                 .HasForeignKey(reading => reading.TankCalibrationRecordId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        ConfigureTelemetrySummary(modelBuilder.Entity<TelemetryHourlySummary>(), "TelemetryHourlySummaries");
+        ConfigureTelemetrySummary(modelBuilder.Entity<TelemetryDailySummary>(), "TelemetryDailySummaries");
+
+        modelBuilder.Entity<TelemetryMaintenanceState>(entity =>
+        {
+            entity.ToTable("TelemetryMaintenanceStates");
+            entity.HasKey(state => state.Name);
+            entity.Property(state => state.Name).HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<LowSaltAlert>(entity =>
+        {
+            entity.ToTable("LowSaltAlerts");
+            entity.HasKey(alert => alert.Id);
+            entity.Property(alert => alert.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(alert => alert.AcknowledgedBy).HasMaxLength(200);
+            entity.Property(alert => alert.ApprovedBy).HasMaxLength(200);
+            entity.Property(alert => alert.DismissedBy).HasMaxLength(200);
+            entity.Property(alert => alert.DismissalReason).HasMaxLength(500);
+            entity.Property(alert => alert.RowVersion).IsRowVersion();
+            entity.HasIndex(alert => new { alert.Status, alert.OpenedAtUtc });
+            entity.HasIndex(alert => alert.DeviceInstallationId)
+                .IsUnique()
+                .HasFilter("\"Status\" IN ('Open', 'Acknowledged', 'Approved')");
+            entity.HasOne(alert => alert.DeviceInstallation)
+                .WithMany()
+                .HasForeignKey(alert => alert.DeviceInstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LowSaltAlertAuditEvent>(entity =>
+        {
+            entity.ToTable("LowSaltAlertAuditEvents");
+            entity.HasKey(auditEvent => auditEvent.Id);
+            entity.Property(auditEvent => auditEvent.EventType).HasMaxLength(64);
+            entity.Property(auditEvent => auditEvent.ActorType).HasMaxLength(32);
+            entity.Property(auditEvent => auditEvent.ActorId).HasMaxLength(200);
+            entity.Property(auditEvent => auditEvent.Reason).HasMaxLength(500);
+            entity.HasIndex(auditEvent => new { auditEvent.LowSaltAlertId, auditEvent.OccurredAtUtc });
+            entity.HasOne(auditEvent => auditEvent.LowSaltAlert)
+                .WithMany(alert => alert.AuditEvents)
+                .HasForeignKey(auditEvent => auditEvent.LowSaltAlertId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LowSaltAlertEvaluationState>(entity =>
+        {
+            entity.ToTable("LowSaltAlertEvaluationStates");
+            entity.HasKey(state => state.DeviceInstallationId);
+            entity.HasOne(state => state.DeviceInstallation)
+                .WithMany()
+                .HasForeignKey(state => state.DeviceInstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AlertEvaluationWorkItem>(entity =>
+        {
+            entity.ToTable("AlertEvaluationWorkItems");
+            entity.HasKey(workItem => workItem.Id);
+            entity.Property(workItem => workItem.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(workItem => workItem.LastError).HasMaxLength(1000);
+            entity.HasIndex(workItem => workItem.TelemetryReadingId).IsUnique();
+            entity.HasIndex(workItem => new { workItem.Status, workItem.AvailableAtUtc, workItem.Id });
+            entity.HasOne(workItem => workItem.TelemetryReading)
+                .WithMany()
+                .HasForeignKey(workItem => workItem.TelemetryReadingId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureTelemetrySummary<TSummary>(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TSummary> entity,
+        string tableName)
+        where TSummary : class
+    {
+        entity.ToTable(tableName);
+        entity.HasKey("DeviceId", "BucketStartUtc");
+        entity.Property("LatestFirmwareVersion").HasMaxLength(64);
+        entity.HasIndex("BucketStartUtc");
+        entity.HasOne(typeof(Device), "Device")
+            .WithMany()
+            .HasForeignKey("DeviceId")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
