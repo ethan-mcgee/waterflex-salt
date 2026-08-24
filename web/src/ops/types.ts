@@ -1,6 +1,6 @@
 export type ReportingStatus = 'reporting' | 'stale' | 'offline' | 'neverReported';
 export type SensorHealthStatus = 'unknown' | 'healthy' | 'faulted';
-export type SensorFaultCode = 'readTimeout' | 'invalidSignal' | 'outOfRange' | 'unstableSignal' | 'stuckHigh' | 'stuckLow';
+export type SensorFaultCode = 'readTimeout' | 'invalidSignal' | 'outOfRange' | 'unstableSignal';
 export type FleetSort = 'attention' | 'lastReported' | 'fillAscending' | 'fillDescending' | 'customer';
 
 export interface FleetFilters {

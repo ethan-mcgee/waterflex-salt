@@ -14,7 +14,7 @@ describe('sensorSerial', () => {
 
   it('accepts only explicit in-range distance lines', () => {
     expect(parseSensorDistanceLine('distance=875 mm')).toBe(875);
-    expect(parseSensorDistanceLine('sensor read error fault=stuckLow')).toBeNull();
+    expect(parseSensorDistanceLine('sensor read error fault=invalidSignal')).toBeNull();
     expect(parseSensorDistanceLine('distance=29 mm')).toBeNull();
     expect(parseSensorDistanceLine('distance=4501 mm')).toBeNull();
   });
