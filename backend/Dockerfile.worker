@@ -12,7 +12,7 @@ RUN dotnet publish backend/src/WaterFlex.SaltMonitor.Worker/WaterFlex.SaltMonito
     -o /app/publish \
     /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0@sha256:acad02eb5c4fbf57d15296f9c08d56cd4036e915bdae5b4dd48a06523d452617
+FROM mcr.microsoft.com/dotnet/runtime:10.0@sha256:a365ce6a50b09176855d085c69da3fc1204a48432e36087e9a208f6e5860e235
 WORKDIR /app
 
 RUN apt-get update \
