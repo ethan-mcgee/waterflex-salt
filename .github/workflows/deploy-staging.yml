@@ -80,7 +80,7 @@ jobs:
         run: |
           [[ -n "$ROLE_ARN" ]] || { echo "Missing repository variable AWS_STAGING_PUBLISH_ROLE_ARN." >&2; exit 1; }
           [[ -n "$BUCKET" ]] || { echo "Missing repository variable STAGING_DEPLOY_BUCKET." >&2; exit 1; }
-      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
@@ -218,7 +218,7 @@ jobs:
         env:
           INSTANCE_ID: ${{ vars.STAGING_INSTANCE_ID }}
         run: '[[ -n "$INSTANCE_ID" ]] || { echo "Missing repository variable STAGING_INSTANCE_ID." >&2; exit 1; }'
-      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_STAGING_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
