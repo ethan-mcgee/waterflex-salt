@@ -781,6 +781,11 @@ button:disabled {
 .reporting-badge.stale { color: var(--warning); background: var(--warning-wash); }
 .reporting-badge.offline { color: var(--danger); background: var(--danger-wash); }
 
+.reporting-badge.active { color: var(--success); background: var(--success-wash); }
+.reporting-badge.suspended { color: var(--danger); background: var(--danger-wash); }
+.reporting-badge.deprovisioning { color: var(--warning); background: var(--warning-wash); }
+.reporting-badge.pending { color: var(--brand-dark); background: var(--brand-wash); }
+
 .firmware-value,
 .last-report {
   color: var(--ink-soft);
@@ -1985,6 +1990,110 @@ p {
   color: #abb5b0;
   background: #f5f6f4;
 }
+
+.button-small {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.button-secondary.danger-tone { color: var(--danger); }
+.button-secondary.success-tone { color: var(--success); }
+
+.section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+  font-family: "Bahnschrift", "Aptos Display", sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.section-label small {
+  color: var(--muted);
+  font-family: "Aptos", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.staff-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.staff-table th {
+  height: 38px;
+  padding: 0 14px;
+  color: var(--muted);
+  text-align: left;
+  background: #f6f8f9;
+  border-bottom: 1px solid var(--line);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.staff-table td {
+  height: 56px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #edf0f2;
+  vertical-align: middle;
+  font-size: 12px;
+}
+
+.staff-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.staff-table tbody tr:hover {
+  background: #f8fbfd;
+}
+
+.staff-empty {
+  padding: 30px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.form-hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.reason-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reason-confirm input {
+  width: 150px;
+  height: 32px;
+  padding: 0 9px;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  outline: 0;
+}
+
+.reason-confirm input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(1, 87, 182, 0.1);
+}
+
+.icon-button.confirm-tone:hover:not(:disabled) { color: var(--success); border-color: var(--success); }
+.icon-button.cancel-tone:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 
 .job-context {
   padding: 30px 20px;
