@@ -1,0 +1,28 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0.300@sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 AS build
+WORKDIR /src
+
+COPY ["NuGet.Config", "./"]
+COPY ["global.json", "./"]
+COPY ["dotnet-tools.json", "./"]
+COPY ["backend", "backend/"]
+
+RUN dotnet tool restore
+RUN dotnet restore backend/WaterFlex.SaltMonitor.slnx --configfile NuGet.Config
+RUN dotnet tool run dotnet-ef migrations bundle \
+    --project backend/src/WaterFlex.SaltMonitor.Infrastructure \
+    --startup-project backend/src/WaterFlex.SaltMonitor.Infrastructure \
+    --configuration Release \
+    --self-contained \
+    --target-runtime linux-x64 \
+    --output /out/waterflex-migrate
+
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0@sha256:851e6e04fff95d33a02c725373dc0ac624734986f2dc9028887077347ecffa96
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/waterflex-migrate ./waterflex-migrate
+COPY backend/tools/run-migrations.sh ./run-migrations.sh
+RUN chmod 0555 ./run-migrations.sh
+USER $APP_UID
+ENTRYPOINT ["/app/run-migrations.sh"]

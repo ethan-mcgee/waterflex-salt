@@ -54,7 +54,7 @@ public sealed class CommissioningApiTests
         public CommissioningApiFactory()
         {
             var databaseName = $"WaterFlexCommissioningApiTests_{Guid.NewGuid():N}";
-            _connectionString = $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Trusted_Connection=True;TrustServerCertificate=True";
+            _connectionString = TestPostgres.GetConnectionString(databaseName);
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)

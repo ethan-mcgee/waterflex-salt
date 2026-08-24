@@ -63,15 +63,16 @@ public enum DeviceTokenFailure
 
 public sealed record DeviceTokenValidationResult(
     Guid? DeviceId,
+    Guid? CredentialRecordId,
     DeviceTokenFailure Failure)
 {
     public bool IsValid => DeviceId.HasValue && Failure == DeviceTokenFailure.None;
 
-    public static DeviceTokenValidationResult Valid(Guid deviceId) =>
-        new(deviceId, DeviceTokenFailure.None);
+    public static DeviceTokenValidationResult Valid(Guid deviceId, Guid credentialRecordId) =>
+        new(deviceId, credentialRecordId, DeviceTokenFailure.None);
 
     public static DeviceTokenValidationResult Failed(DeviceTokenFailure failure) =>
-        new(null, failure);
+        new(null, null, failure);
 }
 
 public interface IDeviceTokenValidator
@@ -79,4 +80,9 @@ public interface IDeviceTokenValidator
     Task<DeviceTokenValidationResult> ValidateAsync(
         string token,
         CancellationToken cancellationToken = default);
+}
+
+public interface IDeviceCredentialUsageRecorder
+{
+    Task RecordAsync(Guid credentialRecordId, CancellationToken cancellationToken = default);
 }

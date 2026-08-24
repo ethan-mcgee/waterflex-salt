@@ -28,7 +28,9 @@ token is still available or a replacement device credential will be issued.
 
 - Backend API is running in Development on port 5188.
 - `FactoryProvisioning__DevelopmentKey` is set in the shell that runs the API.
-- SQL LocalDB migrations are applied.
+- PostgreSQL is reachable and the EF Core migrations are applied. Development defaults to
+  `localhost:5432`; AWS staging uses the private RDS endpoint configured by
+  `ConnectionStrings__SaltMonitor`.
 - Technician and factory operators know their required header values.
 
 ## 1. Register Factory Inventory

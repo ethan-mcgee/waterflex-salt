@@ -1,7 +1,7 @@
 using System.Data;
 using System.Text.Json;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
@@ -183,5 +183,5 @@ public sealed class EfFactoryDeviceRegistrationService(
     }
 
     private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
-        exception.InnerException is SqlException { Number: 2601 or 2627 };
+        exception.InnerException is PostgresException { SqlState: "23505" };
 }

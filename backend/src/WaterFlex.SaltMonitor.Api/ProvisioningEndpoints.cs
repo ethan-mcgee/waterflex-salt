@@ -1,4 +1,5 @@
 using WaterFlex.SaltMonitor.Provisioning;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace WaterFlex.SaltMonitor.Api;
 
@@ -9,6 +10,7 @@ public static class ProvisioningEndpoints
     {
         var factoryApi = endpoints.MapGroup("/api/v1/factory")
             .WithTags("Factory provisioning")
+            .RequireRateLimiting(RateLimitPolicies.Factory)
             .RequireDevelopmentFactoryIdentity();
 
         factoryApi.MapPost("/devices", async (
@@ -111,6 +113,7 @@ public static class ProvisioningEndpoints
             .WithSummary("Activate a commissioned bootstrap sensor")
             .WithDescription(
                 "Exchanges a bootstrap credential for an operational credential hash, then creates installation and calibration for telemetry.")
+            .RequireRateLimiting(RateLimitPolicies.Activation)
             .Accepts<ActivateDeviceRequest>("application/json")
             .Produces<ActivateDeviceResponse>(StatusCodes.Status200OK)
             .ProducesValidationProblem(StatusCodes.Status400BadRequest)
@@ -132,7 +135,7 @@ public static class ProvisioningEndpoints
             {
                 var result = await sessionService.FindWorkOrderAsync(
                     workOrderNumber,
-                    httpContext.GetDevelopmentActor(),
+                    httpContext.GetStaffActor(),
                     cancellationToken);
                 return result is null
                     ? Results.Problem(
@@ -153,7 +156,7 @@ public static class ProvisioningEndpoints
             {
                 var result = await sessionService.CreateFromWorkOrderAsync(
                     request,
-                    httpContext.GetDevelopmentActor(),
+                    httpContext.GetStaffActor(),
                     cancellationToken);
                 return result.IsSuccess
                     ? Results.Created(
@@ -177,7 +180,7 @@ public static class ProvisioningEndpoints
             {
                 var result = await sessionService.CreateAsync(
                     request,
-                    httpContext.GetDevelopmentActor(),
+                    httpContext.GetStaffActor(),
                     cancellationToken);
                 return result.IsSuccess
                     ? Results.Created(
@@ -201,7 +204,7 @@ public static class ProvisioningEndpoints
             {
                 var result = await sessionService.GetAsync(
                     sessionId,
-                    httpContext.GetDevelopmentActor(),
+                    httpContext.GetStaffActor(),
                     cancellationToken);
                 return result.IsSuccess ? Results.Ok(result.Session) : ToSessionFailure(result);
             })
@@ -218,7 +221,7 @@ public static class ProvisioningEndpoints
             {
                 var result = await sessionService.CancelAsync(
                     sessionId,
-                    httpContext.GetDevelopmentActor(),
+                    httpContext.GetStaffActor(),
                     cancellationToken);
                 return result.IsSuccess ? Results.Ok(result.Session) : ToSessionFailure(result);
             })

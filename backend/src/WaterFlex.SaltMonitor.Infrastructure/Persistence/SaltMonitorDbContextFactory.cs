@@ -8,10 +8,10 @@ public sealed class SaltMonitorDbContextFactory : IDesignTimeDbContextFactory<Sa
     public SaltMonitorDbContext CreateDbContext(string[] args)
     {
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__SaltMonitor")
-            ?? "Server=(localdb)\\MSSQLLocalDB;Database=WaterFlexSaltMonitor;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+            ?? "Host=localhost;Port=5432;Database=WaterFlexSaltMonitor;Username=postgres;Password=postgres";
 
         var options = new DbContextOptionsBuilder<SaltMonitorDbContext>()
-            .UseSqlServer(connectionString)
+            .UseNpgsql(connectionString)
             .Options;
 
         return new(options);
