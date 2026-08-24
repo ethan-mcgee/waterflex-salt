@@ -12,9 +12,7 @@ public enum SensorFaultCode
     ReadTimeout,
     InvalidSignal,
     OutOfRange,
-    UnstableSignal,
-    StuckHigh,
-    StuckLow
+    UnstableSignal
 }
 
 public sealed record DeviceHealthHeartbeat(

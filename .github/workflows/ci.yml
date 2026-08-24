@@ -83,6 +83,10 @@ jobs:
           python-version: "3.12"
       - name: Install pinned PlatformIO Core
         run: pip install platformio==6.1.19
+      - name: Test A0221AT UART frame parser
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror test/a02yyuw_uart_parser_test.cpp -o /tmp/a02yyuw_uart_parser_test
+          /tmp/a02yyuw_uart_parser_test
       - name: Build Arduino Nano ESP32 firmware
         run: pio run
       - name: Upload firmware binaries
