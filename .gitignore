@@ -13,6 +13,7 @@
 .env
 *.env
 *.local
+cognito-login-*.snapshot.json
 
 # Database exports
 *.dump
