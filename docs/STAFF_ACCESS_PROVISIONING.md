@@ -57,7 +57,7 @@ For staging, the expected configuration is:
 | Callback | `https://broad-mountain-76be.cloudflareaccess.com/cdn-cgi/access/callback` |
 | Scopes | `email`, `openid`, `phone`, `profile` |
 
-WaterFlex's classic UI assets live in `docs/branding`. Generate the PNG logo before uploading the logo and CSS as an app-client override:
+WaterFlex's classic UI assets live in `docs/branding`. The canonical wordmark is retained as `waterflex-website-logo.svg`, with `waterflex-website-logo.png` as the transparent raster source accepted by Cognito. Generate the size-constrained Hosted UI PNG before uploading the logo and CSS as an app-client override:
 
 ```powershell
 .\docs\branding\New-WaterFlexHostedUiLogo.ps1
@@ -69,6 +69,8 @@ aws cognito-idp set-ui-customization `
   --css (Get-Content -Raw .\docs\branding\cognito-hosted-ui.css) `
   --region us-east-2
 ```
+
+The classic Hosted UI CSS rounds supported credential fields to `6px`. Cognito only permits `background-color` on the outer `.background-customizable` surface, so the login panel itself must retain Cognito's built-in corner treatment; adding an unsupported `border-radius` can cause `SetUICustomization` to reject the entire stylesheet.
 
 Before and after changing the domain or branding, authenticate the AWS CLI and run the validation script. Pass `-SnapshotPath` before a change to save a sanitized rollback record; the script deliberately excludes the client secret and raw CSS.
 

@@ -5,7 +5,7 @@
 
 .banner-customizable {
   padding: 24px 0px 18px 0px;
-  background-color: #082b50;
+  background-color: #ffffff;
 }
 
 .label-customizable {
@@ -65,7 +65,7 @@
   color: #18211e;
   background-color: #ffffff;
   border: 1px solid #b8c4bd;
-  border-radius: 0px;
+  border-radius: 6px;
 }
 
 .inputField-customizable:focus {
