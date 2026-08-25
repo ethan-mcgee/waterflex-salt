@@ -95,5 +95,3 @@ Remaining hardware/manufacturing gates:
 - Build development only: `pio run -e arduino_nano_esp32_development`
 - Upload:  `pio run -t upload`
 - Monitor: `pio device monitor`
-
-See `../AI-Plans/plan-c-arduino-nano-esp32.md` for wiring and firmware requirements.
