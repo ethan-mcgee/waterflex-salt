@@ -10,6 +10,9 @@ param(
 
     [string]$ExpectedCallbackUrl = "https://broad-mountain-76be.cloudflareaccess.com/cdn-cgi/access/callback",
 
+    [Parameter(Mandatory = $true)]
+    [string]$DomainPrefix,
+
     [string]$SnapshotPath = ""
 )
 
@@ -39,9 +42,27 @@ if ($LASTEXITCODE -ne 0) {
 
 $pool = (($poolJson -join [Environment]::NewLine) | ConvertFrom-Json).UserPool
 $client = (($clientJson -join [Environment]::NewLine) | ConvertFrom-Json).UserPoolClient
+$domainJson = & $awsCommand.Source cognito-idp describe-user-pool-domain `
+    --domain $DomainPrefix `
+    --region $Region `
+    --output json
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to describe Cognito domain $DomainPrefix in $Region."
+}
+
+$uiJson = & $awsCommand.Source cognito-idp get-ui-customization `
+    --user-pool-id $UserPoolId `
+    --client-id $ClientId `
+    --region $Region `
+    --output json
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to read classic Hosted UI customization for app client $ClientId."
+}
+
+$domain = (($domainJson -join [Environment]::NewLine) | ConvertFrom-Json).DomainDescription
+$ui = (($uiJson -join [Environment]::NewLine) | ConvertFrom-Json).UICustomization
 $flows = @($client.ExplicitAuthFlows)
 $requiredFlows = @(
-    "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_USER_SRP_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH"
 )
@@ -54,12 +75,24 @@ foreach ($flow in $requiredFlows) {
     }
 }
 
-if ("ALLOW_USER_AUTH" -in $flows) {
-    $errors.Add("Choice-based authentication is enabled: ALLOW_USER_AUTH")
+if ($domain.ManagedLoginVersion -ne 1) {
+    $errors.Add("The Cognito domain does not use Hosted UI (classic) branding version 1.")
+}
+
+if ([string]::IsNullOrWhiteSpace($ui.CSSVersion)) {
+    $errors.Add("The app client does not have a classic Hosted UI CSS customization.")
+}
+
+if ([string]::IsNullOrWhiteSpace($ui.ImageUrl)) {
+    $errors.Add("The app client does not have a classic Hosted UI logo customization.")
 }
 
 if ("email" -notin @($pool.UsernameAttributes)) {
     $errors.Add("The user pool does not use email as its sign-in identifier.")
+}
+
+if ($pool.MfaConfiguration -ne "OFF") {
+    $errors.Add("Cognito MFA must remain off because Cloudflare Access provides the role-based TOTP challenge.")
 }
 
 if ("COGNITO" -notin @($client.SupportedIdentityProviders)) {
@@ -79,6 +112,9 @@ $snapshot = [ordered]@{
     Region = $Region
     UserPoolId = $UserPoolId
     UsernameAttributes = @($pool.UsernameAttributes)
+    CognitoMfaConfiguration = $pool.MfaConfiguration
+    DomainPrefix = $DomainPrefix
+    ManagedLoginVersion = $domain.ManagedLoginVersion
     ClientId = $ClientId
     ClientName = $client.ClientName
     ExplicitAuthFlows = $flows
@@ -87,6 +123,8 @@ $snapshot = [ordered]@{
     LogoutURLs = @($client.LogoutURLs)
     AllowedOAuthFlows = @($client.AllowedOAuthFlows)
     AllowedOAuthScopes = @($client.AllowedOAuthScopes)
+    HostedUiCssVersion = $ui.CSSVersion
+    HostedUiHasLogo = -not [string]::IsNullOrWhiteSpace($ui.ImageUrl)
 }
 
 if (-not [string]::IsNullOrWhiteSpace($SnapshotPath)) {
@@ -100,4 +138,4 @@ if ($errors.Count -gt 0) {
 }
 
 Write-Host "Cognito login configuration is valid."
-Write-Host "Email and password use the non-choice app-client flow; Cloudflare OAuth settings are preserved."
+Write-Host "Hosted UI (classic) branding, WaterFlex customization, and Cloudflare OAuth settings are present."
