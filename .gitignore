@@ -17,6 +17,3 @@ cognito-login-*.snapshot.json
 
 # Database exports
 *.dump
-
-# macOS
-.DS_Store
