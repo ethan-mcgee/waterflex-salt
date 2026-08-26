@@ -95,6 +95,9 @@ jobs:
               || aws ecr create-repository --repository-name "$repository" --region "$AWS_REGION" >/dev/null
           done
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Compute package cache-bust value
+        id: package_cache_bust
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
       - name: Build and push API
         id: build_api
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -130,6 +133,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/waterflex-web:${{ steps.release.outputs.sha }}
+          build-args: |
+            PACKAGE_CACHE_BUST=${{ steps.package_cache_bust.outputs.date }}
           cache-from: type=gha,scope=waterflex-web
           cache-to: type=gha,mode=max,scope=waterflex-web
           provenance: mode=max
