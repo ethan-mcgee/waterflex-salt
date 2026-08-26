@@ -11,7 +11,7 @@ Multi-tenant ingestion, level processing, rules, and WaterFlex ticket integratio
 - `src/WaterFlex.SaltMonitor.Api` — ASP.NET Core REST API for device telemetry and operations.
 - `src/WaterFlex.SaltMonitor.Operations` — internal fleet query and device-operation contracts.
 - `src/WaterFlex.SaltMonitor.Provisioning` — factory inventory, bootstrap, activation, and commissioning-session contracts.
-- `src/WaterFlex.SaltMonitor.Worker` — asynchronous delivery-ticket outbox processing.
+- `src/WaterFlex.SaltMonitor.Worker` — asynchronous low-salt alert evaluation and delivery-ticket outbox processing.
 - `tests/WaterFlex.SaltMonitor.Tests` — unit tests.
 
 ## Create the solution file

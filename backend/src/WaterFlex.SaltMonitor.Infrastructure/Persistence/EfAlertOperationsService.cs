@@ -170,8 +170,11 @@ public sealed class EfAlertOperationsService(
         return true;
     }
 
-    private static IQueryable<AlertListItem> Project(IQueryable<LowSaltAlert> query) =>
-        query.Select(alert => new AlertListItem(
+    private IQueryable<AlertListItem> Project(IQueryable<LowSaltAlert> query) =>
+        from alert in query
+        join ticket in dbContext.DeliveryTickets on alert.Id equals ticket.LowSaltAlertId into tickets
+        from ticket in tickets.DefaultIfEmpty()
+        select new AlertListItem(
             alert.Id,
             alert.DeviceInstallation.DeviceId,
             alert.DeviceInstallationId,
@@ -185,5 +188,7 @@ public sealed class EfAlertOperationsService(
             alert.OpenedAtUtc,
             alert.LastEvidenceAtUtc,
             alert.LastEvidenceFillPercent,
-            alert.RowVersion.ToString()));
+            alert.RowVersion.ToString(),
+            ticket != null ? ticket.Status : (DeliveryTicketStatus?)null,
+            ticket != null ? ticket.ExternalTicketId : null);
 }
