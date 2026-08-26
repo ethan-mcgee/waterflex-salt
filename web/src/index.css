@@ -1116,6 +1116,22 @@ button:disabled {
 .alert-audit { margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .alert-audit h2 { margin-top: 0; }
 
+.ticket-detail { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.ticket-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0; }
+.ticket-detail dt { color: var(--muted); }
+.ticket-detail dd { margin: 0; }
+.ticket-detail .ticket-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  color: var(--danger);
+  background: var(--danger-wash);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
 .history-error {
   display: flex;
   min-height: 110px;

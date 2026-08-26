@@ -162,7 +162,16 @@ export interface AlertAuditItem {
   occurredAtUtc: string;
 }
 
-export interface AlertDetail { alert: AlertListItem; auditHistory: AlertAuditItem[]; }
+export interface DeliveryTicketDetail {
+  status: DeliveryTicketStatus;
+  externalTicketId: string | null;
+  requestedAtUtc: string;
+  externalCreatedAtUtc: string | null;
+  resolvedAtUtc: string | null;
+  lastError: string | null;
+}
+
+export interface AlertDetail { alert: AlertListItem; auditHistory: AlertAuditItem[]; ticket: DeliveryTicketDetail | null; }
 export interface AlertPageResult {
   items: AlertListItem[];
   totalCount: number;

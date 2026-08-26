@@ -47,6 +47,14 @@ public sealed class AlertWorkflowTests
         Assert.Equal(DeliveryTicketStatus.Created, ticket.Status);
         Assert.Equal($"STUB-{ticket.IdempotencyKey}", ticket.ExternalTicketId);
 
+        var operationsForDetail = new EfAlertOperationsService(database.Context, clock);
+        var createdDetail = await operationsForDetail.GetAsync(alert.Id, CancellationToken.None);
+        Assert.NotNull(createdDetail!.Ticket);
+        Assert.Equal(DeliveryTicketStatus.Created, createdDetail.Ticket!.Status);
+        Assert.Equal(ticket.ExternalTicketId, createdDetail.Ticket.ExternalTicketId);
+        Assert.NotNull(createdDetail.Ticket.ExternalCreatedAtUtc);
+        Assert.Null(createdDetail.Ticket.ResolvedAtUtc);
+
         var duplicate = await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 2, 800));
         Assert.True(duplicate.IsSuccess);
         Assert.Equal(TelemetryReadingStatus.Duplicate, duplicate.Acknowledgement!.Readings[0].Status);
@@ -82,6 +90,10 @@ public sealed class AlertWorkflowTests
         var resolvedTicket = await database.Context.DeliveryTickets.SingleAsync(item => item.LowSaltAlertId == alert.Id);
         Assert.Equal(DeliveryTicketStatus.Resolved, resolvedTicket.Status);
         Assert.NotNull(resolvedTicket.ResolvedAtUtc);
+
+        var resolvedDetail = await operationsForDetail.GetAsync(alert.Id, CancellationToken.None);
+        Assert.Equal(DeliveryTicketStatus.Resolved, resolvedDetail!.Ticket!.Status);
+        Assert.NotNull(resolvedDetail.Ticket.ResolvedAtUtc);
     }
 
     [Fact]
@@ -163,6 +175,12 @@ public sealed class AlertWorkflowTests
         Assert.Equal(5, workItem.AttemptCount);
 
         Assert.False(await ticketProcessor.ProcessNextAsync(CancellationToken.None));
+
+        var operations = new EfAlertOperationsService(database.Context, clock);
+        var detail = await operations.GetAsync(alert.Id, CancellationToken.None);
+        Assert.Equal(DeliveryTicketStatus.Failed, detail!.Ticket!.Status);
+        Assert.Equal(ticket.LastError, detail.Ticket.LastError);
+        Assert.NotNull(detail.Ticket.LastError);
     }
 
     private sealed class ThrowingDeliveryTicketGateway : IDeliveryTicketGateway

@@ -65,7 +65,20 @@ public sealed class EfAlertOperationsService(
                 item.FillPercent,
                 item.OccurredAtUtc))
             .ToListAsync(cancellationToken);
-        return new(alert, audit);
+
+        var ticket = await dbContext.DeliveryTickets
+            .AsNoTracking()
+            .Where(item => item.LowSaltAlertId == alertId)
+            .Select(item => new DeliveryTicketDetail(
+                item.Status,
+                item.ExternalTicketId,
+                item.CreatedAtUtc,
+                item.ExternalCreatedAtUtc,
+                item.ResolvedAtUtc,
+                item.LastError))
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return new(alert, audit, ticket);
     }
 
     public async Task<AlertTransitionResult> TransitionAsync(

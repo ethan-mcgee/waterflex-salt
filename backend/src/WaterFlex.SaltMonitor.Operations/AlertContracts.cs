@@ -31,7 +31,18 @@ public sealed record AlertAuditItem(
     double? FillPercent,
     DateTimeOffset OccurredAtUtc);
 
-public sealed record AlertDetail(AlertListItem Alert, IReadOnlyList<AlertAuditItem> AuditHistory);
+public sealed record DeliveryTicketDetail(
+    DeliveryTicketStatus Status,
+    string? ExternalTicketId,
+    DateTimeOffset RequestedAtUtc,
+    DateTimeOffset? ExternalCreatedAtUtc,
+    DateTimeOffset? ResolvedAtUtc,
+    string? LastError);
+
+public sealed record AlertDetail(
+    AlertListItem Alert,
+    IReadOnlyList<AlertAuditItem> AuditHistory,
+    DeliveryTicketDetail? Ticket);
 
 public sealed record AlertPage(
     IReadOnlyList<AlertListItem> Items,
