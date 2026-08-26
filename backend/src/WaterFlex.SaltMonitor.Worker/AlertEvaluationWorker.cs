@@ -2,10 +2,10 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Worker;
 
-/// <summary>Processes persisted delivery-ticket outbox records independently of telemetry requests.</summary>
-public sealed class DeliveryOutboxWorker(
+/// <summary>Processes persisted low-salt alert evaluation work items independently of telemetry requests.</summary>
+public sealed class AlertEvaluationWorker(
     IServiceScopeFactory scopeFactory,
-    ILogger<DeliveryOutboxWorker> logger) : BackgroundService
+    ILogger<AlertEvaluationWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

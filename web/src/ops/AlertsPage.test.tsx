@@ -31,6 +31,8 @@ const alert: AlertListItem = {
   lastEvidenceAtUtc: '2026-08-14T18:05:00Z',
   lastEvidenceFillPercent: 31.5,
   rowVersion: '7',
+  ticketStatus: 'created',
+  ticketExternalId: 'STUB-low-salt-alert:alert-1',
 };
 
 const detail: AlertDetail = {

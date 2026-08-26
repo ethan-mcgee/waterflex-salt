@@ -131,6 +131,8 @@ export interface FleetHistory {
 
 export type LowSaltAlertStatus = 'open' | 'acknowledged' | 'approved' | 'dismissed' | 'resolved';
 
+export type DeliveryTicketStatus = 'pending' | 'created' | 'resolved' | 'failed';
+
 export interface AlertListItem {
   alertId: string;
   deviceId: string;
@@ -145,6 +147,8 @@ export interface AlertListItem {
   lastEvidenceAtUtc: string;
   lastEvidenceFillPercent: number;
   rowVersion: string;
+  ticketStatus: DeliveryTicketStatus | null;
+  ticketExternalId: string | null;
 }
 
 export interface AlertAuditItem {

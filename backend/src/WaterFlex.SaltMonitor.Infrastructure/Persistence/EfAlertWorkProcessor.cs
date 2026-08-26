@@ -120,7 +120,7 @@ public sealed class EfAlertWorkProcessor(
         }
         else
         {
-            EvaluateRecovery(state, activeAlert, reading, now);
+            await EvaluateRecoveryAsync(state, activeAlert, reading, now, cancellationToken);
         }
 
         Complete(workItem, now);
@@ -176,15 +176,34 @@ public sealed class EfAlertWorkProcessor(
             FillPercent = reading.FillPercent,
             OccurredAtUtc = now
         });
+
+        var ticket = new DeliveryTicket
+        {
+            Id = Guid.NewGuid(),
+            LowSaltAlertId = alert.Id,
+            Status = DeliveryTicketStatus.Pending,
+            IdempotencyKey = $"low-salt-alert:{alert.Id:D}",
+            CreatedAtUtc = now
+        };
+        dbContext.Add(ticket);
+        dbContext.Add(new DeliveryTicketWorkItem
+        {
+            DeliveryTicketId = ticket.Id,
+            Status = AlertWorkItemStatus.Pending,
+            CreatedAtUtc = now,
+            AvailableAtUtc = now
+        });
+
         state.BelowEvidenceCount = 0;
         state.FirstBelowEvidenceAtUtc = null;
     }
 
-    private void EvaluateRecovery(
+    private async Task EvaluateRecoveryAsync(
         LowSaltAlertEvaluationState state,
         LowSaltAlert alert,
         TelemetryReadingRecord reading,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
         alert.LastEvidenceAtUtc = reading.ReceivedAtUtc;
         alert.LastEvidenceFillPercent = reading.FillPercent;
@@ -215,7 +234,33 @@ public sealed class EfAlertWorkProcessor(
             FillPercent = reading.FillPercent,
             OccurredAtUtc = now
         });
+        await ResolveDeliveryTicketAsync(alert.Id, now, cancellationToken);
         ResetEvidence(state);
+    }
+
+    /// <summary>
+    /// The tank shouldn't cross back above the recovery threshold until it has actually been
+    /// refilled, so sensor recovery is treated as proof the delivery happened.
+    /// </summary>
+    private async Task ResolveDeliveryTicketAsync(Guid alertId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var ticket = await dbContext.DeliveryTickets
+            .SingleOrDefaultAsync(item => item.LowSaltAlertId == alertId, cancellationToken);
+        if (ticket is null || ticket.Status == DeliveryTicketStatus.Resolved) return;
+
+        ticket.Status = DeliveryTicketStatus.Resolved;
+        ticket.ResolvedAtUtc = now;
+
+        var workItem = await dbContext.DeliveryTicketWorkItems
+            .SingleOrDefaultAsync(item => item.DeliveryTicketId == ticket.Id, cancellationToken);
+        if (workItem is not null
+            && workItem.Status is AlertWorkItemStatus.Pending or AlertWorkItemStatus.Processing)
+        {
+            workItem.Status = AlertWorkItemStatus.Completed;
+            workItem.CompletedAtUtc = now;
+            workItem.LeaseId = null;
+            workItem.LeasedUntilUtc = null;
+        }
     }
 
     private async Task RecordFailureAsync(

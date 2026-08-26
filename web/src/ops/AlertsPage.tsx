@@ -56,11 +56,12 @@ export default function AlertsPage() {
       </div>
       {error && <div className="fleet-message error-message" role="alert"><AlertTriangle size={20} />{error}</div>}
       <div className="fleet-table-shell"><div className="fleet-table-wrap"><table className="fleet-table alerts-table">
-        <thead><tr><th>Status</th><th>Sensor</th><th>Customer</th><th>Tank</th><th>Fill</th><th>Opened</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Status</th><th>Sensor</th><th>Customer</th><th>Tank</th><th>Fill</th><th>Opened</th><th>Delivery ticket</th><th>Actions</th></tr></thead>
         <tbody>{result?.items.map((alert) => <tr key={alert.alertId}>
           <td><button className="table-link" type="button" onClick={() => showDetail(alert)}>{alert.status}</button></td>
           <td>{alert.serialNumber}<small>{alert.dealerName}</small></td><td>{alert.customerDisplayName}<small>{alert.locationDisplayName}</small></td>
           <td>{alert.tankLabel}</td><td>{alert.lastEvidenceFillPercent.toFixed(1)}%</td><td>{new Date(alert.openedAtUtc).toLocaleString()}</td>
+          <td>{alert.ticketStatus ?? '—'}{alert.ticketExternalId ? <small>{alert.ticketExternalId}</small> : null}</td>
           <td className="alert-actions">
             {alert.status === 'open' && <button title="Acknowledge" onClick={() => transition(alert, 'acknowledge')}><Check size={15} /></button>}
             {(alert.status === 'open' || alert.status === 'acknowledged') && <button title="Approve" onClick={() => transition(alert, 'approve')}><ShieldCheck size={15} /></button>}

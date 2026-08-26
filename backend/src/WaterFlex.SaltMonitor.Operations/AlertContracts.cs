@@ -17,7 +17,9 @@ public sealed record AlertListItem(
     DateTimeOffset OpenedAtUtc,
     DateTimeOffset LastEvidenceAtUtc,
     double LastEvidenceFillPercent,
-    string RowVersion);
+    string RowVersion,
+    DeliveryTicketStatus? TicketStatus,
+    string? TicketExternalId);
 
 public sealed record AlertAuditItem(
     long Id,
@@ -83,6 +85,12 @@ public interface IAlertOperationsService
 }
 
 public interface IAlertWorkProcessor
+{
+    Task<bool> ProcessNextAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>Drives the delivery-ticket outbox: creates tickets for newly opened alerts via the delivery-ticket gateway.</summary>
+public interface IDeliveryTicketWorkProcessor
 {
     Task<bool> ProcessNextAsync(CancellationToken cancellationToken);
 }
