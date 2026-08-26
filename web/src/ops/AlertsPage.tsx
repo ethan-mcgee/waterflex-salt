@@ -1,28 +1,72 @@
-import { AlertTriangle, Check, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import {
+  AlertTriangle, Check, ChevronLeft, ChevronRight, CircleCheck, Clock3, RefreshCw, Send, ShieldCheck, X,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import ThemedSelect from '../components/ThemedSelect';
 import { useDevelopmentIdentity } from '../development/DevelopmentIdentity';
 import { getAlert, getAlerts, transitionAlert } from './api';
-import type { AlertDetail, AlertListItem, AlertPageResult, LowSaltAlertStatus } from './types';
+import { formatDateTime, formatRelative } from './FleetPage';
+import type { AlertDetail, AlertListItem, AlertPageResult, DeliveryTicketStatus, LowSaltAlertStatus } from './types';
+
+const AGING_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+function AlertStatusBadge({ status }: { status: LowSaltAlertStatus }) {
+  const labels: Record<LowSaltAlertStatus, string> = {
+    open: 'Open', acknowledged: 'Acknowledged', approved: 'Approved', dismissed: 'Dismissed', resolved: 'Resolved',
+  };
+  const icons: Record<LowSaltAlertStatus, ReactNode> = {
+    open: <AlertTriangle size={13} />, acknowledged: <Check size={13} />, approved: <ShieldCheck size={13} />,
+    dismissed: <X size={13} />, resolved: <CircleCheck size={13} />,
+  };
+  return <span className={`reporting-badge ${status}`}>{icons[status]}{labels[status]}</span>;
+}
+
+function TicketStatusBadge({ status }: { status: DeliveryTicketStatus }) {
+  const labels: Record<DeliveryTicketStatus, string> = {
+    pending: 'Pending', created: 'Created', resolved: 'Resolved', failed: 'Failed',
+  };
+  const icons: Record<DeliveryTicketStatus, ReactNode> = {
+    pending: <Clock3 size={13} />, created: <Send size={13} />, resolved: <CircleCheck size={13} />, failed: <AlertTriangle size={13} />,
+  };
+  return <span className={`reporting-badge ${status}`}>{icons[status]}{labels[status]}</span>;
+}
+
+function isAging(alert: AlertListItem, nowValue: string): boolean {
+  return (alert.status === 'open' || alert.status === 'acknowledged' || alert.status === 'approved')
+    && new Date(nowValue).getTime() - new Date(alert.openedAtUtc).getTime() > AGING_THRESHOLD_MS;
+}
 
 export default function AlertsPage() {
   const { selectedUserId } = useDevelopmentIdentity();
   const [status, setStatus] = useState<LowSaltAlertStatus | ''>('');
+  const [page, setPage] = useState(1);
   const [result, setResult] = useState<AlertPageResult | null>(null);
   const [detail, setDetail] = useState<AlertDetail | null>(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [now, setNow] = useState(() => new Date().toISOString());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date().toISOString()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     setError('');
-    getAlerts(status || undefined, controller.signal)
+    getAlerts(status || undefined, page, controller.signal)
       .then(setResult)
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to load alerts.');
       });
     return () => controller.abort();
-  }, [refresh, selectedUserId, status]);
+  }, [refresh, selectedUserId, status, page]);
+
+  function changeStatus(value: string) {
+    setStatus(value as LowSaltAlertStatus | '');
+    setPage(1);
+  }
 
   async function showDetail(alert: AlertListItem) {
     try { setDetail(await getAlert(alert.alertId)); }
@@ -51,17 +95,21 @@ export default function AlertsPage() {
           { value: '', label: 'All alert states' }, { value: 'open', label: 'Open' },
           { value: 'acknowledged', label: 'Acknowledged' }, { value: 'approved', label: 'Approved' },
           { value: 'dismissed', label: 'Dismissed' }, { value: 'resolved', label: 'Resolved' },
-        ]} onValueChange={(value) => setStatus(value as LowSaltAlertStatus | '')} /></div>
+        ]} onValueChange={changeStatus} /></div>
         <span>{result?.totalCount ?? 0} alerts · {result?.deadLetterCount ?? 0} dead letters</span>
       </div>
       {error && <div className="fleet-message error-message" role="alert"><AlertTriangle size={20} />{error}</div>}
       <div className="fleet-table-shell"><div className="fleet-table-wrap"><table className="fleet-table alerts-table">
         <thead><tr><th>Status</th><th>Sensor</th><th>Customer</th><th>Tank</th><th>Fill</th><th>Opened</th><th>Delivery ticket</th><th>Actions</th></tr></thead>
         <tbody>{result?.items.map((alert) => <tr key={alert.alertId}>
-          <td><button className="table-link" type="button" onClick={() => showDetail(alert)}>{alert.status}</button></td>
+          <td><button className="table-link" type="button" onClick={() => showDetail(alert)}><AlertStatusBadge status={alert.status} /></button></td>
           <td>{alert.serialNumber}<small>{alert.dealerName}</small></td><td>{alert.customerDisplayName}<small>{alert.locationDisplayName}</small></td>
-          <td>{alert.tankLabel}</td><td>{alert.lastEvidenceFillPercent.toFixed(1)}%</td><td>{new Date(alert.openedAtUtc).toLocaleString()}</td>
-          <td>{alert.ticketStatus ?? '—'}{alert.ticketExternalId ? <small>{alert.ticketExternalId}</small> : null}</td>
+          <td>{alert.tankLabel}</td><td>{alert.lastEvidenceFillPercent.toFixed(1)}%</td>
+          <td>
+            <span title={formatDateTime(alert.openedAtUtc)}>{formatRelative(alert.openedAtUtc, now)}</span>
+            {isAging(alert, now) && <span className="aging-flag" title="Open more than 24 hours"><AlertTriangle size={13} /></span>}
+          </td>
+          <td>{alert.ticketStatus ? <TicketStatusBadge status={alert.ticketStatus} /> : '—'}{alert.ticketExternalId ? <small>{alert.ticketExternalId}</small> : null}</td>
           <td className="alert-actions">
             {alert.status === 'open' && <button title="Acknowledge" onClick={() => transition(alert, 'acknowledge')}><Check size={15} /></button>}
             {(alert.status === 'open' || alert.status === 'acknowledged') && <button title="Approve" onClick={() => transition(alert, 'approve')}><ShieldCheck size={15} /></button>}
@@ -69,6 +117,27 @@ export default function AlertsPage() {
           </td>
         </tr>)}</tbody>
       </table></div></div>
+      {result && result.totalCount > 0 && (
+        <footer className="fleet-pagination">
+          <span>Page {page} of {Math.max(1, Math.ceil(result.totalCount / result.pageSize))}</span>
+          <div>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Previous page"
+              disabled={page <= 1}
+              onClick={() => setPage((value) => value - 1)}
+            ><ChevronLeft size={17} /></button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Next page"
+              disabled={page >= Math.max(1, Math.ceil(result.totalCount / result.pageSize))}
+              onClick={() => setPage((value) => value + 1)}
+            ><ChevronRight size={17} /></button>
+          </div>
+        </footer>
+      )}
       {detail && <aside className="alert-audit"><h2>Alert audit history</h2>{detail.auditHistory.map((event) => <p key={event.id}><strong>{event.eventType}</strong> · {new Date(event.occurredAtUtc).toLocaleString()} · {event.actorId}{event.reason ? ` · ${event.reason}` : ''}</p>)}</aside>}
     </section>
   );

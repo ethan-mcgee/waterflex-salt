@@ -13,9 +13,16 @@ import type {
   LowSaltAlertStatus,
 } from './types';
 
-export async function getAlerts(status?: LowSaltAlertStatus, signal?: AbortSignal): Promise<AlertPageResult> {
-  const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
-  return getJson(`/api/v1/ops/alerts${suffix}`, signal);
+export async function getAlerts(
+  status?: LowSaltAlertStatus,
+  page?: number,
+  signal?: AbortSignal,
+): Promise<AlertPageResult> {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (page) params.set('page', String(page));
+  const query = params.toString();
+  return getJson(`/api/v1/ops/alerts${query ? `?${query}` : ''}`, signal);
 }
 
 export async function getAlert(alertId: string, signal?: AbortSignal): Promise<AlertDetail> {

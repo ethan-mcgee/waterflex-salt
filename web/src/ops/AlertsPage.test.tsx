@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AlertsPage from './AlertsPage';
 import type { AlertDetail, AlertListItem } from './types';
 
@@ -50,6 +50,10 @@ const detail: AlertDetail = {
 };
 
 describe('AlertsPage', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     getAlerts.mockResolvedValue({ items: [alert], totalCount: 1, page: 1, pageSize: 50, deadLetterCount: 2 });
     getAlert.mockResolvedValue(detail);
@@ -66,5 +70,26 @@ describe('AlertsPage', () => {
     await waitFor(() => expect(transitionAlert).toHaveBeenCalledWith(alert, 'acknowledge', undefined));
     expect(await screen.findByText('Alert audit history')).toBeInTheDocument();
     expect(screen.getByText(/acknowledged/)).toBeInTheDocument();
+  });
+
+  it('renders alert and ticket status badges', async () => {
+    render(<AlertsPage />);
+
+    expect(await screen.findByText('Open')).toBeInTheDocument();
+    expect(screen.getByText('Created')).toBeInTheDocument();
+  });
+
+  it('pages through alerts using the Previous/Next controls', async () => {
+    getAlerts.mockResolvedValue({ items: [alert], totalCount: 120, page: 1, pageSize: 50, deadLetterCount: 0 });
+    render(<AlertsPage />);
+
+    expect(await screen.findByText('Page 1 of 3')).toBeInTheDocument();
+    expect(screen.getByLabelText('Previous page')).toBeDisabled();
+    expect(screen.getByLabelText('Next page')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText('Next page'));
+    await waitFor(() => expect(getAlerts).toHaveBeenLastCalledWith(undefined, 2, expect.anything()));
+    expect(await screen.findByText('Page 2 of 3')).toBeInTheDocument();
+    expect(screen.getByLabelText('Previous page')).not.toBeDisabled();
   });
 });
