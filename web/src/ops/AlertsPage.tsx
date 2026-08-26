@@ -138,7 +138,26 @@ export default function AlertsPage() {
           </div>
         </footer>
       )}
-      {detail && <aside className="alert-audit"><h2>Alert audit history</h2>{detail.auditHistory.map((event) => <p key={event.id}><strong>{event.eventType}</strong> · {new Date(event.occurredAtUtc).toLocaleString()} · {event.actorId}{event.reason ? ` · ${event.reason}` : ''}</p>)}</aside>}
+      {detail && (
+        <aside className="alert-audit">
+          {detail.ticket && (
+            <div className="ticket-detail">
+              <h2>Delivery ticket</h2>
+              <p><TicketStatusBadge status={detail.ticket.status} /> {detail.ticket.externalTicketId ?? 'Not yet created'}</p>
+              <dl>
+                <dt>Requested</dt><dd>{formatDateTime(detail.ticket.requestedAtUtc)}</dd>
+                {detail.ticket.externalCreatedAtUtc && <><dt>Created in RouteFlex</dt><dd>{formatDateTime(detail.ticket.externalCreatedAtUtc)}</dd></>}
+                {detail.ticket.resolvedAtUtc && <><dt>Resolved</dt><dd>{formatDateTime(detail.ticket.resolvedAtUtc)}</dd></>}
+              </dl>
+              {detail.ticket.lastError && (
+                <div className="ticket-error" role="alert"><AlertTriangle size={16} />{detail.ticket.lastError}</div>
+              )}
+            </div>
+          )}
+          <h2>Alert audit history</h2>
+          {detail.auditHistory.map((event) => <p key={event.id}><strong>{event.eventType}</strong> · {new Date(event.occurredAtUtc).toLocaleString()} · {event.actorId}{event.reason ? ` · ${event.reason}` : ''}</p>)}
+        </aside>
+      )}
     </section>
   );
 }
