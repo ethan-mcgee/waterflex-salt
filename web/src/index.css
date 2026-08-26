@@ -786,6 +786,20 @@ button:disabled {
 .reporting-badge.deprovisioning { color: var(--warning); background: var(--warning-wash); }
 .reporting-badge.pending { color: var(--brand-dark); background: var(--brand-wash); }
 
+.reporting-badge.open { color: var(--danger); background: var(--danger-wash); }
+.reporting-badge.acknowledged { color: var(--brand-dark); background: var(--brand-wash); }
+.reporting-badge.approved { color: var(--warning); background: var(--warning-wash); }
+.reporting-badge.resolved { color: var(--success); background: var(--success-wash); }
+.reporting-badge.created { color: var(--brand-dark); background: var(--brand-wash); }
+.reporting-badge.failed { color: var(--danger); background: var(--danger-wash); }
+
+.aging-flag {
+  display: inline-flex;
+  align-items: center;
+  color: var(--warning);
+  margin-left: 5px;
+}
+
 .firmware-value,
 .last-report {
   color: var(--ink-soft);
