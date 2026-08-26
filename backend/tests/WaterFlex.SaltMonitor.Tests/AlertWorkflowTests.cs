@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using WaterFlex.SaltMonitor.Domain.Abstractions;
+using WaterFlex.SaltMonitor.Domain.Model;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Domain.Security;
+using WaterFlex.SaltMonitor.Infrastructure;
 using WaterFlex.SaltMonitor.Infrastructure.Persistence;
 using WaterFlex.SaltMonitor.Ingestion;
 using WaterFlex.SaltMonitor.Operations;
@@ -34,6 +37,24 @@ public sealed class AlertWorkflowTests
         var alert = Assert.Single(await database.Context.LowSaltAlerts.ToListAsync());
         Assert.Equal(LowSaltAlertStatus.Open, alert.Status);
 
+        var ticket = await database.Context.DeliveryTickets.SingleAsync(item => item.LowSaltAlertId == alert.Id);
+        Assert.Equal(DeliveryTicketStatus.Pending, ticket.Status);
+
+        var ticketProcessor = new EfDeliveryTicketWorkProcessor(database.Context, clock, new StubDeliveryTicketGateway());
+        Assert.True(await ticketProcessor.ProcessNextAsync(CancellationToken.None));
+        database.Context.ChangeTracker.Clear();
+        ticket = await database.Context.DeliveryTickets.SingleAsync(item => item.LowSaltAlertId == alert.Id);
+        Assert.Equal(DeliveryTicketStatus.Created, ticket.Status);
+        Assert.Equal($"STUB-{ticket.IdempotencyKey}", ticket.ExternalTicketId);
+
+        var operationsForDetail = new EfAlertOperationsService(database.Context, clock);
+        var createdDetail = await operationsForDetail.GetAsync(alert.Id, CancellationToken.None);
+        Assert.NotNull(createdDetail!.Ticket);
+        Assert.Equal(DeliveryTicketStatus.Created, createdDetail.Ticket!.Status);
+        Assert.Equal(ticket.ExternalTicketId, createdDetail.Ticket.ExternalTicketId);
+        Assert.NotNull(createdDetail.Ticket.ExternalCreatedAtUtc);
+        Assert.Null(createdDetail.Ticket.ResolvedAtUtc);
+
         var duplicate = await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 2, 800));
         Assert.True(duplicate.IsSuccess);
         Assert.Equal(TelemetryReadingStatus.Duplicate, duplicate.Acknowledgement!.Readings[0].Status);
@@ -64,7 +85,115 @@ public sealed class AlertWorkflowTests
             .OrderBy(item => item.Id)
             .Select(item => item.EventType)
             .ToListAsync();
-        Assert.Equal(["opened", "acknowledge", "resolved"], events);
+        Assert.Equal(["opened", "delivery_ticket_created", "acknowledge", "resolved"], events);
+
+        var resolvedTicket = await database.Context.DeliveryTickets.SingleAsync(item => item.LowSaltAlertId == alert.Id);
+        Assert.Equal(DeliveryTicketStatus.Resolved, resolvedTicket.Status);
+        Assert.NotNull(resolvedTicket.ResolvedAtUtc);
+
+        var resolvedDetail = await operationsForDetail.GetAsync(alert.Id, CancellationToken.None);
+        Assert.Equal(DeliveryTicketStatus.Resolved, resolvedDetail!.Ticket!.Status);
+        Assert.NotNull(resolvedDetail.Ticket.ResolvedAtUtc);
+    }
+
+    [Fact]
+    public async Task AlertResolvesBeforeGatewayRuns_TicketSkipsCreationAndIsResolvedDirectly()
+    {
+        await using var database = await AlertDatabase.CreateAsync(SensorHealthStatus.Healthy);
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
+        var schedule = new MonitoringSchedule(TimeSpan.FromMinutes(1));
+        var ingestion = new EfTelemetryIngestionService(
+            database.Context, new TelemetryBatchValidator(clock), clock, schedule);
+        var processor = new EfAlertWorkProcessor(database.Context, clock, schedule);
+        var bootId = Guid.NewGuid();
+
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 1, 800))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+        clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 2, 800))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+        var alert = Assert.Single(await database.Context.LowSaltAlerts.ToListAsync());
+
+        // Fill recovers fast (manual top-off) before the ticket outbox worker ever runs.
+        clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 3, 500))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+        clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 4, 500))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+
+        database.Context.ChangeTracker.Clear();
+        Assert.Equal(LowSaltAlertStatus.Resolved, (await database.Context.LowSaltAlerts.SingleAsync()).Status);
+        var ticket = await database.Context.DeliveryTickets.SingleAsync(item => item.LowSaltAlertId == alert.Id);
+        Assert.Equal(DeliveryTicketStatus.Resolved, ticket.Status);
+        Assert.Null(ticket.ExternalTicketId);
+
+        // The resolve path already completed the outbox work item directly, so there's nothing
+        // left to lease and the gateway is never called for a problem that's already fixed.
+        var completedWorkItem = await database.Context.DeliveryTicketWorkItems
+            .SingleAsync(item => item.DeliveryTicketId == ticket.Id);
+        Assert.Equal(AlertWorkItemStatus.Completed, completedWorkItem.Status);
+
+        var throwingGateway = new ThrowingDeliveryTicketGateway();
+        var ticketProcessor = new EfDeliveryTicketWorkProcessor(database.Context, clock, throwingGateway);
+        Assert.False(await ticketProcessor.ProcessNextAsync(CancellationToken.None));
+        Assert.Equal(0, throwingGateway.CallCount);
+    }
+
+    [Fact]
+    public async Task DeliveryTicketGatewayFailures_RetryThenDeadLetter()
+    {
+        await using var database = await AlertDatabase.CreateAsync(SensorHealthStatus.Healthy);
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
+        var schedule = new MonitoringSchedule(TimeSpan.FromMinutes(1));
+        var ingestion = new EfTelemetryIngestionService(
+            database.Context, new TelemetryBatchValidator(clock), clock, schedule);
+        var processor = new EfAlertWorkProcessor(database.Context, clock, schedule);
+        var bootId = Guid.NewGuid();
+
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 1, 800))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+        clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.True((await ingestion.IngestAsync(database.DeviceId, Batch(bootId, 2, 800))).IsSuccess);
+        Assert.True(await processor.ProcessNextAsync(CancellationToken.None));
+        var alert = Assert.Single(await database.Context.LowSaltAlerts.ToListAsync());
+
+        var throwingGateway = new ThrowingDeliveryTicketGateway();
+        var ticketProcessor = new EfDeliveryTicketWorkProcessor(database.Context, clock, throwingGateway);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            Assert.True(await ticketProcessor.ProcessNextAsync(CancellationToken.None));
+            clock.Advance(TimeSpan.FromMinutes(31));
+        }
+        Assert.Equal(5, throwingGateway.CallCount);
+
+        database.Context.ChangeTracker.Clear();
+        var ticket = await database.Context.DeliveryTickets.SingleAsync(item => item.LowSaltAlertId == alert.Id);
+        Assert.Equal(DeliveryTicketStatus.Failed, ticket.Status);
+        var workItem = await database.Context.DeliveryTicketWorkItems.SingleAsync(item => item.DeliveryTicketId == ticket.Id);
+        Assert.Equal(AlertWorkItemStatus.DeadLetter, workItem.Status);
+        Assert.Equal(5, workItem.AttemptCount);
+
+        Assert.False(await ticketProcessor.ProcessNextAsync(CancellationToken.None));
+
+        var operations = new EfAlertOperationsService(database.Context, clock);
+        var detail = await operations.GetAsync(alert.Id, CancellationToken.None);
+        Assert.Equal(DeliveryTicketStatus.Failed, detail!.Ticket!.Status);
+        Assert.Equal(ticket.LastError, detail.Ticket.LastError);
+        Assert.NotNull(detail.Ticket.LastError);
+    }
+
+    private sealed class ThrowingDeliveryTicketGateway : IDeliveryTicketGateway
+    {
+        public int CallCount { get; private set; }
+
+        public Task<DeliveryTicketResult> CreateDeliveryTicketAsync(
+            DeliveryTicketRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            throw new InvalidOperationException("Simulated gateway outage.");
+        }
     }
 
     [Fact]

@@ -17,7 +17,9 @@ public sealed record AlertListItem(
     DateTimeOffset OpenedAtUtc,
     DateTimeOffset LastEvidenceAtUtc,
     double LastEvidenceFillPercent,
-    string RowVersion);
+    string RowVersion,
+    DeliveryTicketStatus? TicketStatus,
+    string? TicketExternalId);
 
 public sealed record AlertAuditItem(
     long Id,
@@ -29,7 +31,18 @@ public sealed record AlertAuditItem(
     double? FillPercent,
     DateTimeOffset OccurredAtUtc);
 
-public sealed record AlertDetail(AlertListItem Alert, IReadOnlyList<AlertAuditItem> AuditHistory);
+public sealed record DeliveryTicketDetail(
+    DeliveryTicketStatus Status,
+    string? ExternalTicketId,
+    DateTimeOffset RequestedAtUtc,
+    DateTimeOffset? ExternalCreatedAtUtc,
+    DateTimeOffset? ResolvedAtUtc,
+    string? LastError);
+
+public sealed record AlertDetail(
+    AlertListItem Alert,
+    IReadOnlyList<AlertAuditItem> AuditHistory,
+    DeliveryTicketDetail? Ticket);
 
 public sealed record AlertPage(
     IReadOnlyList<AlertListItem> Items,
@@ -83,6 +96,12 @@ public interface IAlertOperationsService
 }
 
 public interface IAlertWorkProcessor
+{
+    Task<bool> ProcessNextAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>Drives the delivery-ticket outbox: creates tickets for newly opened alerts via the delivery-ticket gateway.</summary>
+public interface IDeliveryTicketWorkProcessor
 {
     Task<bool> ProcessNextAsync(CancellationToken cancellationToken);
 }

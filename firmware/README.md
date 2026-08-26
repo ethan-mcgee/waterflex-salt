@@ -50,16 +50,22 @@ The firmware now includes an initial provisioning scaffold:
   device health.
 - Invalid or timed-out sensor reads never create a replacement distance. The firmware reports a fault heartbeat to
   `/api/v1/device/health`; only valid measurements are sent to `/api/v1/device/telemetry` and allowed to change fill.
-- The selected sensor is the 5 V, four-pin A02-series PWM variant shown in the supplied product documentation:
-	- Pin 1 `VCC`: regulated 5 V (do not use the Nano's 3V3 pin).
-	- Pin 2 `GND`: Nano GND; the sensor and Nano must share ground.
-	- Pin 3 `RX`: Nano `D5`, used as the trigger output (idle high, 12 ms low pulse).
-	- Pin 4 `TX`: Nano `D4` through a proper 5 V-to-3.3 V level shifter or resistor divider. Do not connect a
-	  potentially 5 V PWM output directly to an ESP32 GPIO.
-	- The listing's wire colors are not treated as authoritative; verify connector pin numbers before applying power.
-- The PWM high time is converted using the documented `distance_cm = pulse_us / 57.5` formula. Valid readings are
-  3-420 cm. The documented fixed 35 ms no-target pulse, missing edges, and stuck-high/stuck-low signals are faults
-  and never become telemetry measurements.
+- The selected sensor is the A0221AT / DYP-A02 controlled-UART variant connected through the ASX00061 Nano
+  Connector Carrier. Power off before connecting or changing sensor wiring, and set the carrier selector to `3V3`:
+	- Sensor black `GND` -> carrier UART `GND`.
+	- Sensor red `VCC` -> carrier UART `VCC`.
+	- Sensor yellow `RX` -> carrier UART `TX` / Nano `D1`.
+	- Sensor white `TX` -> carrier UART `RX` / Nano `D0`.
+	- Do not insert loose bare strands directly into a Grove socket. Use a terminated Grove lead, screw-terminal
+	  adapter, or another mechanically secure and insulated connection before applying power.
+- `Serial1` sends a trigger byte and receives one 9600-baud 8N1 response frame: `0xFF`, distance high byte,
+  distance low byte, checksum. The checksum must equal `(0xFF + high + low) & 0xFF`; distance is
+  `(high << 8) | low` millimeters and must be within 30-4,500 mm. The parser searches for the header, tolerates noise
+  and partial frames, validates checksums, and resynchronizes after a bad frame. No bytes produce `readTimeout`,
+  corrupt/partial data produces `invalidSignal`, and a checksum-valid value outside the supported range produces
+  `outOfRange`. None become telemetry readings.
+- USB serial diagnostics remain 115200 baud. A working sensor prints `distance=<number> mm`; a wiring, protocol, or
+  range problem prints `sensor read error fault=<faultCode>`.
 - The default telemetry destination is
   `https://telemetry-staging.saltmonitor.dev/api/v1/device/telemetry`. HTTPS validates Cloudflare's edge
   certificate against the embedded Google Trust Services GTS Root R4 trust anchor after SNTP synchronization;
@@ -89,5 +95,3 @@ Remaining hardware/manufacturing gates:
 - Build development only: `pio run -e arduino_nano_esp32_development`
 - Upload:  `pio run -t upload`
 - Monitor: `pio device monitor`
-
-See `../AI-Plans/plan-c-arduino-nano-esp32.md` for wiring and firmware requirements.

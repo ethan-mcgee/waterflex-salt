@@ -401,3 +401,37 @@ public sealed class AlertEvaluationWorkItem
     public string? LastError { get; set; }
     public TelemetryReadingRecord TelemetryReading { get; set; } = null!;
 }
+
+/// <summary>
+/// One delivery ticket per <see cref="LowSaltAlert"/>, opened automatically when the alert
+/// opens and resolved automatically when the alert resolves from sensor recovery evidence.
+/// </summary>
+public sealed class DeliveryTicket
+{
+    public Guid Id { get; set; }
+    public Guid LowSaltAlertId { get; set; }
+    public DeliveryTicketStatus Status { get; set; }
+    public string? ExternalTicketId { get; set; }
+    public required string IdempotencyKey { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? ExternalCreatedAtUtc { get; set; }
+    public DateTimeOffset? ResolvedAtUtc { get; set; }
+    public string? LastError { get; set; }
+    public LowSaltAlert LowSaltAlert { get; set; } = null!;
+}
+
+/// <summary>Outbox queue driving the actual <see cref="IDeliveryTicketGateway"/> call for a <see cref="DeliveryTicket"/>.</summary>
+public sealed class DeliveryTicketWorkItem
+{
+    public long Id { get; set; }
+    public Guid DeliveryTicketId { get; set; }
+    public AlertWorkItemStatus Status { get; set; }
+    public int AttemptCount { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset AvailableAtUtc { get; set; }
+    public Guid? LeaseId { get; set; }
+    public DateTimeOffset? LeasedUntilUtc { get; set; }
+    public DateTimeOffset? CompletedAtUtc { get; set; }
+    public string? LastError { get; set; }
+    public DeliveryTicket DeliveryTicket { get; set; } = null!;
+}

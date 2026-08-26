@@ -3,13 +3,13 @@
  *
  * Hardware:
  *   - Arduino Nano ESP32 (ESP32-S3)
- *   - A02-series waterproof ultrasonic sensor, 5 V PWM-output variant
+ *   - A0221AT / DYP-A02 controlled-UART waterproof ultrasonic sensor
  *
- * Sensor connector pin functions shown by the supplied product documentation:
- *   Pin 1 VCC -> regulated 5 V
+ * Sensor wiring through the ASX00061 Nano Connector Carrier UART port:
+ *   Pin 1 VCC -> Nano 3V3
  *   Pin 2 GND -> Nano GND
- *   Pin 3 RX  -> Nano D5 (trigger output; idle high, 12 ms low pulse)
- *   Pin 4 TX  -> Nano D4 through a 5 V-to-3.3 V level shifter/divider
+ *   Pin 3 RX  -> carrier TX / Nano D1 (measurement trigger)
+ *   Pin 4 TX  -> carrier RX / Nano D0 (distance response)
  *
  * Faulted reads update device health only and can never update operational fill.
  */
@@ -22,12 +22,12 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <esp_attr.h>
 #include <esp_mac.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
 
+#include "a02yyuw_uart_parser.h"
 #include "cloudflare_root_ca.h"
 
 #ifndef WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
@@ -35,14 +35,14 @@
 #endif
 
 namespace {
-constexpr int kSensorPulsePin = D4;    // Sensor pin 4 TX, level-shifted to 3.3 V
-constexpr int kSensorTriggerPin = D5;  // Sensor pin 3 RX
-constexpr uint32_t kSensorTriggerLowUs = 12UL * 1000UL;
-constexpr uint32_t kSensorResponseTimeoutUs = 40UL * 1000UL;
-constexpr uint32_t kSensorNoTargetPulseUs = 35UL * 1000UL;
-constexpr uint32_t kSensorNoTargetToleranceUs = 500UL;
-constexpr int kSensorMinimumDistanceMm = 30;
-constexpr int kSensorMaximumDistanceMm = 4200;
+constexpr int kSensorRxPin = D0;  // Carrier RX <- sensor TX (white)
+constexpr int kSensorTxPin = D1;  // Carrier TX -> sensor RX (yellow)
+constexpr uint32_t kSensorBaudRate = 9600;
+constexpr uint8_t kSensorTriggerByte = 0x00;
+constexpr uint32_t kSensorReadTimeoutMs = 250;
+constexpr size_t kSensorRxBufferSize = 256;
+constexpr int kSensorMinimumDistanceMm = waterflex::kA02YYUWMinimumDistanceMm;
+constexpr int kSensorMaximumDistanceMm = waterflex::kA02YYUWMaximumDistanceMm;
 constexpr int kRecoveryPin = D2;
 
 constexpr char kPortalApAddress[] = "192.168.4.1";
@@ -67,7 +67,7 @@ constexpr size_t kUploadBatchSize = 8;
 constexpr uint32_t kRetryBaseMs = 5UL * 1000UL;
 constexpr uint32_t kRetryMaximumMs = 15UL * 60UL * 1000UL;
 
-constexpr char kFirmwareVersion[] = "wf-dev-telemetry-0.1";
+constexpr char kFirmwareVersion[] = "wf-uart-pilot-0.1";
 constexpr char kDefaultTelemetryUrl[] = "https://telemetry-staging.saltmonitor.dev/api/v1/device/telemetry";
 
 constexpr char kNvsNamespace[] = "wf_prov";
@@ -119,9 +119,7 @@ struct QueuedReading {
   uint8_t quality;
 };
 
-volatile uint32_t gSensorPulseStartedAtUs = 0;
-volatile uint32_t gSensorPulseWidthUs = 0;
-volatile bool gSensorPulseComplete = false;
+waterflex::A02YYUWFrameParser gSensorParser;
 
 enum class ProvisioningState {
   Unprovisioned,
@@ -210,65 +208,65 @@ void restartDevice() {
   ESP.restart();
 }
 
-void ARDUINO_ISR_ATTR captureSensorPulse() {
-  const uint32_t nowUs = micros();
-  if (digitalRead(kSensorPulsePin) == HIGH) {
-    gSensorPulseStartedAtUs = nowUs;
-    gSensorPulseComplete = false;
-    return;
-  }
-
-  if (gSensorPulseStartedAtUs != 0) {
-    gSensorPulseWidthUs = nowUs - gSensorPulseStartedAtUs;
-    gSensorPulseComplete = true;
-  }
-}
-
 SensorReadResult readSensor() {
-  if (digitalRead(kSensorPulsePin) == HIGH) {
-    return {-1, "stuckHigh"};
+  // The A0221AT is the controlled-UART A02 variant. It returns one frame only
+  // after RX sees serial activity. Discard any response left over from an
+  // interrupted read so that each result belongs to the trigger below.
+  while (Serial1.available() > 0) {
+    Serial1.read();
   }
+  gSensorParser.reset();
+  if (Serial1.write(kSensorTriggerByte) != 1) {
+    return {-1, "readTimeout"};
+  }
+  Serial1.flush();
 
-  noInterrupts();
-  gSensorPulseStartedAtUs = 0;
-  gSensorPulseWidthUs = 0;
-  gSensorPulseComplete = false;
-  interrupts();
+  const uint32_t startedAtMs = millis();
+  bool sawAnyByte = false;
+  bool sawInvalidChecksum = false;
+  bool sawOutOfRange = false;
+  int latestValidDistanceMm = -1;
 
-  const uint32_t triggeredAtUs = micros();
-  digitalWrite(kSensorTriggerPin, LOW);
-  delayMicroseconds(kSensorTriggerLowUs);
-  digitalWrite(kSensorTriggerPin, HIGH);
+  while (millis() - startedAtMs < kSensorReadTimeoutMs) {
+    while (Serial1.available() > 0) {
+      const int rawValue = Serial1.read();
+      if (rawValue < 0) {
+        break;
+      }
 
-  bool pulseComplete = false;
-  uint32_t pulseStartedAtUs = 0;
-  uint32_t pulseWidthUs = 0;
-  while (micros() - triggeredAtUs < kSensorResponseTimeoutUs) {
-    noInterrupts();
-    pulseComplete = gSensorPulseComplete;
-    pulseStartedAtUs = gSensorPulseStartedAtUs;
-    pulseWidthUs = gSensorPulseWidthUs;
-    interrupts();
-    if (pulseComplete) {
-      break;
+      sawAnyByte = true;
+      int distanceMm = -1;
+      switch (gSensorParser.consume(static_cast<uint8_t>(rawValue), &distanceMm)) {
+        case waterflex::A02YYUWFrameStatus::Valid:
+          // A controlled-UART trigger should produce one response frame.
+          latestValidDistanceMm = distanceMm;
+          break;
+        case waterflex::A02YYUWFrameStatus::InvalidChecksum:
+          sawInvalidChecksum = true;
+          break;
+        case waterflex::A02YYUWFrameStatus::OutOfRange:
+          sawOutOfRange = true;
+          break;
+        case waterflex::A02YYUWFrameStatus::Incomplete:
+          break;
+      }
+    }
+    if (latestValidDistanceMm >= 0) {
+      return {latestValidDistanceMm, nullptr};
     }
     delay(1);
   }
 
-  if (!pulseComplete) {
-    return {-1, pulseStartedAtUs == 0 ? "stuckLow" : "stuckHigh"};
-  }
-
-  if (pulseWidthUs >= kSensorNoTargetPulseUs - kSensorNoTargetToleranceUs) {
+  // Do not carry an indefinitely partial frame across read windows. At 9600
+  // baud a complete four-byte frame takes only a few milliseconds.
+  gSensorParser.reset();
+  if (sawOutOfRange) {
     return {-1, "outOfRange"};
   }
-
-  // Product formula: distance_cm = pulse_us / 57.5. Integer form below
-  // converts to millimetres and rounds to the nearest millimetre.
-  const int distanceMm = static_cast<int>((pulseWidthUs * 4UL + 11UL) / 23UL);
-  return distanceMm >= kSensorMinimumDistanceMm && distanceMm <= kSensorMaximumDistanceMm
-      ? SensorReadResult{distanceMm, nullptr}
-      : SensorReadResult{-1, "outOfRange"};
+  if (sawInvalidChecksum || sawAnyByte) {
+    return {-1, "invalidSignal"};
+  }
+  return {-1, "readTimeout"};
 }
 
 String stateToString(ProvisioningState state) {
@@ -1450,10 +1448,8 @@ void initializeProvisioning() {
 void setup() {
   Serial.begin(115200);  // USB diagnostics
   pinMode(kRecoveryPin, INPUT_PULLUP);
-  pinMode(kSensorTriggerPin, OUTPUT);
-  digitalWrite(kSensorTriggerPin, HIGH);
-  pinMode(kSensorPulsePin, INPUT);
-  attachInterrupt(digitalPinToInterrupt(kSensorPulsePin), captureSensorPulse, CHANGE);
+  Serial1.setRxBufferSize(kSensorRxBufferSize);
+  Serial1.begin(kSensorBaudRate, SERIAL_8N1, kSensorRxPin, kSensorTxPin);
 
   initializeProvisioning();
   gBootId = makeBootId();

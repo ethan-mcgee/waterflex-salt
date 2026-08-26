@@ -69,3 +69,11 @@ public enum LowSaltAlertStatus
     Dismissed,
     Resolved
 }
+
+public enum DeliveryTicketStatus
+{
+    Pending,
+    Created,
+    Resolved,
+    Failed
+}

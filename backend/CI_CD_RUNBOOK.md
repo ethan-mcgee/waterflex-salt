@@ -107,4 +107,5 @@ MIGRATION_SECRET_ID=waterflex/staging/database/migrator
 9. Exercise one authenticated device-health request and verify it does not create a telemetry reading.
 
 GitHub-hosted CI and AWS staging continue running when the local PC is off. Physical firmware upload and
-hardware-in-loop PWM testing still require the Nano and a connected workstation or a dedicated locked-down runner.
+hardware-in-loop A0221AT UART testing still require the Nano and a connected workstation or a dedicated locked-down
+runner.

@@ -10,7 +10,8 @@ builder.Services.AddSingleton<IAmazonCognitoIdentityProvider>(_ => new AmazonCog
 builder.Services.AddSingleton<IAmazonSecretsManager>(_ => new AmazonSecretsManagerClient());
 builder.Services.AddHttpClient<CloudflareStaffAccessGateway>();
 builder.Services.AddScoped<StaffProvisioningProcessor>();
-builder.Services.AddHostedService<DeliveryOutboxWorker>();
+builder.Services.AddHostedService<AlertEvaluationWorker>();
+builder.Services.AddHostedService<DeliveryTicketOutboxWorker>();
 builder.Services.AddHostedService<TelemetryHistoryWorker>();
 builder.Services.AddHostedService<StaffProvisioningWorker>();
 

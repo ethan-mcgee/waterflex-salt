@@ -34,9 +34,12 @@ Any discrepancy blocks rollout. Record it as a release issue; do not silently re
 
 ## 3. Bench acceptance
 
-- Use the PWM sensor wiring and level shifting in `firmware/README.md`.
-- Disconnect the sensor and force missing/stuck/no-target pulses. Confirm only device health changes; latest fill and
-  alert state preserve the last trustworthy reading.
+- With power disconnected, use the A0221AT UART wiring in `firmware/README.md`; verify the sensor label and connector
+  order rather than relying on wire colors.
+- Confirm valid 9600-baud frames produce `distance=<number> mm`. Then disconnect sensor TX to exercise `readTimeout`,
+  inject a bad checksum/partial frame to exercise `invalidSignal`, and inject a checksum-valid out-of-range value to
+  exercise `outOfRange`. Confirm only device health changes; latest fill and alert state preserve the last
+  trustworthy reading.
 - Queue readings with Wi-Fi disabled, power-cycle, reconnect, and confirm exact boot/sequence acknowledgements drain
   the persisted queue without duplicate history or alerts. Verify queue depth and dropped count in the console.
 - Attempt an HTTP or non-WaterFlex API destination using the pilot build; provisioning must reject it before saving.

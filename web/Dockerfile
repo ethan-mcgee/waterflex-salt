@@ -9,7 +9,10 @@ COPY web/ .
 RUN npm run build
 
 FROM nginx:1.28.3-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
-RUN apk del \
+# Forces the apk upgrade below to re-run against current package indexes instead of reusing a
+# stale cached layer, so newly published Alpine security patches actually land in the image.
+ARG PACKAGE_CACHE_BUST=unset
+RUN echo "package-cache-bust: ${PACKAGE_CACHE_BUST}" && apk del \
 		nginx-module-acme \
 		nginx-module-geoip \
 		nginx-module-image-filter \

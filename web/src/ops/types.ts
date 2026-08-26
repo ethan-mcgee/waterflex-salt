@@ -1,6 +1,6 @@
 export type ReportingStatus = 'reporting' | 'stale' | 'offline' | 'neverReported';
 export type SensorHealthStatus = 'unknown' | 'healthy' | 'faulted';
-export type SensorFaultCode = 'readTimeout' | 'invalidSignal' | 'outOfRange' | 'unstableSignal' | 'stuckHigh' | 'stuckLow';
+export type SensorFaultCode = 'readTimeout' | 'invalidSignal' | 'outOfRange' | 'unstableSignal';
 export type FleetSort = 'attention' | 'lastReported' | 'fillAscending' | 'fillDescending' | 'customer';
 
 export interface FleetFilters {
@@ -131,6 +131,8 @@ export interface FleetHistory {
 
 export type LowSaltAlertStatus = 'open' | 'acknowledged' | 'approved' | 'dismissed' | 'resolved';
 
+export type DeliveryTicketStatus = 'pending' | 'created' | 'resolved' | 'failed';
+
 export interface AlertListItem {
   alertId: string;
   deviceId: string;
@@ -145,6 +147,8 @@ export interface AlertListItem {
   lastEvidenceAtUtc: string;
   lastEvidenceFillPercent: number;
   rowVersion: string;
+  ticketStatus: DeliveryTicketStatus | null;
+  ticketExternalId: string | null;
 }
 
 export interface AlertAuditItem {
@@ -158,7 +162,16 @@ export interface AlertAuditItem {
   occurredAtUtc: string;
 }
 
-export interface AlertDetail { alert: AlertListItem; auditHistory: AlertAuditItem[]; }
+export interface DeliveryTicketDetail {
+  status: DeliveryTicketStatus;
+  externalTicketId: string | null;
+  requestedAtUtc: string;
+  externalCreatedAtUtc: string | null;
+  resolvedAtUtc: string | null;
+  lastError: string | null;
+}
+
+export interface AlertDetail { alert: AlertListItem; auditHistory: AlertAuditItem[]; ticket: DeliveryTicketDetail | null; }
 export interface AlertPageResult {
   items: AlertListItem[];
   totalCount: number;

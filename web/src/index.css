@@ -786,6 +786,20 @@ button:disabled {
 .reporting-badge.deprovisioning { color: var(--warning); background: var(--warning-wash); }
 .reporting-badge.pending { color: var(--brand-dark); background: var(--brand-wash); }
 
+.reporting-badge.open { color: var(--danger); background: var(--danger-wash); }
+.reporting-badge.acknowledged { color: var(--brand-dark); background: var(--brand-wash); }
+.reporting-badge.approved { color: var(--warning); background: var(--warning-wash); }
+.reporting-badge.resolved { color: var(--success); background: var(--success-wash); }
+.reporting-badge.created { color: var(--brand-dark); background: var(--brand-wash); }
+.reporting-badge.failed { color: var(--danger); background: var(--danger-wash); }
+
+.aging-flag {
+  display: inline-flex;
+  align-items: center;
+  color: var(--warning);
+  margin-left: 5px;
+}
+
 .firmware-value,
 .last-report {
   color: var(--ink-soft);
@@ -1101,6 +1115,22 @@ button:disabled {
 .alert-actions button { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); cursor: pointer; }
 .alert-audit { margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .alert-audit h2 { margin-top: 0; }
+
+.ticket-detail { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.ticket-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0; }
+.ticket-detail dt { color: var(--muted); }
+.ticket-detail dd { margin: 0; }
+.ticket-detail .ticket-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  color: var(--danger);
+  background: var(--danger-wash);
+  border-radius: 6px;
+  font-size: 13px;
+}
 
 .history-error {
   display: flex;
@@ -2004,7 +2034,7 @@ p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0 0 12px;
+  margin: 28px 0 12px;
   font-family: "Bahnschrift", "Aptos Display", sans-serif;
   font-size: 17px;
   font-weight: 600;

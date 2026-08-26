@@ -28,6 +28,8 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<LowSaltAlertAuditEvent> LowSaltAlertAuditEvents => Set<LowSaltAlertAuditEvent>();
     public DbSet<LowSaltAlertEvaluationState> LowSaltAlertEvaluationStates => Set<LowSaltAlertEvaluationState>();
     public DbSet<AlertEvaluationWorkItem> AlertEvaluationWorkItems => Set<AlertEvaluationWorkItem>();
+    public DbSet<DeliveryTicket> DeliveryTickets => Set<DeliveryTicket>();
+    public DbSet<DeliveryTicketWorkItem> DeliveryTicketWorkItems => Set<DeliveryTicketWorkItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -380,6 +382,36 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasOne(workItem => workItem.TelemetryReading)
                 .WithMany()
                 .HasForeignKey(workItem => workItem.TelemetryReadingId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<DeliveryTicket>(entity =>
+        {
+            entity.ToTable("DeliveryTickets");
+            entity.HasKey(ticket => ticket.Id);
+            entity.Property(ticket => ticket.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(ticket => ticket.ExternalTicketId).HasMaxLength(200);
+            entity.Property(ticket => ticket.IdempotencyKey).HasMaxLength(200);
+            entity.Property(ticket => ticket.LastError).HasMaxLength(1000);
+            entity.HasIndex(ticket => ticket.LowSaltAlertId).IsUnique();
+            entity.HasIndex(ticket => ticket.IdempotencyKey).IsUnique();
+            entity.HasOne(ticket => ticket.LowSaltAlert)
+                .WithOne()
+                .HasForeignKey<DeliveryTicket>(ticket => ticket.LowSaltAlertId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<DeliveryTicketWorkItem>(entity =>
+        {
+            entity.ToTable("DeliveryTicketWorkItems");
+            entity.HasKey(workItem => workItem.Id);
+            entity.Property(workItem => workItem.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(workItem => workItem.LastError).HasMaxLength(1000);
+            entity.HasIndex(workItem => workItem.DeliveryTicketId).IsUnique();
+            entity.HasIndex(workItem => new { workItem.Status, workItem.AvailableAtUtc, workItem.Id });
+            entity.HasOne(workItem => workItem.DeliveryTicket)
+                .WithMany()
+                .HasForeignKey(workItem => workItem.DeliveryTicketId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
     }
