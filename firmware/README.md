@@ -27,6 +27,9 @@ The firmware now includes an initial provisioning scaffold:
 	- The second reset clears stored Wi-Fi, API URL, and device token settings.
 	- The firmware immediately broadcasts the visible `WaterFlex-XXXXXX` setup network and serves the setup portal at `http://192.168.4.1/`.
 - SoftAP captive portal skeleton with wildcard DNS redirect behavior.
+- The setup page at `/` submits over `fetch` and polls `/api/v1/status` to show live connecting/connected/failed
+  state in place, with a human-readable message per `errorCode` and a retry action — it never leaves the technician
+  staring at a raw JSON response or a silent screen during the up-to-30-second Wi-Fi connect attempt.
 - Provisioning routes:
 	- `GET /`
 	- `GET /api/v1/networks`
