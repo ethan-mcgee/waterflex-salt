@@ -3,9 +3,21 @@ WORKDIR /src
 
 COPY ["NuGet.Config", "./"]
 COPY ["global.json", "./"]
-COPY ["backend", "backend/"]
+COPY ["backend/WaterFlex.SaltMonitor.slnx", "backend/WaterFlex.SaltMonitor.slnx"]
+COPY ["backend/Directory.Build.props", "backend/Directory.Build.props"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Domain/WaterFlex.SaltMonitor.Domain.csproj", "backend/src/WaterFlex.SaltMonitor.Domain/"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Ingestion/WaterFlex.SaltMonitor.Ingestion.csproj", "backend/src/WaterFlex.SaltMonitor.Ingestion/"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Provisioning/WaterFlex.SaltMonitor.Provisioning.csproj", "backend/src/WaterFlex.SaltMonitor.Provisioning/"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Rules/WaterFlex.SaltMonitor.Rules.csproj", "backend/src/WaterFlex.SaltMonitor.Rules/"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Api/WaterFlex.SaltMonitor.Api.csproj", "backend/src/WaterFlex.SaltMonitor.Api/"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Infrastructure/WaterFlex.SaltMonitor.Infrastructure.csproj", "backend/src/WaterFlex.SaltMonitor.Infrastructure/"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Operations/WaterFlex.SaltMonitor.Operations.csproj", "backend/src/WaterFlex.SaltMonitor.Operations/"]
+COPY ["backend/src/WaterFlex.SaltMonitor.Worker/WaterFlex.SaltMonitor.Worker.csproj", "backend/src/WaterFlex.SaltMonitor.Worker/"]
+COPY ["backend/tests/WaterFlex.SaltMonitor.Tests/WaterFlex.SaltMonitor.Tests.csproj", "backend/tests/WaterFlex.SaltMonitor.Tests/"]
 
 RUN dotnet restore backend/WaterFlex.SaltMonitor.slnx --configfile NuGet.Config
+
+COPY ["backend", "backend/"]
 
 RUN dotnet publish backend/src/WaterFlex.SaltMonitor.Api/WaterFlex.SaltMonitor.Api.csproj \
     -c Release \

@@ -15,8 +15,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+      firmware: ${{ steps.filter.outputs.firmware }}
+      containers: ${{ steps.filter.outputs.containers }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'global.json'
+              - 'NuGet.Config'
+              - 'dotnet-tools.json'
+            web:
+              - 'web/**'
+            firmware:
+              - 'firmware/**'
+            containers:
+              - 'backend/**'
+              - 'web/**'
+              - 'docker-compose.yml'
+              - 'docker-compose.staging.yml'
+              - 'docker-bake.hcl'
+
   backend:
     name: Backend build and integration tests
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -24,6 +60,10 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            backend/**/*.csproj
+            NuGet.Config
       - name: Restore tools and packages
         run: |
           dotnet tool restore
@@ -51,6 +91,8 @@ jobs:
 
   web:
     name: Web build and tests
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -71,6 +113,8 @@ jobs:
 
   firmware:
     name: Firmware build
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -81,6 +125,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-6.1.19-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-6.1.19-
       - name: Install pinned PlatformIO Core
         run: pip install platformio==6.1.19
       - name: Test A0221AT UART frame parser
@@ -100,6 +150,8 @@ jobs:
 
   containers:
     name: Deployment scripts and containers
+    needs: changes
+    if: needs.changes.outputs.containers == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -128,10 +180,15 @@ jobs:
           CloudflareAccess__Issuer: https://ci.cloudflareaccess.com
           CloudflareAccess__Audience: ci-audience
         run: docker compose -f docker-compose.staging.yml config --quiet
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Build deployable images
-        run: |
-          docker compose -f docker-compose.yml build api worker web
-          docker build --file backend/Dockerfile.migrations --tag waterflex-migrations:ci .
+        uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7.3.0
+        with:
+          source: .
+          files: docker-bake.hcl
+          load: true
+        env:
+          TAG: local
       - name: Validate the Nginx runtime configuration
         run: docker run --rm --add-host api:127.0.0.1 waterflex-web:local nginx -t
       - name: Scan API image for fixed high or critical vulnerabilities
@@ -167,7 +224,7 @@ jobs:
       - name: Scan migration image for fixed high or critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: waterflex-migrations:ci
+          image-ref: waterflex-migrations:local
           skip-setup-trivy: true
           scanners: vuln
           format: table
