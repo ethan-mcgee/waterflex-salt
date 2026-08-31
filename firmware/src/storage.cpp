@@ -18,7 +18,6 @@ void saveActiveProfile(const WifiProfile& profile) {
   ensurePrefsReady();
   gPrefs.putString(kKeySsid, profile.ssid);
   gPrefs.putString(kKeyPassword, profile.password);
-  gPrefs.putBool(kKeyHidden, profile.hidden);
 }
 
 void saveDeviceConfig(const DeviceConfig& config) {
@@ -31,7 +30,7 @@ void clearActiveProfile() {
   ensurePrefsReady();
   gPrefs.remove(kKeySsid);
   gPrefs.remove(kKeyPassword);
-  gPrefs.remove(kKeyHidden);
+  gPrefs.remove(kLegacyKeyHidden);
 }
 
 void clearDeviceConfig() {
@@ -72,7 +71,6 @@ bool loadActiveProfile(WifiProfile* profile) {
   }
   profile->ssid = ssid;
   profile->password = gPrefs.getString(kKeyPassword, "");
-  profile->hidden = gPrefs.getBool(kKeyHidden, false);
   return true;
 }
 

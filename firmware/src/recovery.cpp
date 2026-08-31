@@ -28,6 +28,11 @@ void processSerialCommands() {
       } else if (command == "PORTAL") {
         Serial.println("portal command received");
         startPortal("serial_portal");
+#if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
+      } else if (command == "PORTAL_PREVIEW" || command == "PORTALPREVIEW") {
+        Serial.println("portal preview command received");
+        startPortalPreview();
+#endif
       } else {
         Serial.println("unknown command");
       }

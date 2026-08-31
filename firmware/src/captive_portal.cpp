@@ -57,8 +57,6 @@ constexpr char kPortalScript[] = R"JS(
   const ERROR_MESSAGES = {
     invalid_ssid: 'Enter the Wi-Fi network name.',
     invalid_password: 'That password is too long.',
-    invalid_api_url: 'That telemetry API URL is not allowed.',
-    invalid_device_token: 'That device token is too long.',
     invalid_token: 'This setup page expired. Reload the page and try again.',
     factory_bootstrap_missing: 'This sensor has no bootstrap credential and no device token. Contact support.',
     wifi_connect_timeout: 'Could not join that network. Double-check the Wi-Fi name and password, then try again.',
@@ -142,30 +140,25 @@ constexpr char kPortalScript[] = R"JS(
 })();
 )JS";
 
-void handlePortalRoot() {
-  markPortalActivity();
-  sendNoStoreHeaders();
-
+String buildPortalHtml(bool preview) {
   String html;
-  html.reserve(4200);
+  html.reserve(4400);
   html += "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
   html += "<title>WaterFlex Setup</title>";
   html += "<style>";
   html += kPortalStyle;
   html += "</style>";
   html += "</head><body><main><h1>WaterFlex Wi-Fi Setup</h1><p>Connect this sensor to the customer 2.4 GHz Wi-Fi.</p>";
+  if (preview) {
+    html += "<p><small><strong>Development preview:</strong> configuration is read-only and telemetry remains connected.</small></p>";
+  }
   html += "<form id='wifi-form' method='POST' action='/api/v1/configure'>";
   html += "<input type='hidden' name='token' value='" + jsonEscape(gPortalToken) + "'>";
   html += "<label for='ssid'>Wi-Fi name (SSID)</label><input id='ssid' name='ssid' maxlength='32' required>";
   html += "<label for='password'>Wi-Fi password</label><input id='password' name='password' type='password' maxlength='63'>";
-  html += "<label><input type='checkbox' name='hidden' value='1'> Hidden network</label>";
-#if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
-  html += "<label for='apiUrl'>Telemetry API URL</label><input id='apiUrl' name='apiUrl' maxlength='256' value='" + jsonEscape(gDeviceConfig.apiUrl) + "'>";
-  html += "<label for='deviceToken'>Device token</label><input id='deviceToken' name='deviceToken' type='password' maxlength='256' autocomplete='off' placeholder='";
-  html += gDeviceConfig.deviceToken.isEmpty() ? "Required" : "Leave blank to keep the stored token";
-  html += "'>";
-#endif
-  html += "<button type='submit'>Configure sensor</button>";
+  html += preview
+      ? "<button type='submit' disabled>Connect to Wi-Fi</button>"
+      : "<button type='submit'>Connect to Wi-Fi</button>";
   html += "<div id='status' role='status' aria-live='polite'>";
   html += "<span class='spinner'></span><span class='msg'></span>";
   html += "<button type='button' id='retry' style='display:none'>Try again</button>";
@@ -177,7 +170,14 @@ void handlePortalRoot() {
   html += "</script>";
   html += "</body></html>";
 
-  gPortalServer.send(200, "text/html", html);
+  return html;
+}
+
+void handlePortalRoot() {
+  markPortalActivity();
+  sendNoStoreHeaders();
+
+  gPortalServer.send(200, "text/html", buildPortalHtml(false));
 }
 
 void handlePortalNetworks() {
@@ -233,9 +233,6 @@ void handlePortalConfigure() {
 
   const String ssid = gPortalServer.arg("ssid");
   const String password = gPortalServer.arg("password");
-  const String apiUrl = gPortalServer.arg("apiUrl");
-  const String deviceToken = gPortalServer.arg("deviceToken");
-  const bool hidden = gPortalServer.hasArg("hidden") && gPortalServer.arg("hidden") == "1";
 
   if (ssid.isEmpty() || ssid.length() > 32) {
     gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_ssid\"}");
@@ -245,26 +242,12 @@ void handlePortalConfigure() {
     gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_password\"}");
     return;
   }
-  const String candidateApiUrl = apiUrl.isEmpty() ? kDefaultTelemetryUrl : apiUrl;
-  if (candidateApiUrl.length() > 256 || !isApprovedOperationalApiUrl(candidateApiUrl)) {
-    gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_api_url\"}");
-    return;
-  }
-  if (deviceToken.length() > 256) {
-    gPortalServer.send(400, "application/json", "{\"errorCode\":\"invalid_device_token\"}");
-    return;
-  }
-
   WifiProfile candidate;
   candidate.ssid = ssid;
   candidate.password = password;
-  candidate.hidden = hidden;
 
-  gCandidateDeviceConfig.apiUrl = candidateApiUrl;
+  gCandidateDeviceConfig.apiUrl = kDefaultTelemetryUrl;
   gCandidateDeviceConfig.deviceToken = gDeviceConfig.deviceToken;
-#if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
-  if (!deviceToken.isEmpty()) gCandidateDeviceConfig.deviceToken = deviceToken;
-#endif
   if (gCandidateDeviceConfig.deviceToken.isEmpty() && gBootstrapToken.isEmpty()) {
     gPortalServer.send(409, "application/json", "{\"errorCode\":\"factory_bootstrap_missing\"}");
     return;
@@ -324,6 +307,100 @@ void handleCaptiveRedirect() {
   gPortalServer.send(302, "text/plain", "");
 }
 
+void registerPortalRoutes() {
+  gPortalServer.on("/", HTTP_GET, handlePortalRoot);
+  gPortalServer.on("/api/v1/networks", HTTP_GET, handlePortalNetworks);
+  gPortalServer.on("/api/v1/configure", HTTP_POST, handlePortalConfigure);
+  gPortalServer.on("/api/v1/status", HTTP_GET, handlePortalStatus);
+  gPortalServer.on("/api/v1/restart", HTTP_POST, handlePortalRestart);
+
+  gPortalServer.on("/generate_204", HTTP_ANY, handleCaptiveRedirect);
+  gPortalServer.on("/hotspot-detect.html", HTTP_ANY, handleCaptiveRedirect);
+  gPortalServer.on("/ncsi.txt", HTTP_ANY, handleCaptiveRedirect);
+  gPortalServer.on("/connecttest.txt", HTTP_ANY, handleCaptiveRedirect);
+  gPortalServer.onNotFound(handleCaptiveRedirect);
+}
+
+#if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
+constexpr uint16_t kPortalPreviewPort = 8080;
+WebServer gPortalPreviewServer(kPortalPreviewPort);
+bool gPortalPreviewRunning = false;
+bool gPortalPreviewRoutesRegistered = false;
+uint32_t gPortalPreviewStartedAtMs = 0;
+uint32_t gPortalPreviewLastActivityAtMs = 0;
+
+void sendPortalPreviewHeaders() {
+  gPortalPreviewServer.sendHeader("Cache-Control", "no-store");
+  gPortalPreviewServer.sendHeader("X-Content-Type-Options", "nosniff");
+  gPortalPreviewServer.sendHeader("Referrer-Policy", "no-referrer");
+  gPortalPreviewServer.sendHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';");
+}
+
+void markPortalPreviewActivity() {
+  gPortalPreviewLastActivityAtMs = millis();
+}
+
+void handlePortalPreviewRoot() {
+  markPortalPreviewActivity();
+  sendPortalPreviewHeaders();
+  gPortalPreviewServer.send(200, "text/html", buildPortalHtml(true));
+}
+
+void handlePortalPreviewReadOnly() {
+  markPortalPreviewActivity();
+  sendPortalPreviewHeaders();
+  gPortalPreviewServer.send(403, "application/json", "{\"errorCode\":\"preview_read_only\"}");
+}
+
+void handlePortalPreviewNotFound() {
+  markPortalPreviewActivity();
+  sendPortalPreviewHeaders();
+  gPortalPreviewServer.send(404, "text/plain", "Not found");
+}
+
+void registerPortalPreviewRoutes() {
+  if (gPortalPreviewRoutesRegistered) {
+    return;
+  }
+  gPortalPreviewServer.on("/", HTTP_GET, handlePortalPreviewRoot);
+  gPortalPreviewServer.on("/api/v1/configure", HTTP_POST, handlePortalPreviewReadOnly);
+  gPortalPreviewServer.on("/api/v1/restart", HTTP_POST, handlePortalPreviewReadOnly);
+  gPortalPreviewServer.onNotFound(handlePortalPreviewNotFound);
+  gPortalPreviewRoutesRegistered = true;
+}
+
+void stopPortalPreview(const char* reason) {
+  if (!gPortalPreviewRunning) {
+    return;
+  }
+  gPortalPreviewServer.stop();
+  gPortalPreviewRunning = false;
+  Serial.printf("portal preview stopped: %s\n", reason);
+}
+
+void processPortalPreview() {
+  if (!gPortalPreviewRunning) {
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    stopPortalPreview("Wi-Fi disconnected");
+    return;
+  }
+
+  gPortalPreviewServer.handleClient();
+  const uint32_t now = millis();
+  if (now - gPortalPreviewLastActivityAtMs >= kPortalIdleTimeoutMs) {
+    stopPortalPreview("idle timeout");
+    return;
+  }
+  if (now - gPortalPreviewStartedAtMs >= kPortalAbsoluteTimeoutMs) {
+    stopPortalPreview("absolute timeout");
+  }
+}
+#endif
+
 }  // namespace
 
 void markPortalActivity() {
@@ -334,8 +411,9 @@ void stopPortal() {
   if (!gPortalRunning) {
     return;
   }
-  gDnsServer.stop();
+
   gPortalServer.stop();
+  gDnsServer.stop();
   WiFi.softAPdisconnect(true);
   gPortalRunning = false;
 }
@@ -347,6 +425,7 @@ void setPortalError(const String& errorCode) {
 
 void startPortal(const String& reasonCode) {
   if (gPortalRunning) {
+    Serial.println("portal already running");
     return;
   }
 
@@ -384,17 +463,7 @@ void startPortal(const String& reasonCode) {
 
   gDnsServer.start(kPortalDnsPort, "*", IPAddress(192, 168, 4, 1));
 
-  gPortalServer.on("/", HTTP_GET, handlePortalRoot);
-  gPortalServer.on("/api/v1/networks", HTTP_GET, handlePortalNetworks);
-  gPortalServer.on("/api/v1/configure", HTTP_POST, handlePortalConfigure);
-  gPortalServer.on("/api/v1/status", HTTP_GET, handlePortalStatus);
-  gPortalServer.on("/api/v1/restart", HTTP_POST, handlePortalRestart);
-
-  gPortalServer.on("/generate_204", HTTP_ANY, handleCaptiveRedirect);
-  gPortalServer.on("/hotspot-detect.html", HTTP_ANY, handleCaptiveRedirect);
-  gPortalServer.on("/ncsi.txt", HTTP_ANY, handleCaptiveRedirect);
-  gPortalServer.on("/connecttest.txt", HTTP_ANY, handleCaptiveRedirect);
-  gPortalServer.onNotFound(handleCaptiveRedirect);
+  registerPortalRoutes();
 
   gPortalServer.begin();
   gPortalRunning = true;
@@ -408,7 +477,33 @@ void startPortal(const String& reasonCode) {
                 WiFi.softAPIP().toString().c_str());
 }
 
+#if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
+void startPortalPreview() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("portal preview unavailable: Wi-Fi is not connected");
+    return;
+  }
+
+  registerPortalPreviewRoutes();
+  if (gPortalPreviewRunning) {
+    gPortalPreviewServer.stop();
+  }
+  gPortalPreviewServer.begin();
+  gPortalPreviewRunning = true;
+  gPortalPreviewStartedAtMs = millis();
+  gPortalPreviewLastActivityAtMs = gPortalPreviewStartedAtMs;
+
+  Serial.printf("portal preview started url=http://%s:%u/ telemetry=preserved readOnly=true\n",
+                WiFi.localIP().toString().c_str(),
+                kPortalPreviewPort);
+}
+#endif
+
 void processPortal() {
+#if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
+  processPortalPreview();
+#endif
+
   if (!gPortalRunning) {
     return;
   }

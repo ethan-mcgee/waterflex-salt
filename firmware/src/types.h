@@ -8,7 +8,6 @@
 struct WifiProfile {
   String ssid;
   String password;
-  bool hidden = false;
 };
 
 struct DeviceConfig {
