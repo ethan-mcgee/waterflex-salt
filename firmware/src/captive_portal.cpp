@@ -278,8 +278,8 @@ void handlePortalStatus() {
   body += gDeviceConfig.deviceToken.isEmpty() ? "false" : "true";
   body += ",\"configured\":";
   body += gHasActiveProfile && !gDeviceConfig.deviceToken.isEmpty() ? "true" : "false";
-  body += ",\"hardwareId\":\"";
-  body += hardwareId();
+  body += ",\"serialNumber\":\"";
+  body += jsonEscape(gSerialNumber);
   body += "\",\"telemetryIntervalSeconds\":";
   body += String(gTelemetryIntervalMs / 1000UL);
   body += "}";
@@ -430,10 +430,19 @@ void startPortal(const String& reasonCode) {
   }
 
   gPortalToken = makePortalToken();
-  gPortalSsid = String(kPortalApSsidPrefix) + serialSuffix();
+  gPortalSsid = gSerialNumber;
 
   const String setupPassphrase = gPrefs.getString(kKeyPassphrase, "");
   String portalPassphrase = setupPassphrase;
+  if (gPortalSsid.isEmpty()) {
+#if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
+    gPortalSsid = "WF-NANO-DEVELOPMENT";
+#else
+    setPortalError("factory_identity_missing");
+    Serial.println("portal refused: factory-injected serial number missing");
+    return;
+#endif
+  }
   if (portalPassphrase.isEmpty()) {
 #if WATERFLEX_ALLOW_DEVELOPMENT_PROVISIONING
     portalPassphrase = defaultPortalPassphrase();

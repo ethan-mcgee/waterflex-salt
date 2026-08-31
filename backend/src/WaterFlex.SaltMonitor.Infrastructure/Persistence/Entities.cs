@@ -10,6 +10,7 @@ public enum DeviceLifecycleStatus
     Registered,
     Commissioning,
     Active,
+    Quarantined,
     Retired
 }
 
@@ -62,7 +63,6 @@ public sealed class Device
 {
     public Guid Id { get; set; }
     public required string SerialNumber { get; set; }
-    public required string HardwareId { get; set; }
     public required string Model { get; set; }
     public DeviceLifecycleStatus Status { get; set; }
     public DateTimeOffset RegisteredAtUtc { get; set; }
@@ -84,6 +84,23 @@ public sealed class Device
     public ICollection<DeviceBootstrapCredential> BootstrapCredentials { get; set; } = [];
     public ICollection<DeviceInstallation> Installations { get; set; } = [];
     public ICollection<CommissioningSession> CommissioningSessions { get; set; } = [];
+    public FactoryProvisioningJob? FactoryProvisioningJob { get; set; }
+}
+
+public sealed class FactoryProvisioningJob
+{
+    public Guid Id { get; set; }
+    public required string IdempotencyKey { get; set; }
+    public long SerialSequence { get; set; }
+    public required string SerialNumber { get; set; }
+    public FactoryProvisioningStatus Status { get; set; }
+    public Guid DeviceId { get; set; }
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? VerifiedAtUtc { get; set; }
+    public string? FailureCode { get; set; }
+    public uint RowVersion { get; set; }
+    public Device Device { get; set; } = null!;
 }
 
 public sealed class DeviceBootstrapCredential

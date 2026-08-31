@@ -35,7 +35,6 @@ export interface FleetDevice {
   deviceId: string;
   installationId: string;
   serialNumber: string;
-  hardwareId: string;
   model: string;
   lifecycleStatus: string;
   dealerExternalId: string | null;

@@ -9,7 +9,6 @@ import {
   KeyRound,
   MapPin,
   RefreshCw,
-  Router,
   UserRound,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -190,7 +189,6 @@ export default function DeviceDetailPage() {
         <MetaItem icon={<Gauge size={16} />} label="Calibration" value={detail.calibrationVersion ? `Version ${detail.calibrationVersion} · ${(detail.tankDepthMm ?? 0) / 10} cm depth` : 'Not available'} />
         <MetaItem icon={<KeyRound size={16} />} label="Credential" value={detail.hasActiveCredential ? 'Active' : 'Unavailable'} />
         <MetaItem icon={<UserRound size={16} />} label="Installed by" value={detail.installedBy ?? 'Not recorded'} />
-        <MetaItem icon={<Router size={16} />} label="Hardware ID" value={device.hardwareId} />
         <MetaItem icon={<Box size={16} />} label="Model" value={device.model} />
         <MetaItem icon={<CalendarClock size={16} />} label="Commissioned" value={detail.commissionedAtUtc ? formatDateTime(detail.commissionedAtUtc) : 'Not recorded'} />
       </div>

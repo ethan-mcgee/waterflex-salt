@@ -51,16 +51,13 @@ public sealed class CommissioningServiceTests
     }
 
     [Fact]
-    public async Task CommissionAsync_RejectsDuplicateHardwareId()
+    public async Task CommissionAsync_RejectsDuplicateSerialNumber()
     {
         await using var database = await TestDatabase.CreateAsync();
         var service = CreateService(database.Context);
         var first = await service.CommissionAsync(CreateRequest(), Technician);
 
-        var duplicate = await service.CommissionAsync(CreateRequest() with
-        {
-            SerialNumber = "WF-NANO-0002"
-        }, Technician);
+        var duplicate = await service.CommissionAsync(CreateRequest(), Technician);
 
         Assert.True(first.IsSuccess);
         Assert.Equal(CommissioningFailure.DeviceAlreadyRegistered, duplicate.Failure);
@@ -76,8 +73,7 @@ public sealed class CommissioningServiceTests
 
         var occupied = await service.CommissionAsync(CreateRequest() with
         {
-            SerialNumber = "WF-NANO-0002",
-            HardwareId = "A1B2C3D4E5F7"
+            SerialNumber = "WF-NANO-0002"
         }, Technician);
 
         Assert.True(first.IsSuccess);
@@ -115,7 +111,6 @@ public sealed class CommissioningServiceTests
             "WF-L-10482-01",
             "WF-A-10482-S1",
             "wf-nano-0001",
-            "A1:B2:C3:D4:E5:F6",
             "Arduino Nano ESP32",
             "WO-82417",
             150m,

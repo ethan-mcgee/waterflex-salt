@@ -300,7 +300,7 @@ public sealed class AlertWorkflowTests
             var tank = new Tank { Id = Guid.NewGuid(), ServiceLocationId = location.Id, Label = "Softener", IsActive = true };
             var device = new Device
             {
-                Id = Guid.NewGuid(), SerialNumber = $"WF-{Guid.NewGuid():N}", HardwareId = Guid.NewGuid().ToString("N")[..12],
+                Id = Guid.NewGuid(), SerialNumber = $"WF-{Guid.NewGuid():N}",
                 Model = "Nano ESP32", Status = DeviceLifecycleStatus.Active, RegisteredAtUtc = now,
                 CommissionedAtUtc = now, LastSensorStatus = sensorStatus
             };

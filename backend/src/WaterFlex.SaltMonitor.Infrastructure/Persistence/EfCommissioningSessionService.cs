@@ -18,6 +18,7 @@ public sealed class EfCommissioningSessionService(
     private static readonly CommissioningSessionStatus[] LiveStatuses =
     [
         CommissioningSessionStatus.PendingSensor,
+        CommissioningSessionStatus.ActivatedAwaitingHealth,
         CommissioningSessionStatus.AwaitingFirstTelemetry
     ];
 
@@ -402,6 +403,7 @@ public sealed class EfCommissioningSessionService(
         if (session.ProvisionalCredential is { RevokedAtUtc: null } credential)
         {
             credential.RevokedAtUtc = now;
+            session.Device.Status = DeviceLifecycleStatus.Quarantined;
         }
         else if (session.Device.Status == DeviceLifecycleStatus.Commissioning)
         {

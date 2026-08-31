@@ -72,8 +72,7 @@ public sealed class EfSensorCommissioningService(
             cancellationToken);
 
         var deviceExists = await dbContext.Devices.AnyAsync(
-            device => device.SerialNumber == request.SerialNumber
-                || device.HardwareId == request.HardwareId,
+            device => device.SerialNumber == request.SerialNumber,
             cancellationToken);
         if (deviceExists)
         {
@@ -188,7 +187,6 @@ public sealed class EfSensorCommissioningService(
         {
             Id = Guid.NewGuid(),
             SerialNumber = request.SerialNumber,
-            HardwareId = request.HardwareId,
             Model = request.Model,
             Status = DeviceLifecycleStatus.Active,
             RegisteredAtUtc = now,
@@ -259,10 +257,6 @@ public sealed class EfSensorCommissioningService(
             WaterFlexLocationId = request.WaterFlexLocationId.Trim(),
             WaterFlexAssetId = request.WaterFlexAssetId.Trim(),
             SerialNumber = request.SerialNumber.Trim().ToUpperInvariant(),
-            HardwareId = new string(request.HardwareId
-                .Where(character => !char.IsWhiteSpace(character) && character is not ':' and not '-')
-                .Select(char.ToUpperInvariant)
-                .ToArray()),
             Model = request.Model.Trim(),
             WaterFlexWorkOrderId = string.IsNullOrWhiteSpace(request.WaterFlexWorkOrderId)
                 ? null
@@ -282,12 +276,6 @@ public sealed class EfSensorCommissioningService(
             || request.SerialNumber.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
         {
             errors.Add(new(nameof(request.SerialNumber), "Serial number must contain 4-64 letters, numbers, or hyphens."));
-        }
-
-        if (request.HardwareId.Length != 12
-            || request.HardwareId.Any(character => !Uri.IsHexDigit(character)))
-        {
-            errors.Add(new(nameof(request.HardwareId), "Hardware ID must be a 12-character ESP32 hexadecimal ID."));
         }
 
         if (request.WaterFlexWorkOrderId?.Length > 128)

@@ -48,7 +48,6 @@ public sealed record CommissionSensorRequest(
     string WaterFlexLocationId,
     string WaterFlexAssetId,
     string SerialNumber,
-    string HardwareId,
     string Model,
     string? WaterFlexWorkOrderId,
     decimal TankDepthCm,

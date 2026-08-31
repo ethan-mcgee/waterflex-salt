@@ -10,8 +10,6 @@ String stateToString(ProvisioningState state);
 String makeBootId();
 String jsonEscape(const String& value);
 String makePortalToken();
-String serialSuffix();
-String hardwareId();
 String base64Encode(const uint8_t* bytes, size_t length, bool urlSafe);
 String defaultPortalPassphrase();
 bool isApprovedOperationalApiUrl(const String& url);

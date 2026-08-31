@@ -19,7 +19,6 @@ from pathlib import Path
 @dataclass
 class RegistrationResult:
     serial_number: str
-    hardware_id: str
     status_code: int
     outcome: str
     response: str
@@ -28,10 +27,6 @@ class RegistrationResult:
 def sha256_base64(value: str) -> str:
     digest = hashlib.sha256(value.encode("utf-8")).digest()
     return base64.b64encode(digest).decode("ascii")
-
-
-def normalize_hardware_id(value: str) -> str:
-    return "".join(ch for ch in value.upper() if ch not in " :-")
 
 
 def post_json(url: str, headers: dict[str, str], body: dict) -> tuple[int, str]:
@@ -60,15 +55,14 @@ def load_rows(path: Path) -> list[dict[str, str]]:
 
 
 def build_payload(row: dict[str, str], default_model: str, default_fw: str, default_cfg: str) -> dict:
-    serial_number = row["serialNumber"].strip().upper()
-    hardware_id = normalize_hardware_id(row["hardwareId"])
+    idempotency_key = row["idempotencyKey"].strip()
     model = (row.get("model") or default_model).strip()
     firmware_version = (row.get("firmwareVersion") or default_fw).strip()
     configuration_version = (row.get("configurationVersion") or default_cfg).strip()
 
     credential_id = row.get("bootstrapCredentialId", "").strip()
     if not credential_id:
-        credential_id = f"wf_boot_{serial_number.lower().replace('-', '_')}"
+        credential_id = f"wf_boot_{idempotency_key.lower().replace('-', '_')[:40]}"
 
     plaintext = row.get("bootstrapSecretPlaintext", "").strip()
     secret_hash = row.get("bootstrapSecretHash", "").strip()
@@ -79,8 +73,7 @@ def build_payload(row: dict[str, str], default_model: str, default_fw: str, defa
         raise ValueError("Row must include bootstrapSecretPlaintext or bootstrapSecretHash")
 
     return {
-        "serialNumber": serial_number,
-        "hardwareId": hardware_id,
+        "idempotencyKey": idempotency_key,
         "model": model,
         "bootstrapCredentialId": credential_id,
         "bootstrapSecretHash": secret_hash,
@@ -123,8 +116,7 @@ def main() -> int:
             args.default_firmware,
             args.default_config,
         )
-        serial_number = payload["serialNumber"]
-        hardware_id = payload["hardwareId"]
+        serial_number = ""
 
         status_code = 0
         response_text = ""
@@ -136,13 +128,14 @@ def main() -> int:
                 time.sleep(1.0 * (attempt + 1))
 
         outcome = "registered" if status_code in (200, 201) else "failed"
+        if status_code in (200, 201):
+            serial_number = json.loads(response_text)["serialNumber"]
         if status_code == 409:
             outcome = "conflict"
 
         results.append(
             RegistrationResult(
                 serial_number=serial_number,
-                hardware_id=hardware_id,
                 status_code=status_code,
                 outcome=outcome,
                 response=response_text,
@@ -154,14 +147,13 @@ def main() -> int:
     with audit_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["serialNumber", "hardwareId", "statusCode", "outcome", "response"],
+            fieldnames=["serialNumber", "statusCode", "outcome", "response"],
         )
         writer.writeheader()
         for result in results:
             writer.writerow(
                 {
                     "serialNumber": result.serial_number,
-                    "hardwareId": result.hardware_id,
                     "statusCode": result.status_code,
                     "outcome": result.outcome,
                     "response": result.response,

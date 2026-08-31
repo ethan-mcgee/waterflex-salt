@@ -26,8 +26,7 @@ public sealed class BootstrapProvisioningApiTests
         await factory.InitializeDatabaseAsync();
         using var client = factory.CreateClient();
         var factoryRequest = new RegisterFactoryDeviceRequest(
-            "WF-BOOT-API-01",
-            "A1:B2:C3:D4:E5:F9",
+            "factory-api-job-0001",
             "Arduino Nano ESP32",
             "wf_boot_api_0001",
             Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("api-bootstrap-secret"))),
@@ -48,7 +47,7 @@ public sealed class BootstrapProvisioningApiTests
             "WF-C-10482",
             "WF-L-10482-01",
             "WF-A-10482-S1",
-            "WF-BOOT-API-01",
+            "WF-NANO-0001",
             "WO-BOOT-API-01",
             150m);
         var reserved = await client.PostAsJsonAsync(

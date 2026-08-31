@@ -44,7 +44,6 @@ public sealed record FleetDeviceListItem(
     Guid DeviceId,
     Guid InstallationId,
     string SerialNumber,
-    string HardwareId,
     string Model,
     string LifecycleStatus,
     string? DealerExternalId,

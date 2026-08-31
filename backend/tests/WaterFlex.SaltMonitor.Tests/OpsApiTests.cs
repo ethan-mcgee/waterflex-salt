@@ -67,7 +67,6 @@ public sealed class OpsApiTests
             {
                 Id = deviceId,
                 SerialNumber = $"WF-CACHE-{deviceId:N}",
-                HardwareId = deviceId.ToString("N"),
                 Model = "Nano ESP32",
                 Status = DeviceLifecycleStatus.Active,
                 RegisteredAtUtc = DateTimeOffset.UtcNow

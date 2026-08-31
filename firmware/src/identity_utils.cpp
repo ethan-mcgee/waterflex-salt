@@ -1,6 +1,5 @@
 #include "identity_utils.h"
 
-#include <esp_mac.h>
 #include <mbedtls/base64.h>
 
 #include "config.h"
@@ -69,23 +68,6 @@ String makePortalToken() {
   return token;
 }
 
-String serialSuffix() {
-  uint8_t mac[6];
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
-  char suffix[7];
-  snprintf(suffix, sizeof(suffix), "%02X%02X%02X", mac[3], mac[4], mac[5]);
-  return String(suffix);
-}
-
-String hardwareId() {
-  uint8_t mac[6];
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
-  char value[13];
-  snprintf(value, sizeof(value), "%02X%02X%02X%02X%02X%02X",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  return String(value);
-}
-
 String base64Encode(const uint8_t* bytes, size_t length, bool urlSafe) {
   size_t outputLength = 0;
   unsigned char output[96]{};
@@ -104,7 +86,7 @@ String base64Encode(const uint8_t* bytes, size_t length, bool urlSafe) {
 
 String defaultPortalPassphrase() {
   // This deterministic fallback is compiled out of every pilot/release image.
-  return String("WF-") + serialSuffix() + "-SETUP";
+  return "WF-NANO-DEVELOPMENT";
 }
 
 bool isApprovedOperationalApiUrl(const String& url) {

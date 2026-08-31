@@ -210,7 +210,7 @@ export default function ProvisioningWorkflow() {
               </div>
             ) : session.status === 'pendingSensor' ? (
               <WifiHandoffStep session={session} />
-            ) : session.status === 'awaitingFirstTelemetry' ? (
+            ) : session.status === 'activatedAwaitingHealth' || session.status === 'awaitingFirstTelemetry' ? (
               <SessionPollingStep session={session} />
             ) : (
               <ConfirmationStep session={session} />
@@ -321,6 +321,7 @@ function computeRailIndex(step: PreSessionStep, session: CommissioningSessionVie
     case 'completed':
       return 4;
     case 'awaitingFirstTelemetry':
+    case 'activatedAwaitingHealth':
       return 3;
     default:
       return 2;
@@ -335,6 +336,7 @@ function headingFor(step: PreSessionStep, session: CommissioningSessionView | nu
     case 'pendingSensor':
       return "Join the sensor's network";
     case 'awaitingFirstTelemetry':
+    case 'activatedAwaitingHealth':
       return 'Finishing automatically';
     case 'completed':
       return `${session.serialNumber} is live`;
@@ -351,6 +353,7 @@ function statusPillFor(session: CommissioningSessionView | null) {
     case 'pendingSensor':
       return <span className="status-pill pending"><span /> Reserved</span>;
     case 'awaitingFirstTelemetry':
+    case 'activatedAwaitingHealth':
       return <span className="status-pill pending"><span /> Awaiting sensor</span>;
     case 'completed':
       return <span className="status-pill success"><span /> Active</span>;

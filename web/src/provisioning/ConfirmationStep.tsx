@@ -4,7 +4,7 @@ export default function ConfirmationStep({ session }: { session: CommissioningSe
   return (
     <div className="step-section">
       <div className="section-intro">
-        <h2>First reading received</h2>
+        <h2>First trustworthy reading received</h2>
         <p>
           {session.customerDisplayName} · {session.locationDisplayName} · {session.tankLabel}. No token, credential,
           or Wi-Fi field ever reached this screen.
