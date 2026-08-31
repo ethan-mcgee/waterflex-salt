@@ -46,6 +46,9 @@ The firmware now includes an initial provisioning scaffold:
   environment and emits a serial warning when used.
 - Candidate Wi-Fi and credentials are committed only after DHCP, SNTP, certificate validation, DNS resolution, and
   an authenticated `/api/v1/device/health` request all succeed.
+- The setup portal collects only the broadcast Wi-Fi name and password. Hidden-network configuration is not
+  supported. The firmware supplies the approved telemetry URL, retains an existing operational credential during
+  recovery, and uses the factory bootstrap flow to create one for a new device.
 - Telemetry defaults to a 60-second interval and adopts the API's `nextReportIntervalSeconds` value after every
   successful upload. Up to 24 trustworthy readings are persisted in an NVS circular queue, uploaded in batches of
   eight, and removed only after their exact boot ID and sequence number are acknowledged as accepted or duplicate.
@@ -69,6 +72,10 @@ The firmware now includes an initial provisioning scaffold:
   `outOfRange`. None become telemetry readings.
 - USB serial diagnostics remain 115200 baud. A working sensor prints `distance=<number> mm`; a wiring, protocol, or
   range problem prints `sensor read error fault=<faultCode>`.
+- Development builds provide the serial command `PORTAL_PREVIEW`. It serves a read-only copy of the setup page at
+  the Nano's existing station IP without starting a SoftAP, changing provisioning state, or interrupting telemetry.
+  Open the exact `http://<station-ip>:8080/` URL printed after the command. The command is absent from pilot builds
+  and its independent preview server can be started or refreshed even when the captive portal has separate state.
 - The default telemetry destination is
   `https://telemetry-staging.saltmonitor.dev/api/v1/device/telemetry`. HTTPS validates Cloudflare's edge
   certificate against the embedded Google Trust Services GTS Root R4 trust anchor after SNTP synchronization;

@@ -17,3 +17,7 @@ cognito-login-*.snapshot.json
 
 # Database exports
 *.dump
+
+# Claude
+CLAUDE.md
+.claude/settings.local.json
