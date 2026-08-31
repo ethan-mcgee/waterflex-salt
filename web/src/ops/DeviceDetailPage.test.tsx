@@ -42,7 +42,7 @@ const detail: FleetDeviceDetail = {
     errorFlags: [],
     sensorStatus: 'healthy',
     sensorFault: null,
-    healthReportedAtUtc: '2026-08-13T12:00:00Z',
+    lastHealthReportedAtUtc: '2026-08-13T12:00:00Z',
     clockSynchronized: true,
     queuedReadingCount: 0,
     droppedReadingCount: 0,
