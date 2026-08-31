@@ -1,4 +1,4 @@
-import { AlertTriangle, Droplets, Eye, ExternalLink, Gauge, HelpCircle, LogOut, RadioTower, Users } from 'lucide-react';
+import { AlertTriangle, Droplets, Eye, ExternalLink, Gauge, LogOut, RadioTower, Users } from 'lucide-react';
 import { useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { DevelopmentIdentitySelector, useDevelopmentIdentity } from './development/DevelopmentIdentity';
@@ -78,7 +78,6 @@ export default function App() {
           {import.meta.env.DEV && (
             <a href="http://localhost:5188/swagger" target="_blank" rel="noreferrer"><ExternalLink size={17} /> API</a>
           )}
-          <a href="mailto:support@waterflex.com" title="Field support"><HelpCircle size={19} /><span>Support</span></a>
           {/* Signs out of the Cloudflare Access session cookie so a different invited email/role can sign back in. */}
           <a href="/cdn-cgi/access/logout" title="Sign out"><LogOut size={19} /><span>Sign out</span></a>
         </nav>
