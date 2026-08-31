@@ -18,7 +18,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useDevelopmentIdentity } from '../development/DevelopmentIdentity';
 import { getFleetDevice, getFleetHistory, getFleetReadings } from './api';
 import { formatDateTime, ReportingBadge } from './FleetPage';
-import type { FleetDeviceDetail, FleetHistoryPoint, FleetReading } from './types';
+import type { FleetDevice, FleetDeviceDetail, FleetHistoryPoint, FleetReading } from './types';
 
 export default function DeviceDetailPage() {
   const { selectedUserId } = useDevelopmentIdentity();
