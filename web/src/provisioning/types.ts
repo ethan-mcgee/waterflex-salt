@@ -1,47 +1,40 @@
-export interface WaterFlexTankOption {
-  waterFlexAssetId: string;
-  label: string;
-  capacityPounds: number | null;
-}
-
-export interface WaterFlexLocationOption {
-  waterFlexLocationId: string;
-  displayName: string;
+export interface InstallationWorkOrderView {
+  workOrderNumber: string;
+  customerDisplayName: string;
+  locationDisplayName: string;
   addressSummary: string;
-  tanks: WaterFlexTankOption[];
+  tankLocation: string | null;
 }
 
-export interface WaterFlexCustomerOption {
-  waterFlexCustomerId: string;
-  accountNumber: string;
-  displayName: string;
-  locations: WaterFlexLocationOption[];
-}
+export type CommissioningSessionStatus =
+  | 'pendingSensor'
+  | 'awaitingFirstTelemetry'
+  | 'completed'
+  | 'expired'
+  | 'cancelled'
+  | 'failed';
 
-export interface CommissionSensorRequest {
-  waterFlexCustomerId: string;
-  waterFlexLocationId: string;
-  waterFlexAssetId: string;
-  serialNumber: string;
-  hardwareId: string;
-  model: string;
-  waterFlexWorkOrderId: string | null;
-  tankDepthCm: number;
-  currentDistanceCm: number;
-}
-
-export interface CommissionSensorResponse {
+export interface CommissioningSessionView {
+  sessionId: string;
   deviceId: string;
-  installationId: string;
   serialNumber: string;
-  deviceToken: string;
-  commissionedAtUtc: string;
+  status: CommissioningSessionStatus;
+  createdAtUtc: string;
+  expiresAtUtc: string;
+  dealerName: string;
   customerDisplayName: string;
   locationDisplayName: string;
   addressSummary: string;
   tankLabel: string;
-  calibrationVersion: number;
   tankDepthCm: number;
-  commissioningDistanceCm: number;
-  initialFillPercent: number;
+  activatedAtUtc: string | null;
+  completedAtUtc: string | null;
+  failureCode: string | null;
+}
+
+export interface CreateWorkOrderCommissioningSessionRequest {
+  workOrderNumber: string;
+  serialNumber: string;
+  tankLocation: string | null;
+  tankDepthCm: number;
 }

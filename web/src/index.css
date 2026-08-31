@@ -1369,26 +1369,54 @@ p {
   line-height: 1.2;
 }
 
-.draft-status {
+.status-pill {
   display: inline-flex;
   min-height: 29px;
   align-items: center;
   gap: 7px;
   padding: 0 10px;
-  color: #6d5524;
-  background: #fff8e8;
-  border: 1px solid #e7d8ae;
+  border: 1px solid;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 700;
 }
 
-.draft-status > span {
+.status-pill > span {
   width: 7px;
   height: 7px;
-  background: #c38318;
   border-radius: 50%;
 }
+
+.status-pill.draft {
+  color: #6d5524;
+  background: #fff8e8;
+  border-color: #e7d8ae;
+}
+
+.status-pill.draft > span { background: #c38318; }
+
+.status-pill.pending {
+  color: var(--warning);
+  background: var(--warning-wash);
+  border-color: #ead19c;
+}
+
+.status-pill.pending > span {
+  background: var(--warning);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+}
+
+.status-pill.success {
+  color: var(--success);
+  background: var(--success-wash);
+  border-color: #b7ddc4;
+}
+
+.status-pill.success > span { background: var(--success); }
 
 .mobile-progress {
   display: none;
@@ -1794,6 +1822,185 @@ p {
   color: #7c4a06;
   background: var(--warning-wash);
   border-color: #ead19c;
+}
+
+.inline-alert.info {
+  color: var(--brand-dark);
+  background: var(--brand-wash);
+  border-color: #bcd7ec;
+}
+
+.portal-panel {
+  overflow: hidden;
+  border: 1.5px solid var(--warning);
+  border-radius: 8px;
+}
+
+.portal-chrome {
+  padding: 9px 13px;
+  color: #7c4a06;
+  background: var(--warning-wash);
+  border-bottom: 1px solid var(--warning);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.portal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: #fffdf8;
+}
+
+.mini-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.mini-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mini-steps .num {
+  display: grid;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  margin-top: 1px;
+  color: #fff;
+  background: var(--warning);
+  border-radius: 50%;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.mini-steps code {
+  padding: 1px 4px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
+}
+
+.portal-divider {
+  height: 1px;
+  background: var(--line);
+}
+
+.step-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.timer-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 26px 0;
+}
+
+.timer {
+  color: var(--ink);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 40px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.progress-log {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  color: var(--ink-soft);
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.progress-row:last-child { border-bottom: 0; }
+
+.progress-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-tag {
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.progress-tag.done { color: var(--success); background: var(--success-wash); }
+.progress-tag.wait { color: var(--warning); background: var(--warning-wash); }
+
+.metric-row {
+  display: grid;
+  width: min(420px, 100%);
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  overflow: hidden;
+  margin-top: 22px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.metric-row div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px;
+  background: var(--surface-soft);
+}
+
+.metric-row dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metric-row dd {
+  margin: 0;
+  font-family: "Bahnschrift", "Aptos Display", sans-serif;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .calibration-metrics {

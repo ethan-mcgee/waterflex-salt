@@ -323,14 +323,14 @@ app.MapPost("/api/v1/staff/activate", async (
 
 app.MapStaffAccessEndpoints();
 
+var technicianApi = app.MapGroup("/api/v1/technician")
+	.WithTags("Technician provisioning")
+	.RequireRateLimiting(RateLimitPolicies.Staff)
+	.RequireStaffCapability(StaffCapability.TechnicianOperations);
+technicianApi.MapCommissioningSessionEndpoints();
+
 if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 {
-	var technicianApi = app.MapGroup("/api/v1/technician")
-		.WithTags("Technician provisioning")
-		.RequireRateLimiting(RateLimitPolicies.Staff)
-		.RequireStaffCapability(StaffCapability.TechnicianOperations);
-	technicianApi.MapCommissioningSessionEndpoints();
-
 	technicianApi.MapGet("/customers", async (
 			string? search,
 			IWaterFlexCustomerDirectory customerDirectory,
