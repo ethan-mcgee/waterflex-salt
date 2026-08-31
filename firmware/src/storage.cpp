@@ -41,7 +41,21 @@ void clearDeviceConfig() {
 
 void clearProvisioningState() {
   ensurePrefsReady();
-  gPrefs.clear();
+  clearActiveProfile();
+  clearDeviceConfig();
+  gPrefs.remove(kKeyActivationAttempt);
+  gPrefs.remove(kKeyOperationalCredential);
+  gPrefs.remove(kKeyOperationalSecret);
+  gPrefs.remove(kKeyOperationalSecretHash);
+  gPrefs.remove(kKeyQueueHead);
+  gPrefs.remove(kKeyQueueCount);
+  gPrefs.remove(kKeyDroppedCount);
+  gPrefs.remove(kKeyNextSequence);
+  for (uint8_t slot = 0; slot < kQueueCapacity; ++slot) {
+    char key[5];
+    snprintf(key, sizeof(key), "q%02u", static_cast<unsigned int>(slot));
+    gPrefs.remove(key);
+  }
   gActiveProfile = WifiProfile{};
   gDeviceConfig = DeviceConfig{};
   gHasActiveProfile = false;

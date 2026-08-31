@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Ingestion;
+using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
@@ -38,6 +39,24 @@ public sealed class EfDeviceHealthService(
         device.LastQueuedReadingCount = heartbeat.QueuedReadingCount;
         device.LastDroppedReadingCount = heartbeat.DroppedReadingCount;
         device.LastClockSynchronized = heartbeat.ClockSynchronized;
+        var commissioningSession = await dbContext.CommissioningSessions
+            .SingleOrDefaultAsync(
+                session => session.DeviceId == deviceId
+                    && session.Status == CommissioningSessionStatus.ActivatedAwaitingHealth,
+                cancellationToken);
+        if (commissioningSession is not null)
+        {
+            commissioningSession.Status = CommissioningSessionStatus.AwaitingFirstTelemetry;
+            commissioningSession.AuditEvents.Add(new()
+            {
+                DeviceId = deviceId,
+                EventType = "commissioning_health_verified",
+                ActorType = "device",
+                ActorId = deviceId.ToString("D"),
+                DetailsJson = "{}",
+                OccurredAtUtc = now
+            });
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return DeviceHealthResult.Success(new(now, monitoringSchedule.ReportIntervalSeconds));

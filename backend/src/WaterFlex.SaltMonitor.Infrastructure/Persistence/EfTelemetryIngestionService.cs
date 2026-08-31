@@ -6,6 +6,7 @@ using WaterFlex.SaltMonitor.Domain.Level;
 using WaterFlex.SaltMonitor.Domain.Model;
 using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Ingestion;
+using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
@@ -196,6 +197,31 @@ public sealed class EfTelemetryIngestionService(
                 TelemetryReadingStatus.Accepted,
                 reading.FillPercent,
                 reading.ReceivedAtUtc);
+        }
+
+        if (pending.Count > 0)
+        {
+            var commissioningSession = await dbContext.CommissioningSessions
+                .Include(session => session.AuditEvents)
+                .SingleOrDefaultAsync(
+                    session => session.DeviceId == deviceId
+                        && session.Status == CommissioningSessionStatus.AwaitingFirstTelemetry,
+                    cancellationToken);
+            if (commissioningSession is not null)
+            {
+                commissioningSession.Status = CommissioningSessionStatus.Completed;
+                commissioningSession.CompletedAtUtc = serverTime;
+                commissioningSession.AuditEvents.Add(new()
+                {
+                    DeviceId = deviceId,
+                    EventType = "commissioning_first_telemetry_verified",
+                    ActorType = "device",
+                    ActorId = deviceId.ToString("D"),
+                    DetailsJson = JsonSerializer.Serialize(new { ReadingId = pending[0].Reading.Id }),
+                    OccurredAtUtc = serverTime
+                });
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
         }
 
         return TelemetryIngestionResult.Success(new(

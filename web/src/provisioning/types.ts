@@ -8,6 +8,7 @@ export interface InstallationWorkOrderView {
 
 export type CommissioningSessionStatus =
   | 'pendingSensor'
+  | 'activatedAwaitingHealth'
   | 'awaitingFirstTelemetry'
   | 'completed'
   | 'expired'

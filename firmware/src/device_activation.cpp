@@ -60,7 +60,6 @@ bool activateCandidateDevice(DeviceConfig* config) {
   JsonDocument request;
   request["activationAttemptId"] = attemptId;
   request["serialNumber"] = gSerialNumber;
-  request["hardwareId"] = hardwareId();
   request["firmwareVersion"] = kFirmwareVersion;
   request["configurationVersion"] = "pilot-v1";
   request["operationalCredentialId"] = credentialId;

@@ -55,6 +55,50 @@ public static class ProvisioningEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        factoryApi.MapGet("/devices/by-idempotency/{idempotencyKey}", async (
+                string idempotencyKey,
+                HttpContext httpContext,
+                IFactoryDeviceRegistrationService registrationService,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await registrationService.FindByIdempotencyKeyAsync(
+                    idempotencyKey,
+                    httpContext.GetDevelopmentFactoryOperator(),
+                    cancellationToken);
+                return result.IsSuccess
+                    ? Results.Ok(result.Registration)
+                    : Results.NotFound();
+            })
+            .WithName("GetFactoryDeviceByIdempotencyKey")
+            .WithSummary("Resume an idempotent factory provisioning job")
+            .Produces<FactoryDeviceRegistration>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        factoryApi.MapPost("/devices/{deviceId:guid}/verification", async (
+                Guid deviceId,
+                FactoryVerificationRequest request,
+                HttpContext httpContext,
+                IFactoryDeviceRegistrationService registrationService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Ok(await registrationService.RecordVerificationAsync(
+                        deviceId,
+                        request,
+                        httpContext.GetDevelopmentFactoryOperator(),
+                        cancellationToken));
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+            })
+            .WithName("RecordFactoryDeviceVerification")
+            .WithSummary("Record redacted factory acceptance evidence")
+            .Produces<FactoryVerificationResult>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         return endpoints;
     }
 

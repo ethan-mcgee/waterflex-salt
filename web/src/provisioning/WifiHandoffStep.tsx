@@ -2,7 +2,7 @@ import { Wifi } from 'lucide-react';
 import type { CommissioningSessionView } from './types';
 
 export default function WifiHandoffStep({ session }: { session: CommissioningSessionView }) {
-  const apName = `WaterFlex-${lastFourOf(session.serialNumber)}`;
+  const apName = session.serialNumber;
 
   return (
     <div className="step-section">
@@ -27,9 +27,4 @@ export default function WifiHandoffStep({ session }: { session: CommissioningSes
       </div>
     </div>
   );
-}
-
-function lastFourOf(serialNumber: string) {
-  const digits = serialNumber.replace(/\D/g, '');
-  return digits.slice(-4) || serialNumber.slice(-4);
 }

@@ -273,7 +273,6 @@ public sealed class FleetQueryServiceTests
         {
             Id = Guid.NewGuid(),
             SerialNumber = $"WF-FLEET-{suffix}",
-            HardwareId = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(),
             Model = "Arduino Nano ESP32",
             Status = DeviceLifecycleStatus.Active,
             RegisteredAtUtc = Now,

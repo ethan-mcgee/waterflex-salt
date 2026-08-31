@@ -98,7 +98,6 @@ public sealed class TelemetryPersistenceTests
         {
             Id = Guid.NewGuid(),
             SerialNumber = $"WF-{Guid.NewGuid():N}",
-            HardwareId = Guid.NewGuid().ToString("N")[..12],
             Model = "Nano ESP32",
             Status = DeviceLifecycleStatus.Active,
             RegisteredAtUtc = Now,

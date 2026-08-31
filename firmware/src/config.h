@@ -20,7 +20,6 @@ constexpr int kSensorMaximumDistanceMm = waterflex::kA02YYUWMaximumDistanceMm;
 constexpr int kRecoveryPin = D2;
 
 constexpr char kPortalApAddress[] = "192.168.4.1";
-constexpr char kPortalApSsidPrefix[] = "WaterFlex-";
 constexpr uint8_t kPortalDnsPort = 53;
 constexpr uint32_t kPortalIdleTimeoutMs = 10UL * 60UL * 1000UL;
 constexpr uint32_t kPortalAbsoluteTimeoutMs = 20UL * 60UL * 1000UL;

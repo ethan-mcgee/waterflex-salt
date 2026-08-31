@@ -5,6 +5,7 @@ namespace WaterFlex.SaltMonitor.Provisioning;
 public enum CommissioningSessionStatus
 {
     PendingSensor,
+    ActivatedAwaitingHealth,
     AwaitingFirstTelemetry,
     Completed,
     Expired,
@@ -13,8 +14,7 @@ public enum CommissioningSessionStatus
 }
 
 public sealed record RegisterFactoryDeviceRequest(
-    string SerialNumber,
-    string HardwareId,
+    string IdempotencyKey,
     string Model,
     string BootstrapCredentialId,
     string BootstrapSecretHash,
@@ -24,7 +24,6 @@ public sealed record RegisterFactoryDeviceRequest(
 public sealed record FactoryDeviceRegistration(
     Guid DeviceId,
     string SerialNumber,
-    string HardwareId,
     string Model,
     DateTimeOffset RegisteredAtUtc,
     string BootstrapCredentialId);
@@ -62,12 +61,45 @@ public interface IFactoryDeviceRegistrationService
         RegisterFactoryDeviceRequest request,
         string factoryOperatorId,
         CancellationToken cancellationToken = default);
+
+    Task<FactoryRegistrationResult> FindByIdempotencyKeyAsync(
+        string idempotencyKey,
+        string factoryOperatorId,
+        CancellationToken cancellationToken = default);
+
+    Task<FactoryVerificationResult> RecordVerificationAsync(
+        Guid deviceId,
+        FactoryVerificationRequest request,
+        string factoryOperatorId,
+        CancellationToken cancellationToken = default);
 }
+
+public enum FactoryProvisioningStatus
+{
+    Registered,
+    Provisioned,
+    Failed,
+    Quarantined
+}
+
+public sealed record FactoryVerificationRequest(
+    bool FirmwareVerified,
+    bool IdentityVerified,
+    bool PortalVerified,
+    bool SensorVerified,
+    string FirmwareVersion,
+    string? FailureCode);
+
+public sealed record FactoryVerificationResult(
+    Guid DeviceId,
+    string SerialNumber,
+    FactoryProvisioningStatus Status,
+    DateTimeOffset VerifiedAtUtc,
+    string? FailureCode);
 
 public sealed record ActivateDeviceRequest(
     Guid ActivationAttemptId,
     string SerialNumber,
-    string HardwareId,
     string FirmwareVersion,
     string ConfigurationVersion,
     string OperationalCredentialId,

@@ -71,7 +71,6 @@ public sealed class EfFleetQueryService(
                 installation.DeviceId,
                 InstallationId = installation.Id,
                 installation.Device.SerialNumber,
-                installation.Device.HardwareId,
                 installation.Device.Model,
                 LifecycleStatus = installation.Device.Status,
                 DealerExternalId = installation.Dealer == null ? null : installation.Dealer.ExternalId,
@@ -116,8 +115,7 @@ public sealed class EfFleetQueryService(
                 || EF.Functions.ILike(row.LocationDisplayName, pattern, "\\")
                 || (row.AddressSummary != null && EF.Functions.ILike(row.AddressSummary, pattern, "\\"))
                 || EF.Functions.ILike(row.TankLabel, pattern, "\\")
-                || EF.Functions.ILike(row.SerialNumber, pattern, "\\")
-                || EF.Functions.ILike(row.HardwareId, pattern, "\\"));
+                || EF.Functions.ILike(row.SerialNumber, pattern, "\\"));
         }
         filtered = filter.ReportingStatus switch
         {
@@ -190,7 +188,7 @@ public sealed class EfFleetQueryService(
                 reportingStatus = DeviceReportingStatus.Stale;
             }
             return new FleetDeviceListItem(
-                row.DeviceId, row.InstallationId, row.SerialNumber, row.HardwareId, row.Model,
+                row.DeviceId, row.InstallationId, row.SerialNumber, row.Model,
                 row.LifecycleStatus.ToString(), row.DealerExternalId, row.DealerName,
                 row.CustomerDisplayName, row.AccountNumber, row.LocationDisplayName, row.AddressSummary,
                 row.TankLabel, row.CapacityPounds, row.LatestFillPercent,
@@ -497,7 +495,6 @@ public sealed class EfFleetQueryService(
             installation.DeviceId,
             installation.Id,
             installation.Device.SerialNumber,
-            installation.Device.HardwareId,
             installation.Device.Model,
             installation.Device.Status.ToString(),
             installation.Dealer?.ExternalId,
@@ -539,8 +536,7 @@ public sealed class EfFleetQueryService(
                 || Contains(item.LocationDisplayName, term)
                 || Contains(item.AddressSummary, term)
                 || Contains(item.TankLabel, term)
-                || Contains(item.SerialNumber, term)
-                || Contains(item.HardwareId, term));
+                || Contains(item.SerialNumber, term));
         }
 
         if (filter.ReportingStatus is { } reportingStatus)

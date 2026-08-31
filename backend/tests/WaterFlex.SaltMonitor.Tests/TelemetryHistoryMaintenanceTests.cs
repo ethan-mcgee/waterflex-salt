@@ -196,7 +196,7 @@ public sealed class TelemetryHistoryMaintenanceTests
         var device = new Device
         {
             Id = Guid.NewGuid(), SerialNumber = $"WF-{Guid.NewGuid():N}",
-            HardwareId = Guid.NewGuid().ToString("N"), Model = "Nano ESP32",
+            Model = "Nano ESP32",
             Status = DeviceLifecycleStatus.Active, RegisteredAtUtc = Now, CommissionedAtUtc = Now
         };
         var installation = new DeviceInstallation

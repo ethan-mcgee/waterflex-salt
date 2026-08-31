@@ -76,12 +76,11 @@ public sealed class EfDeviceBootstrapActivationService(
                 }
 
                 var device = bootstrapCredential.Device;
-                if (device.SerialNumber != normalized.SerialNumber
-                    || device.HardwareId != normalized.HardwareId)
+                if (device.SerialNumber != normalized.SerialNumber)
                 {
                     return ActivationResult.Failed(
                         ActivationFailure.InvalidRequest,
-                        [new(nameof(request.SerialNumber), "SerialNumber and HardwareId must match the bootstrap credential device.")]);
+                        [new(nameof(request.SerialNumber), "SerialNumber must match the bootstrap credential device.")]);
                 }
 
                 var session = await dbContext.CommissioningSessions
@@ -193,9 +192,8 @@ public sealed class EfDeviceBootstrapActivationService(
 
                 session.ProvisionalCredentialId = deviceCredential.Id;
                 session.ActivationAttemptId = normalized.ActivationAttemptId;
-                session.Status = CommissioningSessionStatus.Completed;
+                session.Status = CommissioningSessionStatus.ActivatedAwaitingHealth;
                 session.ActivatedAtUtc = now;
-                session.CompletedAtUtc = now;
 
                 bootstrapCredential.LastUsedAtUtc = now;
                 bootstrapCredential.ConsumedAtUtc = now;
@@ -243,10 +241,6 @@ public sealed class EfDeviceBootstrapActivationService(
         request with
         {
             SerialNumber = request.SerialNumber.Trim().ToUpperInvariant(),
-            HardwareId = new string(request.HardwareId
-                .Where(character => !char.IsWhiteSpace(character) && character is not ':' and not '-')
-                .Select(char.ToUpperInvariant)
-                .ToArray()),
             FirmwareVersion = request.FirmwareVersion.Trim(),
             ConfigurationVersion = request.ConfigurationVersion.Trim(),
             OperationalCredentialId = request.OperationalCredentialId.Trim(),
@@ -257,7 +251,6 @@ public sealed class EfDeviceBootstrapActivationService(
     {
         var errors = new List<ProvisioningValidationError>();
         Require(request.SerialNumber, nameof(request.SerialNumber), 64, errors);
-        Require(request.HardwareId, nameof(request.HardwareId), 32, errors);
         Require(request.FirmwareVersion, nameof(request.FirmwareVersion), 64, errors);
         Require(request.ConfigurationVersion, nameof(request.ConfigurationVersion), 64, errors);
         Require(request.OperationalCredentialId, nameof(request.OperationalCredentialId), 64, errors);
@@ -271,11 +264,6 @@ public sealed class EfDeviceBootstrapActivationService(
         if (request.SerialNumber.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
         {
             errors.Add(new(nameof(request.SerialNumber), "Serial number must contain letters, numbers, or hyphens."));
-        }
-
-        if (request.HardwareId.Length != 12 || request.HardwareId.Any(character => !Uri.IsHexDigit(character)))
-        {
-            errors.Add(new(nameof(request.HardwareId), "Hardware ID must be a 12-character ESP32 hexadecimal ID."));
         }
 
         if (!request.OperationalCredentialId.StartsWith("wf_dev_", StringComparison.Ordinal)

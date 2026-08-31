@@ -65,11 +65,12 @@ void initializeProvisioning() {
   loadQueueState();
   gCandidateDeviceConfig = gDeviceConfig;
 
-  Serial.printf("device hardwareId=%s wifiConfigured=%s tokenConfigured=%s bootstrapConfigured=%s\n",
-                hardwareId().c_str(),
+  Serial.printf("device serialNumber=%s wifiConfigured=%s tokenConfigured=%s bootstrapConfigured=%s firmwareVersion=%s\n",
+                gSerialNumber.c_str(),
                 gHasActiveProfile ? "true" : "false",
                 gDeviceConfig.deviceToken.isEmpty() ? "false" : "true",
-                (!gBootstrapToken.isEmpty() && !gSerialNumber.isEmpty()) ? "true" : "false");
+                (!gBootstrapToken.isEmpty() && !gSerialNumber.isEmpty()) ? "true" : "false",
+                kFirmwareVersion);
 
   if (onboardResetSetupRequested) {
     startPortal("onboard_reset");

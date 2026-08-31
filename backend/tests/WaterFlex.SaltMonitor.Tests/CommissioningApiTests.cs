@@ -28,7 +28,6 @@ public sealed class CommissioningApiTests
             "WF-L-10482-01",
             "WF-A-10482-S1",
             "WF-NANO-API-01",
-            "A1B2C3D4E5F8",
             "Arduino Nano ESP32",
             "WO-API-1001",
             150m,

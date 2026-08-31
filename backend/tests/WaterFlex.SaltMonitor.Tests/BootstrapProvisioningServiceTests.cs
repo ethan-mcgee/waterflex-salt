@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Domain.Security;
+using WaterFlex.SaltMonitor.Domain.Monitoring;
 using WaterFlex.SaltMonitor.Infrastructure.Persistence;
+using WaterFlex.SaltMonitor.Ingestion;
 using WaterFlex.SaltMonitor.Provisioning;
 using Xunit;
 
@@ -116,7 +118,7 @@ public sealed class BootstrapProvisioningServiceTests
         var service = CreateSessionService(database.Context, timeProvider);
 
         var result = await service.CreateFromWorkOrderAsync(
-            new("WO-82418", "WF-BOOT-0001", null, 150m),
+            new("WO-82418", "WF-NANO-0001", null, 150m),
             NorthStarTechnician);
 
         Assert.Equal(CommissioningSessionFailure.TankLocationRequired, result.Failure);
@@ -135,6 +137,62 @@ public sealed class BootstrapProvisioningServiceTests
         Assert.NotNull(visible);
         Assert.Equal("North Ridge Apartments", visible!.CustomerDisplayName);
         Assert.Null(hidden);
+    }
+
+    [Fact]
+    public async Task Activation_RequiresHealthAndFirstTelemetryBeforeCompletion()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var timeProvider = new MutableTimeProvider(Now);
+        var bootstrapSecret = Enumerable.Range(1, 32).Select(value => (byte)value).ToArray();
+        var registration = new EfFactoryDeviceRegistrationService(database.Context, timeProvider);
+        var registered = await registration.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(bootstrapSecret)),
+            "factory-operator-01");
+        Assert.True(registered.IsSuccess);
+
+        var sessionService = CreateSessionService(database.Context, timeProvider);
+        var reserved = await sessionService.CreateAsync(CreateSessionRequest(), NorthStarTechnician);
+        var operationalSecret = Enumerable.Range(33, 32).Select(value => (byte)value).ToArray();
+        var activation = new EfDeviceBootstrapActivationService(database.Context, timeProvider);
+        var activated = await activation.ActivateAsync(
+            $"wf_boot_test_0001.{Base64Url(bootstrapSecret)}",
+            new(
+                Guid.NewGuid(),
+                "WF-NANO-0001",
+                "1.0.0",
+                "pilot-v1",
+                "wf_dev_commissioning_test",
+                Convert.ToBase64String(SHA256.HashData(operationalSecret))));
+
+        Assert.True(activated.IsSuccess);
+        var session = await database.Context.CommissioningSessions.SingleAsync();
+        Assert.Equal(CommissioningSessionStatus.ActivatedAwaitingHealth, session.Status);
+        Assert.Null(session.CompletedAtUtc);
+
+        var schedule = new MonitoringSchedule(TimeSpan.FromMinutes(1));
+        var health = new EfDeviceHealthService(database.Context, timeProvider, schedule);
+        var healthResult = await health.ReportAsync(
+            registered.Registration!.DeviceId,
+            new(1, "1.0.0", Now, 1000, SensorHealthStatus.Healthy, null, -55, 0, true));
+        Assert.True(healthResult.IsSuccess);
+        Assert.Equal(
+            CommissioningSessionStatus.AwaitingFirstTelemetry,
+            (await database.Context.CommissioningSessions.SingleAsync()).Status);
+
+        var telemetry = new EfTelemetryIngestionService(
+            database.Context,
+            new TelemetryBatchValidator(timeProvider),
+            timeProvider,
+            schedule);
+        var telemetryResult = await telemetry.IngestAsync(
+            registered.Registration.DeviceId,
+            new(1, "1.0.0", [new(Guid.NewGuid(), 1, Now, 2000, 500, 95, 1, -55)]));
+
+        Assert.True(telemetryResult.IsSuccess);
+        session = await database.Context.CommissioningSessions.SingleAsync();
+        Assert.Equal(CommissioningSessionStatus.Completed, session.Status);
+        Assert.Equal(Now, session.CompletedAtUtc);
     }
 
     private static EfCommissioningSessionService CreateSessionService(
@@ -159,8 +217,7 @@ public sealed class BootstrapProvisioningServiceTests
 
     private static RegisterFactoryDeviceRequest CreateFactoryRequest(byte[] secretHash) =>
         new(
-            "WF-BOOT-0001",
-            "A1:B2:C3:D4:E5:F6",
+            "factory-test-job-0001",
             "Arduino Nano ESP32",
             "wf_boot_test_0001",
             Convert.ToBase64String(secretHash),
@@ -172,9 +229,12 @@ public sealed class BootstrapProvisioningServiceTests
             "WF-C-10482",
             "WF-L-10482-01",
             "WF-A-10482-S1",
-            "WF-BOOT-0001",
+            "WF-NANO-0001",
             "WO-BOOT-1001",
             150m);
+
+    private static string Base64Url(byte[] value) =>
+        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
     {

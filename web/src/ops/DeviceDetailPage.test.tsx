@@ -20,7 +20,6 @@ const detail: FleetDeviceDetail = {
     deviceId: 'd281bf96-5d9e-405e-a7cc-872ff0152b35',
     installationId: 'installation-id',
     serialNumber: 'WF-TEST-001',
-    hardwareId: 'HARDWARE001',
     model: 'Nano ESP32',
     lifecycleStatus: 'Active',
     dealerExternalId: null,

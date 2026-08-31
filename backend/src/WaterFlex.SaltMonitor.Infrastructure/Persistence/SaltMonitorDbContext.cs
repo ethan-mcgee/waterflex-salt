@@ -14,6 +14,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<ServiceLocation> ServiceLocations => Set<ServiceLocation>();
     public DbSet<Tank> Tanks => Set<Tank>();
     public DbSet<Device> Devices => Set<Device>();
+    public DbSet<FactoryProvisioningJob> FactoryProvisioningJobs => Set<FactoryProvisioningJob>();
     public DbSet<DeviceBootstrapCredential> DeviceBootstrapCredentials => Set<DeviceBootstrapCredential>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
     public DbSet<DeviceInstallation> DeviceInstallations => Set<DeviceInstallation>();
@@ -148,7 +149,6 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.ToTable("Devices");
             entity.HasKey(device => device.Id);
             entity.Property(device => device.SerialNumber).HasMaxLength(64);
-            entity.Property(device => device.HardwareId).HasMaxLength(32);
             entity.Property(device => device.Model).HasMaxLength(100);
             entity.Property(device => device.Status).HasConversion<string>().HasMaxLength(32);
             entity.Property(device => device.FactoryFirmwareVersion).HasMaxLength(64);
@@ -158,7 +158,25 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(device => device.LastSensorFault).HasConversion<string>().HasMaxLength(32);
             entity.Property(device => device.LastHealthFirmwareVersion).HasMaxLength(64);
             entity.HasIndex(device => device.SerialNumber).IsUnique();
-            entity.HasIndex(device => device.HardwareId).IsUnique();
+        });
+
+        modelBuilder.Entity<FactoryProvisioningJob>(entity =>
+        {
+            entity.ToTable("FactoryProvisioningJobs");
+            entity.HasKey(job => job.Id);
+            entity.Property(job => job.IdempotencyKey).HasMaxLength(100);
+            entity.Property(job => job.SerialNumber).HasMaxLength(64);
+            entity.Property(job => job.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(job => job.CreatedBy).HasMaxLength(200);
+            entity.Property(job => job.FailureCode).HasMaxLength(100);
+            entity.Property(job => job.RowVersion).IsRowVersion();
+            entity.HasIndex(job => job.IdempotencyKey).IsUnique();
+            entity.HasIndex(job => job.SerialSequence).IsUnique();
+            entity.HasIndex(job => job.SerialNumber).IsUnique();
+            entity.HasOne(job => job.Device)
+                .WithOne(device => device.FactoryProvisioningJob)
+                .HasForeignKey<FactoryProvisioningJob>(job => job.DeviceId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<DeviceBootstrapCredential>(entity =>
@@ -231,10 +249,10 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(session => session.RowVersion).IsRowVersion();
             entity.HasIndex(session => session.DeviceId)
                 .IsUnique()
-                .HasFilter("\"Status\" IN ('PendingSensor', 'AwaitingFirstTelemetry')");
+                .HasFilter("\"Status\" IN ('PendingSensor', 'ActivatedAwaitingHealth', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => session.TankId)
                 .IsUnique()
-                .HasFilter("\"Status\" IN ('PendingSensor', 'AwaitingFirstTelemetry')");
+                .HasFilter("\"Status\" IN ('PendingSensor', 'ActivatedAwaitingHealth', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => new { session.Status, session.ExpiresAtUtc });
             entity.HasIndex(session => session.ActivationAttemptId)
                 .IsUnique()
