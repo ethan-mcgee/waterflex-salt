@@ -30,6 +30,8 @@ Or bring up the backend, worker, web console, and a local PostgreSQL database to
 
 ## Documentation
 
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how firmware, backend, and web fit together, and each
+  component's internal structure.
 - [`docs/PILOT_RELEASE_RUNBOOK.md`](docs/PILOT_RELEASE_RUNBOOK.md) — field-pilot deployment, restore, acceptance,
   rollout, and incident procedures.
 - [`docs/STAFF_ACCESS_PROVISIONING.md`](docs/STAFF_ACCESS_PROVISIONING.md) — provisioning WaterFlex staff access to
