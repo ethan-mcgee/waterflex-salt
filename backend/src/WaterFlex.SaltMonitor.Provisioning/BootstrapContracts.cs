@@ -2,6 +2,10 @@ using WaterFlex.SaltMonitor.Domain.Security;
 
 namespace WaterFlex.SaltMonitor.Provisioning;
 
+/// <summary>
+/// Lifecycle of a technician-created commissioning session, from reserving a device for a
+/// customer/tank through the device's own self-activation and first telemetry.
+/// </summary>
 public enum CommissioningSessionStatus
 {
     PendingSensor,
@@ -13,6 +17,10 @@ public enum CommissioningSessionStatus
     Failed
 }
 
+/// <summary>
+/// Factory-floor request to pre-register a device before it ships, establishing the
+/// bootstrap credential the sensor will later use to self-activate in the field.
+/// </summary>
 public sealed record RegisterFactoryDeviceRequest(
     string IdempotencyKey,
     string Model,
@@ -21,6 +29,7 @@ public sealed record RegisterFactoryDeviceRequest(
     string FirmwareVersion,
     string ConfigurationVersion);
 
+/// <summary>Result of a successful factory registration, including the server-issued canonical serial number.</summary>
 public sealed record FactoryDeviceRegistration(
     Guid DeviceId,
     string SerialNumber,
@@ -28,6 +37,7 @@ public sealed record FactoryDeviceRegistration(
     DateTimeOffset RegisteredAtUtc,
     string BootstrapCredentialId);
 
+/// <summary>Reasons a factory registration attempt was rejected.</summary>
 public enum FactoryRegistrationFailure
 {
     None,
@@ -37,8 +47,10 @@ public enum FactoryRegistrationFailure
     Conflict
 }
 
+/// <summary>A single field-level validation failure surfaced to a provisioning caller.</summary>
 public sealed record ProvisioningValidationError(string Field, string Message);
 
+/// <summary>Outcome of a factory registration attempt, carrying either the registration or the reason it failed.</summary>
 public sealed record FactoryRegistrationResult(
     FactoryDeviceRegistration? Registration,
     FactoryRegistrationFailure Failure,
@@ -55,6 +67,11 @@ public sealed record FactoryRegistrationResult(
         new(null, failure, validationErrors ?? []);
 }
 
+/// <summary>
+/// Factory-floor registration and verification workflow, invoked by the factory provisioning
+/// tool rather than by field technicians. Registration is keyed by idempotency key so a retried
+/// factory run does not mint a second device or serial number.
+/// </summary>
 public interface IFactoryDeviceRegistrationService
 {
     Task<FactoryRegistrationResult> RegisterAsync(
@@ -74,6 +91,7 @@ public interface IFactoryDeviceRegistrationService
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>End-of-line factory verification outcome for a device, gating whether it is allowed to ship.</summary>
 public enum FactoryProvisioningStatus
 {
     Registered,
@@ -82,6 +100,10 @@ public enum FactoryProvisioningStatus
     Quarantined
 }
 
+/// <summary>
+/// Results of the end-of-line factory checks a device must pass before it is cleared to ship;
+/// any false flag or a non-null failure code routes the device to <see cref="FactoryProvisioningStatus.Quarantined"/>.
+/// </summary>
 public sealed record FactoryVerificationRequest(
     bool FirmwareVerified,
     bool IdentityVerified,
@@ -90,6 +112,7 @@ public sealed record FactoryVerificationRequest(
     string FirmwareVersion,
     string? FailureCode);
 
+/// <summary>Recorded outcome of a device's end-of-line factory verification.</summary>
 public sealed record FactoryVerificationResult(
     Guid DeviceId,
     string SerialNumber,
@@ -97,6 +120,11 @@ public sealed record FactoryVerificationResult(
     DateTimeOffset VerifiedAtUtc,
     string? FailureCode);
 
+/// <summary>
+/// A sensor's own request to self-activate using its factory bootstrap credential, exchanging
+/// the bootstrap token for an operational one. Idempotent per <see cref="ActivationAttemptId"/>
+/// so a retried request (e.g. after a dropped Wi-Fi response) does not double-activate the device.
+/// </summary>
 public sealed record ActivateDeviceRequest(
     Guid ActivationAttemptId,
     string SerialNumber,
@@ -106,6 +134,7 @@ public sealed record ActivateDeviceRequest(
     string OperationalSecretHash,
     int? CommissioningDistanceMm = null);
 
+/// <summary>Server response to a successful device self-activation, confirming the device's new operational identity.</summary>
 public sealed record ActivateDeviceResponse(
     Guid DeviceId,
     Guid InstallationId,
@@ -113,6 +142,10 @@ public sealed record ActivateDeviceResponse(
     DateTimeOffset ActivatedAtUtc,
     string ActivationStatus);
 
+/// <summary>
+/// Reasons a device's self-activation attempt was rejected. <see cref="NoPendingCommissioning"/>
+/// means no technician has yet reserved the device via a commissioning session.
+/// </summary>
 public enum ActivationFailure
 {
     None,
@@ -125,6 +158,7 @@ public enum ActivationFailure
     Conflict
 }
 
+/// <summary>Outcome of a device self-activation attempt.</summary>
 public sealed record ActivationResult(
     ActivateDeviceResponse? Activation,
     ActivationFailure Failure,
@@ -141,6 +175,11 @@ public sealed record ActivationResult(
         new(null, failure, validationErrors ?? []);
 }
 
+/// <summary>
+/// Exchanges a device's factory bootstrap token for its operational credential. This is the
+/// no-technician-screen step of the bootstrap flow: the sensor calls this itself once it has
+/// joined Wi-Fi, without any manual device-token entry.
+/// </summary>
 public interface IDeviceBootstrapActivationService
 {
     Task<ActivationResult> ActivateAsync(
@@ -149,6 +188,7 @@ public interface IDeviceBootstrapActivationService
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Technician-facing summary of a work order used to look one up before starting a commissioning session.</summary>
 public sealed record InstallationWorkOrderView(
     string WorkOrderNumber,
     string CustomerDisplayName,
@@ -156,6 +196,7 @@ public sealed record InstallationWorkOrderView(
     string AddressSummary,
     string? TankLocation);
 
+/// <summary>A dealer-sourced installation work order eligible to be turned into a commissioning session.</summary>
 public sealed record InstallationWorkOrder(
     string WorkOrderNumber,
     string DealerExternalId,
@@ -167,6 +208,7 @@ public sealed record InstallationWorkOrder(
     string AddressSummary,
     string? TankLocation);
 
+/// <summary>Looks up dealer-sourced work orders eligible to be commissioned, scoped to the requesting dealer.</summary>
 public interface IInstallationWorkOrderDirectory
 {
     Task<InstallationWorkOrder?> FindEligibleAsync(
@@ -175,12 +217,14 @@ public interface IInstallationWorkOrderDirectory
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Starts a commissioning session from an existing dealer work order, carrying customer/location/asset identity implicitly.</summary>
 public sealed record CreateWorkOrderCommissioningSessionRequest(
     string WorkOrderNumber,
     string SerialNumber,
     string? TankLocation,
     decimal TankDepthCm);
 
+/// <summary>Starts a commissioning session without a work order, by supplying the WaterFlex customer/location/asset identifiers directly.</summary>
 public sealed record CreateCommissioningSessionRequest(
     string WaterFlexCustomerId,
     string WaterFlexLocationId,
@@ -189,6 +233,10 @@ public sealed record CreateCommissioningSessionRequest(
     string? WaterFlexWorkOrderId,
     decimal TankDepthCm);
 
+/// <summary>
+/// Technician-facing view of a commissioning session's progress, from device reservation
+/// through self-activation to first telemetry.
+/// </summary>
 public sealed record CommissioningSessionView(
     Guid SessionId,
     Guid DeviceId,
@@ -206,6 +254,7 @@ public sealed record CommissioningSessionView(
     DateTimeOffset? CompletedAtUtc,
     string? FailureCode);
 
+/// <summary>Reasons a commissioning session could not be created, retrieved, or cancelled.</summary>
 public enum CommissioningSessionFailure
 {
     None,
@@ -223,6 +272,7 @@ public enum CommissioningSessionFailure
     Conflict
 }
 
+/// <summary>Outcome of a commissioning session operation.</summary>
 public sealed record CommissioningSessionResult(
     CommissioningSessionView? Session,
     CommissioningSessionFailure Failure,
@@ -239,6 +289,11 @@ public sealed record CommissioningSessionResult(
         new(null, failure, validationErrors ?? []);
 }
 
+/// <summary>
+/// Technician-driven half of the bootstrap flow: reserves a factory-registered device for a
+/// customer/tank ahead of the device's own self-activation, and tracks that reservation through
+/// to completion. Sessions expire (typically 30 minutes) if the device never checks in.
+/// </summary>
 public interface ICommissioningSessionService
 {
     Task<InstallationWorkOrderView?> FindWorkOrderAsync(

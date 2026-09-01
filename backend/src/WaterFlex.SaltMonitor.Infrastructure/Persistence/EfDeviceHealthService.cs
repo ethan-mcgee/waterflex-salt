@@ -5,6 +5,13 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// Records a device's periodic self-reported health heartbeat. A heartbeat received while a
+/// commissioning session is <see cref="CommissioningSessionStatus.ActivatedAwaitingHealth"/>
+/// advances that session to <see cref="CommissioningSessionStatus.AwaitingFirstTelemetry"/>,
+/// confirming the freshly activated sensor is actually alive before the flow waits on real
+/// telemetry.
+/// </summary>
 public sealed class EfDeviceHealthService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider,

@@ -5,6 +5,7 @@ using WaterFlex.SaltMonitor.Domain.Monitoring;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>Where a device sits in its life, from factory registration through field retirement.</summary>
 public enum DeviceLifecycleStatus
 {
     Registered,
@@ -14,6 +15,7 @@ public enum DeviceLifecycleStatus
     Retired
 }
 
+/// <summary>An installing/servicing dealer organization, scoping which installations and staff belong to it.</summary>
 public sealed class Dealer
 {
     public Guid Id { get; set; }
@@ -23,6 +25,7 @@ public sealed class Dealer
     public ICollection<DeviceInstallation> Installations { get; set; } = [];
 }
 
+/// <summary>A WaterFlex customer, mirrored locally from the WaterFlex system of record so provisioning and alerting can operate offline of it.</summary>
 public sealed class CustomerAccount
 {
     public Guid Id { get; set; }
@@ -34,6 +37,7 @@ public sealed class CustomerAccount
     public ICollection<ServiceLocation> ServiceLocations { get; set; } = [];
 }
 
+/// <summary>A physical site belonging to a <see cref="CustomerAccount"/> where one or more tanks may be installed.</summary>
 public sealed class ServiceLocation
 {
     public Guid Id { get; set; }
@@ -47,6 +51,7 @@ public sealed class ServiceLocation
     public ICollection<Tank> Tanks { get; set; } = [];
 }
 
+/// <summary>A physical salt tank at a <see cref="ServiceLocation"/>, tracked independently of whatever sensor is currently installed in it.</summary>
 public sealed class Tank
 {
     public Guid Id { get; set; }
@@ -59,6 +64,11 @@ public sealed class Tank
     public ICollection<DeviceInstallation> Installations { get; set; } = [];
 }
 
+/// <summary>
+/// A physical sensor unit, identified by its canonical serial number and tracked across its
+/// entire lifecycle independent of any particular tank installation. Health-reporting fields
+/// mirror the device's most recent self-reported status without requiring a join to telemetry.
+/// </summary>
 public sealed class Device
 {
     public Guid Id { get; set; }
@@ -87,6 +97,11 @@ public sealed class Device
     public FactoryProvisioningJob? FactoryProvisioningJob { get; set; }
 }
 
+/// <summary>
+/// Tracks a single factory registration attempt end-to-end, from the idempotency key the factory
+/// tool submitted through to end-of-line verification. The idempotency key lets a retried factory
+/// run recover the same job (and serial number) instead of creating a duplicate device.
+/// </summary>
 public sealed class FactoryProvisioningJob
 {
     public Guid Id { get; set; }
@@ -103,6 +118,12 @@ public sealed class FactoryProvisioningJob
     public Device Device { get; set; } = null!;
 }
 
+/// <summary>
+/// The factory-issued credential a device uses to self-activate in the field. It is single-use:
+/// once <see cref="ConsumedAtUtc"/> is set the credential can no longer activate a device.
+/// <see cref="FailedAttemptCount"/> increments on a bad secret but is not yet checked against any
+/// auto-revocation threshold.
+/// </summary>
 public sealed class DeviceBootstrapCredential
 {
     public Guid Id { get; set; }
@@ -119,6 +140,7 @@ public sealed class DeviceBootstrapCredential
     public Device Device { get; set; } = null!;
 }
 
+/// <summary>The operational credential a device uses for ongoing telemetry/API calls after it has been activated or directly commissioned.</summary>
 public sealed class DeviceCredential
 {
     public Guid Id { get; set; }
@@ -132,6 +154,11 @@ public sealed class DeviceCredential
     public Device Device { get; set; } = null!;
 }
 
+/// <summary>
+/// A single physical placement of a <see cref="Device"/> into a <see cref="Tank"/>. Kept distinct
+/// from the device and tank themselves so a sensor's installation history (swap, removal,
+/// reinstall elsewhere) can be tracked without losing prior calibration or telemetry.
+/// </summary>
 public sealed class DeviceInstallation
 {
     public Guid Id { get; set; }
@@ -149,6 +176,11 @@ public sealed class DeviceInstallation
     public ICollection<TankCalibrationRecord> Calibrations { get; set; } = [];
 }
 
+/// <summary>
+/// A versioned calibration for a specific <see cref="DeviceInstallation"/>. Recalibrating an
+/// installed sensor creates a new version rather than overwriting the prior one, so historical
+/// telemetry keeps the calibration that was actually in effect when it was recorded.
+/// </summary>
 public sealed class TankCalibrationRecord
 {
     public Guid Id { get; set; }
@@ -163,6 +195,11 @@ public sealed class TankCalibrationRecord
     public DeviceInstallation DeviceInstallation { get; set; } = null!;
 }
 
+/// <summary>
+/// A single fill-level reading ingested from a sensor. <see cref="BootId"/> and
+/// <see cref="SequenceNumber"/> together let ingestion detect gaps or reordering across a
+/// device's power cycles.
+/// </summary>
 public sealed class TelemetryReadingRecord
 {
     public long Id { get; set; }
@@ -186,6 +223,11 @@ public sealed class TelemetryReadingRecord
     public TankCalibrationRecord TankCalibrationRecord { get; set; } = null!;
 }
 
+/// <summary>
+/// A technician's in-progress reservation of a factory-registered device for a customer/tank,
+/// pending the device's own self-activation. Expires (see <see cref="ExpiresAtUtc"/>) if the
+/// device never checks in.
+/// </summary>
 public sealed class CommissioningSession
 {
     public Guid Id { get; set; }
@@ -213,6 +255,7 @@ public sealed class CommissioningSession
     public ICollection<ProvisioningAuditEvent> AuditEvents { get; set; } = [];
 }
 
+/// <summary>Append-only audit trail of provisioning-related events (registration, commissioning, activation) for compliance and troubleshooting.</summary>
 public sealed class ProvisioningAuditEvent
 {
     public long Id { get; set; }
@@ -227,6 +270,7 @@ public sealed class ProvisioningAuditEvent
     public CommissioningSession? CommissioningSession { get; set; }
 }
 
+/// <summary>A staff member's identity as mapped from their external identity-provider login (e.g. Cognito) to their role and dealer scope in this system.</summary>
 public sealed class StaffIdentityRecord
 {
     public Guid Id { get; set; }
@@ -248,6 +292,7 @@ public sealed class StaffIdentityRecord
     public Dealer? Dealer { get; set; }
 }
 
+/// <summary>A pending invitation for a new staff member, resolved into a <see cref="StaffIdentityRecord"/> once they accept and their identity-provider login is linked.</summary>
 public sealed class StaffInvitation
 {
     public Guid Id { get; set; }
@@ -268,6 +313,7 @@ public sealed class StaffInvitation
     public StaffIdentityRecord? AcceptedStaffIdentity { get; set; }
 }
 
+/// <summary>Append-only audit trail of staff access changes (invitations, role changes, suspensions) for compliance and troubleshooting.</summary>
 public sealed class StaffAccessAuditEvent
 {
     public long Id { get; set; }
@@ -280,6 +326,7 @@ public sealed class StaffAccessAuditEvent
     public DateTimeOffset OccurredAtUtc { get; set; }
 }
 
+/// <summary>Outbox queue for asynchronous staff-provisioning side effects (e.g. identity-provider account creation) that must survive process restarts and be retried on failure.</summary>
 public sealed class StaffProvisioningWorkItem
 {
     public long Id { get; set; }
@@ -296,6 +343,7 @@ public sealed class StaffProvisioningWorkItem
     public string? LastError { get; set; }
 }
 
+/// <summary>Hourly rollup of a device's telemetry, maintained so dashboards and history views don't have to scan raw readings for anything beyond the most recent window.</summary>
 public sealed class TelemetryHourlySummary
 {
     public Guid DeviceId { get; set; }
@@ -319,6 +367,7 @@ public sealed class TelemetryHourlySummary
     public Device Device { get; set; } = null!;
 }
 
+/// <summary>Daily rollup of a device's telemetry, retained far longer than raw readings once <see cref="TelemetryHistoryMaintenanceService"/> prunes them.</summary>
 public sealed class TelemetryDailySummary
 {
     public Guid DeviceId { get; set; }
@@ -342,12 +391,18 @@ public sealed class TelemetryDailySummary
     public Device Device { get; set; } = null!;
 }
 
+/// <summary>Tracks the last completion time of a named background maintenance task (e.g. telemetry history pruning) so it runs at most once per its interval across process restarts.</summary>
 public sealed class TelemetryMaintenanceState
 {
     public required string Name { get; set; }
     public DateTimeOffset CompletedAtUtc { get; set; }
 }
 
+/// <summary>
+/// A low-salt alert for a tank installation, open from the moment debounced low-fill evidence
+/// first appears until it is resolved, acknowledged/approved by staff, or dismissed. Drives
+/// automatic delivery-ticket creation (see <see cref="DeliveryTicket"/>).
+/// </summary>
 public sealed class LowSaltAlert
 {
     public Guid Id { get; set; }
@@ -369,6 +424,7 @@ public sealed class LowSaltAlert
     public ICollection<LowSaltAlertAuditEvent> AuditEvents { get; set; } = [];
 }
 
+/// <summary>Append-only audit trail of a <see cref="LowSaltAlert"/>'s lifecycle transitions, for staff review and dispute resolution.</summary>
 public sealed class LowSaltAlertAuditEvent
 {
     public long Id { get; set; }
@@ -383,6 +439,11 @@ public sealed class LowSaltAlertAuditEvent
     public LowSaltAlert LowSaltAlert { get; set; } = null!;
 }
 
+/// <summary>
+/// Per-installation running counters for the low-salt debounce/recovery/suppression rules,
+/// persisted so evaluation survives process restarts instead of re-deriving state from raw
+/// telemetry history on every run.
+/// </summary>
 public sealed class LowSaltAlertEvaluationState
 {
     public Guid DeviceInstallationId { get; set; }
@@ -396,6 +457,7 @@ public sealed class LowSaltAlertEvaluationState
     public DeviceInstallation DeviceInstallation { get; set; } = null!;
 }
 
+/// <summary>Processing state of a queued outbox work item, shared by the alert and delivery-ticket work queues.</summary>
 public enum AlertWorkItemStatus
 {
     Pending,
@@ -404,6 +466,7 @@ public enum AlertWorkItemStatus
     DeadLetter
 }
 
+/// <summary>Outbox queue driving low-salt alert evaluation for a newly ingested <see cref="TelemetryReadingRecord"/>, decoupling ingestion from evaluation so a slow or failing evaluation never blocks telemetry writes.</summary>
 public sealed class AlertEvaluationWorkItem
 {
     public long Id { get; set; }
@@ -437,7 +500,7 @@ public sealed class DeliveryTicket
     public LowSaltAlert LowSaltAlert { get; set; } = null!;
 }
 
-/// <summary>Outbox queue driving the actual <see cref="IDeliveryTicketGateway"/> call for a <see cref="DeliveryTicket"/>.</summary>
+/// <summary>Outbox queue driving the actual <see cref="WaterFlex.SaltMonitor.Domain.Abstractions.IDeliveryTicketGateway"/> call for a <see cref="DeliveryTicket"/>.</summary>
 public sealed class DeliveryTicketWorkItem
 {
     public long Id { get; set; }

@@ -3,6 +3,7 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Api;
 
+/// <summary>Staff administration endpoints for listing and managing staff members and invitations, restricted to callers with staff-administration capability.</summary>
 public static class StaffAccessEndpoints
 {
     public static IEndpointRouteBuilder MapStaffAccessEndpoints(this IEndpointRouteBuilder endpoints)
@@ -39,6 +40,7 @@ public static class StaffAccessEndpoints
         return endpoints;
     }
 
+    /// <summary>Runs a staff-access operation, translating its domain exceptions into the matching HTTP problem response.</summary>
     private static async Task<IResult> ExecuteAsync(Func<Task<IResult>> action)
     {
         try { return await action(); }

@@ -11,6 +11,7 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Api;
 
+/// <summary>Tenant-specific Cloudflare Access configuration used to validate staff sign-in assertions.</summary>
 public sealed class CloudflareAccessOptions
 {
     public const string SectionName = "CloudflareAccess";
@@ -18,11 +19,17 @@ public sealed class CloudflareAccessOptions
     public string Audience { get; set; } = string.Empty;
 }
 
+/// <summary>Validates the signed JWT assertion Cloudflare Access attaches to staff requests.</summary>
 public interface ICloudflareAccessTokenValidator
 {
     Task<ClaimsPrincipal?> ValidateAsync(string token, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Verifies Cloudflare Access JWTs against Cloudflare's published signing keys, caching the key set
+/// and transparently retrying once with a forced refresh if validation fails (covers Cloudflare's
+/// periodic key rotation).
+/// </summary>
 public sealed class CloudflareAccessTokenValidator(
     IHttpClientFactory httpClientFactory,
     IOptions<CloudflareAccessOptions> options,
@@ -53,6 +60,7 @@ public sealed class CloudflareAccessTokenValidator(
         return await ValidateWithKeysAsync(token, issuer, configured.Audience, keys);
     }
 
+    /// <summary>Returns the cached signing key set, refreshing it from Cloudflare's JWKS endpoint if it is stale or a refresh is forced.</summary>
     private async Task<IReadOnlyCollection<SecurityKey>> GetSigningKeysAsync(
         string issuer,
         bool forceRefresh,
@@ -117,6 +125,7 @@ public sealed class CloudflareAccessTokenValidator(
             : null;
     }
 
+    /// <summary>Accepts only real Cloudflare Access issuer URLs, guarding against a misconfigured issuer pointing somewhere else entirely.</summary>
     private static bool TryNormalizeIssuer(string value, out string issuer)
     {
         issuer = string.Empty;
@@ -132,6 +141,11 @@ public sealed class CloudflareAccessTokenValidator(
     }
 }
 
+/// <summary>
+/// Authenticates staff requests. In development this trusts a plain header naming a local test user;
+/// otherwise it validates the Cloudflare Access assertion and resolves it to an active staff identity,
+/// or to a pending invitation so the caller can complete self-activation.
+/// </summary>
 public sealed class StaffAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
@@ -216,6 +230,7 @@ public sealed class StaffAuthenticationHandler(
         return Response.WriteAsJsonAsync(new { errorCode = "staff_role_not_permitted" });
     }
 
+    /// <summary>Builds a successful authentication result for an already-active staff identity.</summary>
     private static AuthenticateResult Success(StaffActor actor, string issuer, string subject, string? email)
     {
         var claims = new List<Claim>
@@ -234,6 +249,7 @@ public sealed class StaffAuthenticationHandler(
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 
+    /// <summary>Builds an authentication result for a caller who has a valid Cloudflare identity but not yet an active staff record, marking them eligible to activate the given invitation.</summary>
     private static AuthenticateResult ActivationCandidate(string issuer, string subject, string email, Guid invitationId)
     {
         var claims = new[]

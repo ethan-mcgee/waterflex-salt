@@ -2,6 +2,10 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// Hardcoded dealer work orders for local development and demos, standing in for the real
+/// dealer/work-order system the work-order-driven commissioning flow would otherwise query.
+/// </summary>
 public sealed class DevelopmentInstallationWorkOrderDirectory : IInstallationWorkOrderDirectory
 {
     private static readonly IReadOnlyList<InstallationWorkOrder> WorkOrders =

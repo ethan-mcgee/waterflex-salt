@@ -2,6 +2,10 @@ using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// Hardcoded WaterFlex customer/location/tank catalog for local development and demos, standing
+/// in for the real WaterFlex directory lookup that technicians would otherwise search against.
+/// </summary>
 public sealed class DevelopmentWaterFlexCustomerDirectory : IWaterFlexCustomerDirectory
 {
     private static readonly IReadOnlyList<WaterFlexCustomerOption> Customers =

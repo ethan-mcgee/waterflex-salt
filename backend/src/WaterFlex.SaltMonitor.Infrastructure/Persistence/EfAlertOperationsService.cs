@@ -6,6 +6,12 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// Staff-facing read/write access to low-salt alerts. Transitions are optimistic-concurrency
+/// guarded by <see cref="LowSaltAlert.RowVersion"/> so two staff members acting on the same alert
+/// at once produce a conflict rather than a silently lost update, and a dismissal resets the
+/// evaluation state with a 24-hour suppression window to avoid immediately reopening the alert.
+/// </summary>
 public sealed class EfAlertOperationsService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider) : IAlertOperationsService

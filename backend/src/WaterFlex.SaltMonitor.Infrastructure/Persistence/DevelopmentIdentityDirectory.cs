@@ -3,6 +3,10 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// Hardcoded staff identities for local development and demos, standing in for the real
+/// identity-provider-backed staff directory until a caller authenticates against Cognito.
+/// </summary>
 public sealed class DevelopmentIdentityDirectory : IDevelopmentIdentityDirectory
 {
     private static readonly IReadOnlyList<StaffActor> Users =

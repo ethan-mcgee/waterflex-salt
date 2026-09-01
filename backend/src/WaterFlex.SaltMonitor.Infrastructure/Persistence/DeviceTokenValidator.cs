@@ -4,6 +4,11 @@ using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// Validates a device's bearer token (credential ID + secret) presented on ingestion/health
+/// calls, checking the secret against its stored hash in fixed time and rejecting revoked,
+/// not-yet-valid, expired, or not-Active-device credentials before any request is allowed through.
+/// </summary>
 public sealed class DeviceTokenValidator(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider) : IDeviceTokenValidator
@@ -84,6 +89,7 @@ public sealed class DeviceTokenValidator(
     }
 }
 
+/// <summary>Stamps a device credential's last-used timestamp via a direct update, avoiding the overhead of loading and tracking the full entity on every authenticated request.</summary>
 public sealed class DeviceCredentialUsageRecorder(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider) : IDeviceCredentialUsageRecorder

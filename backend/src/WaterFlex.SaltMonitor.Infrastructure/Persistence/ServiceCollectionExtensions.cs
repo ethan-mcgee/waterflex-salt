@@ -12,8 +12,15 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>DI registration for the EF Core persistence layer: the database context, telemetry/monitoring configuration, and every EF-backed service implementation used across the backend.</summary>
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers <see cref="SaltMonitorDbContext"/> and the EF-backed implementations of every
+    /// persistence-facing service interface. Falls back to a local development connection string
+    /// only when running in the Development environment, so a missing connection string fails
+    /// fast elsewhere instead of silently pointing at a database that doesn't exist.
+    /// </summary>
     public static IServiceCollection AddSaltMonitorPersistence(this IServiceCollection services)
     {
         services.AddDbContext<SaltMonitorDbContext>((serviceProvider, options) =>

@@ -3,6 +3,7 @@ using WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
 namespace WaterFlex.SaltMonitor.Worker;
 
+/// <summary>Periodically runs telemetry history maintenance (bucket aggregation/rollup) on a fixed interval, skipping a run if another worker instance already holds the maintenance lock.</summary>
 public sealed class TelemetryHistoryWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<TelemetryHistoryOptions> options,

@@ -1,11 +1,17 @@
 namespace WaterFlex.SaltMonitor.Ingestion;
 
+/// <summary>
+/// Validates incoming telemetry batches before they reach calibration and storage. Readings below
+/// <see cref="MinimumOperationalQuality"/> are rejected here rather than silently accepted, since a
+/// faulted sensor should be reported through device health instead of skewing fill readings.
+/// </summary>
 public sealed class TelemetryBatchValidator(TimeProvider timeProvider)
 {
     public const int CurrentSchemaVersion = 1;
     public const int MaximumReadingsPerBatch = 50;
     public const int MinimumOperationalQuality = 70;
 
+    /// <summary>Validates the batch's shape and every reading it contains, collecting all errors rather than stopping at the first.</summary>
     public TelemetryBatchValidationResult Validate(TelemetryBatch? batch)
     {
         var errors = new List<TelemetryValidationError>();

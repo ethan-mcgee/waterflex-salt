@@ -10,6 +10,15 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// EF-backed ingestion of a device's telemetry batch. Deduplicates readings by
+/// (<c>BootId</c>, <c>SequenceNumber</c>) so a retried batch after a dropped response is
+/// idempotent, queues an <see cref="AlertEvaluationWorkItem"/> per newly accepted reading so alert
+/// evaluation runs asynchronously off the ingestion path, and — when a commissioning session is
+/// waiting on it — advances that session to <see cref="CommissioningSessionStatus.Completed"/> on
+/// first accepted telemetry. A serialization conflict on the unique reading constraint is retried
+/// exactly once before surfacing as a failure.
+/// </summary>
 public sealed class EfTelemetryIngestionService(
     SaltMonitorDbContext dbContext,
     TelemetryBatchValidator validator,

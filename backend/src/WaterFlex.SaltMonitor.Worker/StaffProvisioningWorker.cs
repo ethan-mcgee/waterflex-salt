@@ -13,6 +13,7 @@ using WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
 namespace WaterFlex.SaltMonitor.Worker;
 
+/// <summary>Configuration for provisioning staff identities into Cognito and Cloudflare Access, including the one-time bootstrap administrator.</summary>
 public sealed class StaffProvisioningOptions
 {
     public const string SectionName = "StaffProvisioning";
@@ -27,8 +28,13 @@ public sealed class StaffProvisioningOptions
     public string BootstrapAdministratorDisplayName { get; set; } = "WaterFlex Administrator";
 }
 
+/// <summary>
+/// Keeps Cloudflare Access group membership in sync with WaterFlex staff identities, creating the
+/// privileged and dealer groups on first use if they don't already exist.
+/// </summary>
 public sealed class CloudflareStaffAccessGateway(HttpClient client, IOptions<StaffProvisioningOptions> options, IAmazonSecretsManager? secretsManager = null)
 {
+    /// <summary>Replaces the membership of the privileged and dealer Cloudflare Access groups with the given email sets.</summary>
     public async Task SynchronizeAsync(IReadOnlyCollection<string> privilegedEmails, IReadOnlyCollection<string> dealerEmails, CancellationToken ct)
     {
         var value = options.Value;
@@ -104,6 +110,11 @@ public sealed class CloudflareStaffAccessGateway(HttpClient client, IOptions<Sta
     }
 }
 
+/// <summary>
+/// Drives the staff provisioning outbox: creates the first administrator invitation when the system
+/// has no staff yet, and works through queued provisioning tasks against Cognito and Cloudflare with
+/// retry backoff on failure.
+/// </summary>
 public sealed class StaffProvisioningProcessor(
     SaltMonitorDbContext dbContext,
     IAmazonCognitoIdentityProvider cognito,
@@ -112,6 +123,7 @@ public sealed class StaffProvisioningProcessor(
     TimeProvider timeProvider,
     ILogger<StaffProvisioningProcessor> logger)
 {
+    /// <summary>Creates the one-time bootstrap administrator invitation if no staff or invitations exist yet, so the system always has a way in.</summary>
     public async Task EnsureBootstrapInvitationAsync(CancellationToken ct)
     {
         var email = options.Value.BootstrapAdministratorEmail.Trim();
@@ -140,6 +152,7 @@ public sealed class StaffProvisioningProcessor(
         await dbContext.SaveChangesAsync(ct);
     }
 
+    /// <summary>Claims and processes the next due provisioning work item, if any, with exponential backoff and eventual failure of the invitation after repeated attempts.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken ct)
     {
         if (!options.Value.Enabled) return false;
@@ -174,6 +187,7 @@ public sealed class StaffProvisioningProcessor(
         }
     }
 
+    /// <summary>Periodically re-syncs Cloudflare Access groups from current staff/invitation state, correcting drift from any provisioning steps that failed silently.</summary>
     public async Task ReconcileAsync(CancellationToken ct) => await SynchronizeCloudflareGroupsAsync(ct);
 
     private async Task ProvisionInvitationAsync(StaffProvisioningWorkItem work, CancellationToken ct)
@@ -238,6 +252,7 @@ public sealed class StaffProvisioningProcessor(
     }
 }
 
+/// <summary>Background loop that runs staff provisioning work and periodic Cloudflare reconciliation; a no-op when staff provisioning is disabled.</summary>
 public sealed class StaffProvisioningWorker(IServiceScopeFactory scopeFactory, IOptions<StaffProvisioningOptions> options, ILogger<StaffProvisioningWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

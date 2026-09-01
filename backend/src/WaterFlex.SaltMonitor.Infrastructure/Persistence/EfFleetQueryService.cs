@@ -7,6 +7,14 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// Staff-facing fleet dashboard read model: joins device, installation, and latest-telemetry data
+/// on the fly rather than maintaining a separate denormalized table, and derives each device's
+/// reporting status (reporting/stale/offline/never-reported) from <see cref="MonitoringSchedule"/>
+/// thresholds at query time so the dashboard reflects "now" rather than a stale cached status. A
+/// sensor-faulted device is always demoted to at best "stale" regardless of how recently it
+/// reported, since a faulted reading isn't a healthy one.
+/// </summary>
 public sealed class EfFleetQueryService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider,

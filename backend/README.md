@@ -150,6 +150,51 @@ Run from this folder:
 
   See `OPERATIONS_CHECKLIST.md` for the standard commissioning order and verification steps.
 
+  ## Work-order commissioning
+
+  A technician can also start commissioning from a WaterFlex work order instead of hand-picking a customer,
+  location, and tank:
+
+    GET  /api/v1/technician/installation-work-orders/{workOrderNumber}
+    POST /api/v1/technician/work-order-commissioning-sessions
+
+  Looking up a work order resolves its customer, location, and tank together; creating the session reserves a
+  factory-registered sensor against that resolved tank the same way `/api/v1/technician/commissioning-sessions`
+  does.
+
+  ## Internal operations API
+
+  WaterFlex staff with fleet-operations capability (dealer administrators scoped to their own dealer) use:
+
+    GET  /api/v1/ops/alerts
+    GET  /api/v1/ops/alerts/{alertId}
+    POST /api/v1/ops/alerts/{alertId}/acknowledge
+    POST /api/v1/ops/alerts/{alertId}/approve
+    POST /api/v1/ops/alerts/{alertId}/dismiss
+    GET  /api/v1/ops/dealers
+    GET  /api/v1/ops/fleet/summary
+    GET  /api/v1/ops/devices
+    GET  /api/v1/ops/devices/{deviceId}
+    GET  /api/v1/ops/devices/{deviceId}/readings
+    GET  /api/v1/ops/devices/{deviceId}/history
+
+  These back the ops console's fleet, device-detail, and alerts views. Alert transitions
+  (acknowledge/approve/dismiss) each accept an `ExpectedRowVersion` to guard against acting on a stale view of
+  the alert.
+
+  ## Staff administration API
+
+  WaterFlex staff with staff-management capability manage other staff accounts via:
+
+    GET  /api/v1/staff-admin/staff
+    GET  /api/v1/staff-admin/invitations
+    POST /api/v1/staff-admin/invitations
+    PUT  /api/v1/staff-admin/staff/{staffId}/role
+    POST /api/v1/staff-admin/staff/{staffId}/suspend
+    POST /api/v1/staff-admin/staff/{staffId}/reactivate
+
+  Role changes and state transitions accept a `RowVersion` to guard against concurrent edits.
+
 ## Build, test, run
 
     dotnet build

@@ -5,6 +5,13 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// EF-backed staff administration: invitations, role changes, and suspend/reactivate, scoped so a
+/// dealer administrator can only see and manage staff within their own dealer. Identity-provider
+/// side effects (account creation, role sync, suspension) are queued as
+/// <see cref="StaffProvisioningWorkItem"/> rows rather than performed inline, and a last active
+/// WaterFlex administrator can never be demoted or suspended, to avoid locking everyone out.
+/// </summary>
 public sealed class EfStaffAccessService(SaltMonitorDbContext dbContext, TimeProvider timeProvider) : IStaffAccessService
 {
     public async Task<IReadOnlyList<StaffMemberSummary>> ListStaffAsync(StaffActor actor, CancellationToken cancellationToken)

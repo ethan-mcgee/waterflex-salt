@@ -8,6 +8,14 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// EF-backed implementation of the technician-driven commissioning workflow. Session creation
+/// runs inside a serializable transaction and upserts the dealer/customer/location/tank rows from
+/// whatever directory selection (work order or direct WaterFlex identifiers) the technician
+/// supplied, so the local read models stay in sync without a separate background sync job. Any
+/// pre-existing live session on the same device or tank is expired opportunistically before a new
+/// one is created.
+/// </summary>
 public sealed class EfCommissioningSessionService(
     SaltMonitorDbContext dbContext,
     IWaterFlexCustomerDirectory customerDirectory,

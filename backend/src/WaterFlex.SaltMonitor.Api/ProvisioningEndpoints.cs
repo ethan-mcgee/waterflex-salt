@@ -3,8 +3,13 @@ using Microsoft.AspNetCore.RateLimiting;
 
 namespace WaterFlex.SaltMonitor.Api;
 
+/// <summary>
+/// Endpoints for the sensor provisioning lifecycle: factory registration of new devices, bootstrap
+/// activation by the device itself, and technician-driven commissioning sessions.
+/// </summary>
 public static class ProvisioningEndpoints
 {
+    /// <summary>Maps factory-floor endpoints for registering new devices and recording acceptance verification, authenticated with the factory key rather than staff identity.</summary>
     public static IEndpointRouteBuilder MapDevelopmentFactoryEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
@@ -102,6 +107,7 @@ public static class ProvisioningEndpoints
         return endpoints;
     }
 
+    /// <summary>Maps the unauthenticated-by-staff endpoint a device itself calls to exchange its bootstrap credential for an operational one once commissioning is pending.</summary>
     public static IEndpointRouteBuilder MapBootstrapActivationEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
@@ -168,6 +174,7 @@ public static class ProvisioningEndpoints
         return endpoints;
     }
 
+    /// <summary>Maps technician-facing endpoints for finding an eligible work order and creating, checking, or cancelling the commissioning session that reserves a sensor and tank for activation.</summary>
     public static RouteGroupBuilder MapCommissioningSessionEndpoints(
         this RouteGroupBuilder technicianApi)
     {
@@ -278,6 +285,7 @@ public static class ProvisioningEndpoints
         return technicianApi;
     }
 
+    /// <summary>Maps a commissioning session failure reason to the corresponding HTTP problem response.</summary>
     private static IResult ToSessionFailure(CommissioningSessionResult result) =>
         result.Failure switch
         {
@@ -317,6 +325,7 @@ public static class ProvisioningEndpoints
                 title: "Commissioning session conflict")
         };
 
+    /// <summary>Groups field-level provisioning errors into the shape ASP.NET Core's validation problem response expects, camel-casing field names to match the JSON request body.</summary>
     private static Dictionary<string, string[]> ToValidationDictionary(
         IReadOnlyList<ProvisioningValidationError> errors) =>
         errors
