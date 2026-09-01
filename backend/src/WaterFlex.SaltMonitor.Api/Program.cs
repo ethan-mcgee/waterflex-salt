@@ -64,6 +64,8 @@ builder.Services.AddHttpClient(nameof(CloudflareAccessTokenValidator), client =>
 });
 builder.Services.Configure<CloudflareAccessOptions>(
 	builder.Configuration.GetSection(CloudflareAccessOptions.SectionName));
+builder.Services.Configure<FactoryProvisioningOptions>(
+	builder.Configuration.GetSection(FactoryProvisioningOptions.SectionName));
 builder.Services.AddSingleton<ICloudflareAccessTokenValidator, CloudflareAccessTokenValidator>();
 builder.Services.AddAuthorization(options =>
 {
@@ -130,10 +132,25 @@ builder.Services.AddRateLimiter(options =>
 				AutoReplenishment = true
 			});
 	}
+	static RateLimitPartition<string> FixedStaffLimit(HttpContext context, string policy, int permits, TimeSpan window)
+	{
+		var staffId = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+			?? context.Connection.RemoteIpAddress?.ToString()
+			?? "unknown";
+		return RateLimitPartition.GetFixedWindowLimiter(
+			$"{policy}:{staffId}",
+			_ => new FixedWindowRateLimiterOptions
+			{
+				PermitLimit = permits,
+				Window = window,
+				QueueLimit = 0,
+				AutoReplenishment = true
+			});
+	}
 	options.AddPolicy(RateLimitPolicies.Device, context => FixedIpLimit(context, RateLimitPolicies.Device, 30, TimeSpan.FromMinutes(1)));
 	options.AddPolicy(RateLimitPolicies.Activation, context => FixedIpLimit(context, RateLimitPolicies.Activation, 10, TimeSpan.FromMinutes(15)));
 	options.AddPolicy(RateLimitPolicies.Staff, context => FixedIpLimit(context, RateLimitPolicies.Staff, 120, TimeSpan.FromMinutes(1)));
-	options.AddPolicy(RateLimitPolicies.Factory, context => FixedIpLimit(context, RateLimitPolicies.Factory, 20, TimeSpan.FromHours(1)));
+	options.AddPolicy(RateLimitPolicies.Factory, context => FixedStaffLimit(context, RateLimitPolicies.Factory, 120, TimeSpan.FromHours(1)));
 });
 
 var app = builder.Build();
@@ -169,11 +186,12 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 		? badRequest.StatusCode
 		: StatusCodes.Status500InternalServerError
 });
-app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
 	var isStaffMutation = context.Request.Method is not ("GET" or "HEAD" or "OPTIONS")
-		&& (context.Request.Path.StartsWithSegments("/api/v1/staff-admin") || context.Request.Path.StartsWithSegments("/api/v1/staff/activate"));
+		&& (context.Request.Path.StartsWithSegments("/api/v1/staff-admin")
+			|| context.Request.Path.StartsWithSegments("/api/v1/staff/activate")
+			|| context.Request.Path.StartsWithSegments("/api/v1/factory"));
 	if (isStaffMutation && context.Request.Headers["X-WaterFlex-Request"] != "console")
 	{
 		context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -183,6 +201,7 @@ app.Use(async (context, next) =>
 	await next(context);
 });
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.Use(async (context, next) =>
 {
@@ -322,6 +341,7 @@ app.MapPost("/api/v1/staff/activate", async (
 	.WithTags("Staff identity");
 
 app.MapStaffAccessEndpoints();
+app.MapFactoryEndpoints();
 
 var technicianApi = app.MapGroup("/api/v1/technician")
 	.WithTags("Technician provisioning")
@@ -393,7 +413,6 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 		.ProducesProblem(StatusCodes.Status409Conflict);
 
 	app.MapOpsEndpoints();
-	app.MapDevelopmentFactoryEndpoints();
 }
 
 app.MapBootstrapActivationEndpoints();

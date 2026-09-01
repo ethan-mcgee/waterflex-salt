@@ -25,6 +25,24 @@ public sealed class BootstrapProvisioningServiceTests
         StaffRole.DealerTechnician,
         "WF-D-LAKES-WATER",
         "Lakes Water Conditioning");
+    private static readonly StaffActor FactoryWorker = new(
+        "wf-factory-riley",
+        "Riley Chen",
+        StaffRole.FactoryWorker,
+        null,
+        null);
+    private static readonly StaffActor OtherFactoryWorker = new(
+        "wf-factory-casey",
+        "Casey Morgan",
+        StaffRole.FactoryWorker,
+        null,
+        null);
+    private static readonly StaffActor WaterFlexAdministrator = new(
+        "wf-admin-avery",
+        "Avery Patel",
+        StaffRole.WaterFlexAdministrator,
+        null,
+        null);
 
     [Fact]
     public async Task FactoryRegistration_StoresRegisteredInventoryAndHashOnly()
@@ -36,7 +54,7 @@ public sealed class BootstrapProvisioningServiceTests
 
         var result = await service.RegisterAsync(
             CreateFactoryRequest(secretHash),
-            "factory-operator-01");
+            FactoryWorker);
 
         Assert.True(result.IsSuccess);
         var device = await database.Context.Devices.SingleAsync();
@@ -47,6 +65,53 @@ public sealed class BootstrapProvisioningServiceTests
         Assert.Equal(secretHash, credential.SecretHash);
         Assert.DoesNotContain("factory-secret", auditEvent.DetailsJson, StringComparison.Ordinal);
         Assert.Equal("factory_device_registered", auditEvent.EventType);
+    }
+
+    [Fact]
+    public async Task FactoryJob_IsVisibleOnlyToCreatorOrWaterFlexAdministrator()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new EfFactoryDeviceRegistrationService(database.Context, new MutableTimeProvider(Now));
+        var created = await service.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+
+        var hidden = await service.FindByIdempotencyKeyAsync("factory-test-job-0001", OtherFactoryWorker);
+        var administrator = await service.FindByIdempotencyKeyAsync("factory-test-job-0001", WaterFlexAdministrator);
+
+        Assert.True(created.IsSuccess);
+        Assert.False(hidden.IsSuccess);
+        Assert.True(administrator.IsSuccess);
+    }
+
+    [Fact]
+    public async Task FactoryVerification_QuarantinesFailureAndMakesProvisionedTerminal()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new EfFactoryDeviceRegistrationService(database.Context, new MutableTimeProvider(Now));
+        var created = await service.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+        var deviceId = created.Registration!.DeviceId;
+
+        var failed = await service.RecordVerificationAsync(
+            deviceId,
+            new(false, true, true, true, "1.0.0", "firmware_check_failed"),
+            FactoryWorker);
+        var retried = await service.RetryAsync(deviceId, FactoryWorker);
+        var passed = await service.RecordVerificationAsync(
+            deviceId,
+            new(true, true, true, true, "1.0.0", null),
+            FactoryWorker);
+
+        Assert.Equal(FactoryProvisioningStatus.Quarantined, failed.Status);
+        Assert.Equal(FactoryProvisioningStatus.Registered, retried.Status);
+        Assert.Equal(FactoryProvisioningStatus.Provisioned, passed.Status);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RetryAsync(deviceId, FactoryWorker));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RecordVerificationAsync(
+            deviceId,
+            new(true, true, true, true, "1.0.0", null),
+            FactoryWorker));
     }
 
     [Fact]
@@ -148,7 +213,7 @@ public sealed class BootstrapProvisioningServiceTests
         var registration = new EfFactoryDeviceRegistrationService(database.Context, timeProvider);
         var registered = await registration.RegisterAsync(
             CreateFactoryRequest(SHA256.HashData(bootstrapSecret)),
-            "factory-operator-01");
+            FactoryWorker);
         Assert.True(registered.IsSuccess);
 
         var sessionService = CreateSessionService(database.Context, timeProvider);
@@ -211,7 +276,7 @@ public sealed class BootstrapProvisioningServiceTests
         var service = new EfFactoryDeviceRegistrationService(context, timeProvider);
         var result = await service.RegisterAsync(
             CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
-            "factory-operator-01");
+            FactoryWorker);
         Assert.True(result.IsSuccess);
     }
 

@@ -8,7 +8,7 @@ import {
 import type { ReactNode } from 'react';
 import ThemedSelect from '../components/ThemedSelect';
 
-export type StaffRole = 'dealerTechnician' | 'dealerAdministrator' | 'waterFlexEmployee' | 'waterFlexAdministrator';
+export type StaffRole = 'dealerTechnician' | 'dealerAdministrator' | 'factoryWorker' | 'waterFlexEmployee' | 'waterFlexAdministrator';
 
 export interface DevelopmentUser {
   userId: string;

@@ -47,6 +47,7 @@ jobs:
               - 'web/**'
               - 'docker-compose.yml'
               - 'docker-compose.staging.yml'
+              - 'docker-compose.production.yml'
               - 'docker-bake.hcl'
 
   backend:
@@ -139,6 +140,10 @@ jobs:
           /tmp/a02yyuw_uart_parser_test
       - name: Build Arduino Nano ESP32 firmware
         run: pio run
+      - name: Test factory helper and build production bundle
+        run: |
+          python -m unittest discover -s tools -p 'test_*.py' -v
+          python tools/build_factory_bundle.py --output-dir factory-release
       - name: Upload firmware binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -146,6 +151,7 @@ jobs:
           path: |
             firmware/.pio/build/arduino_nano_esp32/firmware.bin
             firmware/.pio/build/arduino_nano_esp32/firmware.elf
+            firmware/factory-release/
           if-no-files-found: error
 
   containers:
