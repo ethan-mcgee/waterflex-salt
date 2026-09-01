@@ -7,7 +7,7 @@ services:
       ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
       CloudflareAccess__Issuer: ${CloudflareAccess__Issuer:?Set CloudflareAccess__Issuer}
       CloudflareAccess__Audience: ${CloudflareAccess__Audience:?Set CloudflareAccess__Audience}
-      FactoryProvisioning__Enabled: ${FactoryProvisioning__Enabled:-false}
+      FactoryProvisioning__Enabled: ${FactoryProvisioning__Enabled:-true}
       FactoryProvisioning__Model: ${FactoryProvisioning__Model:-Arduino Nano ESP32}
       FactoryProvisioning__ApprovedFirmwareVersion: ${FactoryProvisioning__ApprovedFirmwareVersion:-wf-uart-pilot-0.1}
       FactoryProvisioning__ConfigurationVersion: ${FactoryProvisioning__ConfigurationVersion:-factory-v2}
