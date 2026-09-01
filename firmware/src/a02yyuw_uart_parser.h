@@ -5,18 +5,26 @@
 
 namespace waterflex {
 
+// Sensor-datasheet distance range; a checksum-valid frame outside this
+// range is still reported (as OutOfRange) rather than treated as noise.
 constexpr int kA02YYUWMinimumDistanceMm = 30;
 constexpr int kA02YYUWMaximumDistanceMm = 4500;
 
+// Outcome of feeding one byte to A02YYUWFrameParser::consume().
 enum class A02YYUWFrameStatus {
-  Incomplete,
-  Valid,
-  InvalidChecksum,
-  OutOfRange
+  Incomplete,      // Frame not yet complete; keep feeding bytes.
+  Valid,            // Complete frame, checksum ok, distance in range.
+  InvalidChecksum,  // Complete frame, checksum mismatch.
+  OutOfRange        // Complete frame, checksum ok, distance out of range.
 };
 
+// Byte-at-a-time state machine for the A02YYUW four-byte UART frame
+// (0xFF header, distance high byte, distance low byte, checksum).
 class A02YYUWFrameParser {
  public:
+  // Feeds one received byte into the frame in progress. On a completed
+  // frame, writes the parsed distance to `distanceMm` (if non-null) when
+  // the checksum is valid and returns the frame's status.
   A02YYUWFrameStatus consume(std::uint8_t value, int* distanceMm) {
     if (frameLength_ == 0) {
       if (value == kFrameHeader) {
@@ -59,6 +67,8 @@ class A02YYUWFrameParser {
     return A02YYUWFrameStatus::Valid;
   }
 
+  // Discards any partially-received frame, so the next consume() starts
+  // fresh looking for a header byte.
   void reset() {
     frameLength_ = 0;
   }

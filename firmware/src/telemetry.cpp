@@ -112,6 +112,11 @@ void uploadQueuedTelemetry() {
     uint8_t acknowledgedCount = 0;
     if (!jsonError) {
       JsonArray acknowledgements = acknowledgement["readings"].as<JsonArray>();
+      // removeQueuedReadings() only ever drops from the queue head, so
+      // acknowledgements must be consumed in the same head-first order they
+      // were sent. Stop at the first bootId/sequence mismatch rather than
+      // matching out of order, so a partial or reordered ack can't cause an
+      // unacknowledged reading to be dropped.
       for (JsonObject acknowledgementReading : acknowledgements) {
         if (acknowledgedCount >= includedCount) break;
         QueuedReading expected{};
