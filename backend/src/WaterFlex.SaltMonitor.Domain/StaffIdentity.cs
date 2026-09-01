@@ -5,6 +5,7 @@ public enum StaffRole
 {
     DealerTechnician,
     DealerAdministrator,
+    FactoryWorker,
     WaterFlexEmployee,
     WaterFlexAdministrator
 }
@@ -16,6 +17,7 @@ public enum StaffCapability
     TechnicianOperations,
     DealerStaffAdministration,
     FleetOperations,
+    FactoryProvisioning,
     WaterFlexStaffAdministration
 }
 
@@ -64,6 +66,8 @@ public static class StaffRoleCapabilities
             (StaffRole.DealerAdministrator, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexEmployee, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.FleetOperations) => true,
+            (StaffRole.FactoryWorker, StaffCapability.FactoryProvisioning) => true,
+            (StaffRole.WaterFlexAdministrator, StaffCapability.FactoryProvisioning) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.WaterFlexStaffAdministration) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.TechnicianOperations) => true,
             _ => false
@@ -71,7 +75,7 @@ public static class StaffRoleCapabilities
 
     /// <summary>Returns true if the role is internal WaterFlex staff, which authenticates through the privileged Cloudflare Access tier rather than the dealer-facing one.</summary>
     public static bool RequiresPrivilegedAccessTier(this StaffRole role) =>
-        role is StaffRole.WaterFlexEmployee or StaffRole.WaterFlexAdministrator;
+        role is StaffRole.FactoryWorker or StaffRole.WaterFlexEmployee or StaffRole.WaterFlexAdministrator;
 
     /// <summary>Returns true if the role must be scoped to a specific dealer.</summary>
     public static bool RequiresDealer(this StaffRole role) =>

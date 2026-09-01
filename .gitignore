@@ -8,6 +8,8 @@
 
 # PlatformIO
 **/.pio/
+**/__pycache__/
+.factory-bundle-test/
 
 # Env / secrets
 .env

@@ -20,6 +20,22 @@ public sealed class BootstrapProvisioningApiTests
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     [Fact]
+    public async Task FactoryConfiguration_RequiresFactoryCapability()
+    {
+        await using var factory = new BootstrapApiFactory();
+        using var workerClient = factory.CreateClient();
+        workerClient.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-factory-riley");
+        using var employeeClient = factory.CreateClient();
+        employeeClient.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-ops-alex");
+
+        var worker = await workerClient.GetAsync("/api/v1/factory/configuration");
+        var employee = await employeeClient.GetAsync("/api/v1/factory/configuration");
+
+        Assert.Equal(HttpStatusCode.OK, worker.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, employee.StatusCode);
+    }
+
+    [Fact]
     public async Task FactoryRegistrationThenTechnicianReservation_CreatesPendingSessionOnly()
     {
         await using var factory = new BootstrapApiFactory();
@@ -30,18 +46,17 @@ public sealed class BootstrapProvisioningApiTests
             "Arduino Nano ESP32",
             "wf_boot_api_0001",
             Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("api-bootstrap-secret"))),
-            "1.0.0",
-            "pilot-v1");
+            "wf-uart-pilot-0.1",
+            "factory-v2");
 
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
         var unauthorized = await client.PostAsJsonAsync("/api/v1/factory/devices", factoryRequest);
 
-        client.DefaultRequestHeaders.Add("X-WaterFlex-Factory-Key", "factory-test-key");
-        client.DefaultRequestHeaders.Add("X-WaterFlex-Factory-Operator", "factory-api-test");
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-factory-riley");
         var registered = await client.PostAsJsonAsync("/api/v1/factory/devices", factoryRequest);
-        var registration = await registered.Content.ReadFromJsonAsync<FactoryDeviceRegistration>();
+        var registration = await registered.Content.ReadFromJsonAsync<FactoryDeviceRegistration>(JsonOptions);
 
-        client.DefaultRequestHeaders.Remove("X-WaterFlex-Factory-Key");
-        client.DefaultRequestHeaders.Remove("X-WaterFlex-Factory-Operator");
+        client.DefaultRequestHeaders.Remove("X-WaterFlex-Development-User");
         client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-jordan");
         var sessionRequest = new CreateCommissioningSessionRequest(
             "WF-C-10482",
@@ -71,6 +86,29 @@ public sealed class BootstrapProvisioningApiTests
     }
 
     [Fact]
+    public async Task DisabledFactoryProvisioning_LeavesConfigurationReadableAndRejectsRegistration()
+    {
+        await using var factory = new BootstrapApiFactory(factoryProvisioningEnabled: false);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-factory-riley");
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
+
+        var configuration = await client.GetAsync("/api/v1/factory/configuration");
+        var registration = await client.PostAsJsonAsync(
+            "/api/v1/factory/devices",
+            new RegisterFactoryDeviceRequest(
+                "factory-disabled-job-0001",
+                "Arduino Nano ESP32",
+                "wf_boot_disabled_0001",
+                Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("disabled-bootstrap-secret"))),
+                "wf-uart-pilot-0.1",
+                "factory-v2"));
+
+        Assert.Equal(HttpStatusCode.OK, configuration.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, registration.StatusCode);
+    }
+
+    [Fact]
     public async Task TechnicianCanVerifyWorkOrderWithoutSeeingWaterFlexIds()
     {
         await using var factory = new BootstrapApiFactory();
@@ -97,9 +135,11 @@ public sealed class BootstrapProvisioningApiTests
     private sealed class BootstrapApiFactory : WebApplicationFactory<Program>
     {
         private readonly string connectionString;
+        private readonly bool factoryProvisioningEnabled;
 
-        public BootstrapApiFactory()
+        public BootstrapApiFactory(bool factoryProvisioningEnabled = true)
         {
+            this.factoryProvisioningEnabled = factoryProvisioningEnabled;
             var databaseName = $"WaterFlexBootstrapApiTests_{Guid.NewGuid():N}";
             connectionString = TestPostgres.GetConnectionString(databaseName);
         }
@@ -111,7 +151,7 @@ public sealed class BootstrapProvisioningApiTests
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:SaltMonitor"] = connectionString,
-                    ["FactoryProvisioning:DevelopmentKey"] = "factory-test-key"
+                    ["FactoryProvisioning:Enabled"] = factoryProvisioningEnabled.ToString()
                 }));
         }
 

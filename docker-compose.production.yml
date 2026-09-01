@@ -1,0 +1,37 @@
+services:
+  api:
+    extends:
+      file: docker-compose.staging.yml
+      service: api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
+      CloudflareAccess__Issuer: ${CloudflareAccess__Issuer:?Set CloudflareAccess__Issuer}
+      CloudflareAccess__Audience: ${CloudflareAccess__Audience:?Set CloudflareAccess__Audience}
+      FactoryProvisioning__Enabled: ${FactoryProvisioning__Enabled:-false}
+      FactoryProvisioning__Model: ${FactoryProvisioning__Model:-Arduino Nano ESP32}
+      FactoryProvisioning__ApprovedFirmwareVersion: ${FactoryProvisioning__ApprovedFirmwareVersion:-wf-uart-pilot-0.1}
+      FactoryProvisioning__ConfigurationVersion: ${FactoryProvisioning__ConfigurationVersion:-factory-v2}
+      FactoryProvisioning__HelperBaseUrl: ${FactoryProvisioning__HelperBaseUrl:-http://127.0.0.1:8765}
+      FactoryProvisioning__HelperProtocolVersion: ${FactoryProvisioning__HelperProtocolVersion:-1}
+
+  worker:
+    extends:
+      file: docker-compose.staging.yml
+      service: worker
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      StaffProvisioning__Enabled: ${StaffProvisioning__Enabled:-false}
+      StaffProvisioning__CognitoUserPoolId: ${StaffProvisioning__CognitoUserPoolId:-}
+      StaffProvisioning__CloudflareAccountId: ${StaffProvisioning__CloudflareAccountId:-}
+      StaffProvisioning__CloudflareApiToken: ${StaffProvisioning__CloudflareApiToken:-}
+      StaffProvisioning__CloudflareSecretId: ${StaffProvisioning__CloudflareSecretId:-waterflex/production/staff-provisioning}
+      StaffProvisioning__CloudflarePrivilegedGroupId: ${StaffProvisioning__CloudflarePrivilegedGroupId:-}
+      StaffProvisioning__CloudflareDealerGroupId: ${StaffProvisioning__CloudflareDealerGroupId:-}
+
+  web:
+    extends:
+      file: docker-compose.staging.yml
+      service: web

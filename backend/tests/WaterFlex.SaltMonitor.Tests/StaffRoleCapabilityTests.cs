@@ -17,6 +17,10 @@ public sealed class StaffRoleCapabilityTests
     [InlineData(StaffRole.DealerAdministrator, StaffCapability.FleetOperations, true)]
     [InlineData(StaffRole.WaterFlexAdministrator, StaffCapability.TechnicianOperations, true)]
     [InlineData(StaffRole.WaterFlexEmployee, StaffCapability.TechnicianOperations, false)]
+    [InlineData(StaffRole.FactoryWorker, StaffCapability.FactoryProvisioning, true)]
+    [InlineData(StaffRole.WaterFlexAdministrator, StaffCapability.FactoryProvisioning, true)]
+    [InlineData(StaffRole.WaterFlexEmployee, StaffCapability.FactoryProvisioning, false)]
+    [InlineData(StaffRole.DealerAdministrator, StaffCapability.FactoryProvisioning, false)]
     public void Matrix_IsExplicitAndFailClosed(StaffRole role, StaffCapability capability, bool expected) =>
         Assert.Equal(expected, role.HasCapability(capability));
 }

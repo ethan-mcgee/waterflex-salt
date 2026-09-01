@@ -1,5 +1,7 @@
 using WaterFlex.SaltMonitor.Provisioning;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
+using WaterFlex.SaltMonitor.Domain.Security;
 
 namespace WaterFlex.SaltMonitor.Api;
 
@@ -9,24 +11,56 @@ namespace WaterFlex.SaltMonitor.Api;
 /// </summary>
 public static class ProvisioningEndpoints
 {
-    /// <summary>Maps factory-floor endpoints for registering new devices and recording acceptance verification, authenticated with the factory key rather than staff identity.</summary>
-    public static IEndpointRouteBuilder MapDevelopmentFactoryEndpoints(
+    /// <summary>Maps staff-authenticated factory-floor endpoints for registering, resuming, and verifying new devices.</summary>
+    public static IEndpointRouteBuilder MapFactoryEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
         var factoryApi = endpoints.MapGroup("/api/v1/factory")
             .WithTags("Factory provisioning")
             .RequireRateLimiting(RateLimitPolicies.Factory)
-            .RequireDevelopmentFactoryIdentity();
+            .RequireStaffCapability(StaffCapability.FactoryProvisioning);
+
+        factoryApi.MapGet("/configuration", (IOptions<FactoryProvisioningOptions> configured) =>
+            {
+                var options = configured.Value;
+                return Results.Ok(new FactoryProvisioningConfiguration(
+                    options.Enabled,
+                    options.Model,
+                    options.ApprovedFirmwareVersion,
+                    options.ConfigurationVersion,
+                    options.HelperBaseUrl,
+                    options.HelperProtocolVersion));
+            })
+            .WithName("GetFactoryProvisioningConfiguration")
+            .WithSummary("Get the approved factory firmware and local-helper configuration")
+            .Produces<FactoryProvisioningConfiguration>(StatusCodes.Status200OK);
 
         factoryApi.MapPost("/devices", async (
                 RegisterFactoryDeviceRequest request,
                 HttpContext httpContext,
+                IOptions<FactoryProvisioningOptions> configured,
                 IFactoryDeviceRegistrationService registrationService,
                 CancellationToken cancellationToken) =>
             {
+                var options = configured.Value;
+                if (!options.Enabled)
+                {
+                    return Results.Problem(
+                        statusCode: StatusCodes.Status503ServiceUnavailable,
+                        title: "Factory provisioning is disabled");
+                }
+                if (!string.Equals(request.Model.Trim(), options.Model, StringComparison.Ordinal)
+                    || !string.Equals(request.FirmwareVersion.Trim(), options.ApprovedFirmwareVersion, StringComparison.Ordinal)
+                    || !string.Equals(request.ConfigurationVersion.Trim(), options.ConfigurationVersion, StringComparison.Ordinal))
+                {
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["factoryConfiguration"] = ["The requested model, firmware, or configuration version is not approved."]
+                    });
+                }
                 var result = await registrationService.RegisterAsync(
                     request,
-                    httpContext.GetDevelopmentFactoryOperator(),
+                    httpContext.GetStaffActor(),
                     cancellationToken);
                 if (result.IsSuccess)
                 {
@@ -68,7 +102,7 @@ public static class ProvisioningEndpoints
             {
                 var result = await registrationService.FindByIdempotencyKeyAsync(
                     idempotencyKey,
-                    httpContext.GetDevelopmentFactoryOperator(),
+                    httpContext.GetStaffActor(),
                     cancellationToken);
                 return result.IsSuccess
                     ? Results.Ok(result.Registration)
@@ -91,18 +125,50 @@ public static class ProvisioningEndpoints
                     return Results.Ok(await registrationService.RecordVerificationAsync(
                         deviceId,
                         request,
-                        httpContext.GetDevelopmentFactoryOperator(),
+                        httpContext.GetStaffActor(),
                         cancellationToken));
                 }
                 catch (KeyNotFoundException)
                 {
                     return Results.NotFound();
                 }
+                catch (InvalidOperationException exception)
+                {
+                    return Results.Conflict(new { errorCode = "factory_job_terminal", detail = exception.Message });
+                }
             })
             .WithName("RecordFactoryDeviceVerification")
             .WithSummary("Record redacted factory acceptance evidence")
             .Produces<FactoryVerificationResult>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
+
+        factoryApi.MapPost("/devices/{deviceId:guid}/retry", async (
+                Guid deviceId,
+                HttpContext httpContext,
+                IFactoryDeviceRegistrationService registrationService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Ok(await registrationService.RetryAsync(
+                        deviceId,
+                        httpContext.GetStaffActor(),
+                        cancellationToken));
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return Results.Conflict(new { errorCode = "factory_job_terminal", detail = exception.Message });
+                }
+            })
+            .WithName("RetryFactoryDeviceProvisioning")
+            .WithSummary("Reset a quarantined factory job for another acceptance attempt")
+            .Produces<FactoryDeviceRegistration>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return endpoints;
     }

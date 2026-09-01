@@ -35,7 +35,10 @@ public sealed record FactoryDeviceRegistration(
     string SerialNumber,
     string Model,
     DateTimeOffset RegisteredAtUtc,
-    string BootstrapCredentialId);
+    string BootstrapCredentialId,
+    FactoryProvisioningStatus Status,
+    DateTimeOffset? VerifiedAtUtc,
+    string? FailureCode);
 
 /// <summary>Reasons a factory registration attempt was rejected.</summary>
 public enum FactoryRegistrationFailure
@@ -76,18 +79,23 @@ public interface IFactoryDeviceRegistrationService
 {
     Task<FactoryRegistrationResult> RegisterAsync(
         RegisterFactoryDeviceRequest request,
-        string factoryOperatorId,
+        StaffActor factoryOperator,
         CancellationToken cancellationToken = default);
 
     Task<FactoryRegistrationResult> FindByIdempotencyKeyAsync(
         string idempotencyKey,
-        string factoryOperatorId,
+        StaffActor factoryOperator,
         CancellationToken cancellationToken = default);
 
     Task<FactoryVerificationResult> RecordVerificationAsync(
         Guid deviceId,
         FactoryVerificationRequest request,
-        string factoryOperatorId,
+        StaffActor factoryOperator,
+        CancellationToken cancellationToken = default);
+
+    Task<FactoryDeviceRegistration> RetryAsync(
+        Guid deviceId,
+        StaffActor factoryOperator,
         CancellationToken cancellationToken = default);
 }
 

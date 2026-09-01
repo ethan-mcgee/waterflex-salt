@@ -96,7 +96,7 @@ export default function StaffPage() {
 
   const waterFlexAdmin = currentUser?.role === 'waterFlexAdministrator';
   const roles: StaffRole[] = waterFlexAdmin
-    ? ['waterFlexEmployee', 'waterFlexAdministrator', 'dealerTechnician', 'dealerAdministrator']
+    ? ['waterFlexEmployee', 'factoryWorker', 'waterFlexAdministrator', 'dealerTechnician', 'dealerAdministrator']
     : ['dealerTechnician', 'dealerAdministrator'];
   const showDealerField = role.startsWith('dealer');
 

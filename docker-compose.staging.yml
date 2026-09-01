@@ -7,6 +7,12 @@ services:
       ConnectionStrings__SaltMonitor: ${ConnectionStrings__SaltMonitor:-}
       CloudflareAccess__Issuer: ${CloudflareAccess__Issuer:?Set CloudflareAccess__Issuer}
       CloudflareAccess__Audience: ${CloudflareAccess__Audience:?Set CloudflareAccess__Audience}
+      FactoryProvisioning__Enabled: ${FactoryProvisioning__Enabled:-false}
+      FactoryProvisioning__Model: ${FactoryProvisioning__Model:-Arduino Nano ESP32}
+      FactoryProvisioning__ApprovedFirmwareVersion: ${FactoryProvisioning__ApprovedFirmwareVersion:-wf-uart-pilot-0.1}
+      FactoryProvisioning__ConfigurationVersion: ${FactoryProvisioning__ConfigurationVersion:-factory-v2}
+      FactoryProvisioning__HelperBaseUrl: ${FactoryProvisioning__HelperBaseUrl:-http://127.0.0.1:8765}
+      FactoryProvisioning__HelperProtocolVersion: ${FactoryProvisioning__HelperProtocolVersion:-1}
       Logging__LogLevel__Default: Information
     volumes:
       - /etc/ssl/certs/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro

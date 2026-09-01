@@ -13,6 +13,7 @@ public sealed class DevelopmentIdentityDirectory : IDevelopmentIdentityDirectory
     [
         new("wf-admin-avery", "Avery Patel", StaffRole.WaterFlexAdministrator, null, null),
         new("wf-ops-alex", "Alex Morgan", StaffRole.WaterFlexEmployee, null, null),
+        new("wf-factory-riley", "Riley Chen", StaffRole.FactoryWorker, null, null),
         new(
             "north-star-admin-taylor",
             "Taylor Brooks",

@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using WaterFlex.SaltMonitor.Domain.Security;
 using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
@@ -19,11 +20,11 @@ public sealed class EfFactoryDeviceRegistrationService(
 {
     public async Task<FactoryRegistrationResult> RegisterAsync(
         RegisterFactoryDeviceRequest request,
-        string factoryOperatorId,
+        StaffActor factoryOperator,
         CancellationToken cancellationToken = default)
     {
         var normalized = Normalize(request);
-        var validationErrors = Validate(normalized, factoryOperatorId);
+        var validationErrors = Validate(normalized, factoryOperator.UserId);
         if (validationErrors.Count > 0)
         {
             return FactoryRegistrationResult.Failed(FactoryRegistrationFailure.InvalidRequest, validationErrors);
@@ -47,9 +48,9 @@ public sealed class EfFactoryDeviceRegistrationService(
                 if (existing is not null)
                 {
                     await transaction.CommitAsync(cancellationToken);
-                    return FactoryRegistrationResult.Success(ToRegistration(
-                        existing.Device,
-                        existing.Device.BootstrapCredentials.Single()));
+                    return CanAccess(existing, factoryOperator)
+                        ? FactoryRegistrationResult.Success(ToRegistration(existing))
+                        : FactoryRegistrationResult.Failed(FactoryRegistrationFailure.DeviceAlreadyRegistered);
                 }
 
                 if (await dbContext.DeviceBootstrapCredentials.AnyAsync(
@@ -73,7 +74,7 @@ public sealed class EfFactoryDeviceRegistrationService(
                     RegisteredAtUtc = now,
                     FactoryFirmwareVersion = normalized.FirmwareVersion,
                     FactoryConfigurationVersion = normalized.ConfigurationVersion,
-                    FactoryProvisionedBy = factoryOperatorId.Trim()
+                    FactoryProvisionedBy = factoryOperator.UserId
                 };
                 var credential = new DeviceBootstrapCredential
                 {
@@ -91,15 +92,19 @@ public sealed class EfFactoryDeviceRegistrationService(
                     SerialNumber = serialNumber,
                     Status = FactoryProvisioningStatus.Registered,
                     DeviceId = device.Id,
-                    CreatedBy = factoryOperatorId.Trim(),
+                    CreatedBy = factoryOperator.UserId,
                     CreatedAtUtc = now
                 };
+                job.Device = device;
+                device.FactoryProvisioningJob = job;
+                credential.Device = device;
+                device.BootstrapCredentials.Add(credential);
                 var auditEvent = new ProvisioningAuditEvent
                 {
                     DeviceId = device.Id,
                     EventType = "factory_device_registered",
-                    ActorType = "factory",
-                    ActorId = factoryOperatorId.Trim(),
+                    ActorType = "staff",
+                    ActorId = factoryOperator.UserId,
                     DetailsJson = JsonSerializer.Serialize(new
                     {
                         normalized.IdempotencyKey,
@@ -113,23 +118,23 @@ public sealed class EfFactoryDeviceRegistrationService(
                 dbContext.AddRange(device, credential, job, auditEvent);
                 await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-                return FactoryRegistrationResult.Success(ToRegistration(device, credential));
+                return FactoryRegistrationResult.Success(ToRegistration(job));
             });
         }
         catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
         {
             dbContext.ChangeTracker.Clear();
-            return await FindByIdempotencyKeyAsync(normalized.IdempotencyKey, factoryOperatorId, cancellationToken);
+            return await FindByIdempotencyKeyAsync(normalized.IdempotencyKey, factoryOperator, cancellationToken);
         }
     }
 
     public async Task<FactoryRegistrationResult> FindByIdempotencyKeyAsync(
         string idempotencyKey,
-        string factoryOperatorId,
+        StaffActor factoryOperator,
         CancellationToken cancellationToken = default)
     {
         var normalizedKey = idempotencyKey.Trim();
-        if (normalizedKey.Length is < 8 or > 100 || string.IsNullOrWhiteSpace(factoryOperatorId))
+        if (normalizedKey.Length is < 8 or > 100 || string.IsNullOrWhiteSpace(factoryOperator.UserId))
         {
             return FactoryRegistrationResult.Failed(FactoryRegistrationFailure.InvalidRequest);
         }
@@ -138,34 +143,46 @@ public sealed class EfFactoryDeviceRegistrationService(
             .Include(candidate => candidate.Device)
             .ThenInclude(device => device.BootstrapCredentials)
             .SingleOrDefaultAsync(candidate => candidate.IdempotencyKey == normalizedKey, cancellationToken);
-        return job is null
+        return job is null || !CanAccess(job, factoryOperator)
             ? FactoryRegistrationResult.Failed(FactoryRegistrationFailure.DeviceAlreadyRegistered)
-            : FactoryRegistrationResult.Success(ToRegistration(job.Device, job.Device.BootstrapCredentials.Single()));
+            : FactoryRegistrationResult.Success(ToRegistration(job));
     }
 
     public async Task<FactoryVerificationResult> RecordVerificationAsync(
         Guid deviceId,
         FactoryVerificationRequest request,
-        string factoryOperatorId,
+        StaffActor factoryOperator,
         CancellationToken cancellationToken = default)
     {
         var job = await dbContext.FactoryProvisioningJobs
             .Include(candidate => candidate.Device)
             .SingleOrDefaultAsync(candidate => candidate.DeviceId == deviceId, cancellationToken)
             ?? throw new KeyNotFoundException("Factory provisioning job was not found.");
+        if (!CanAccess(job, factoryOperator))
+        {
+            throw new KeyNotFoundException("Factory provisioning job was not found.");
+        }
+        if (job.Status == FactoryProvisioningStatus.Provisioned)
+        {
+            throw new InvalidOperationException("A provisioned factory job cannot be changed.");
+        }
+        if (job.Status == FactoryProvisioningStatus.Quarantined)
+        {
+            throw new InvalidOperationException("Retry the quarantined job before submitting new verification evidence.");
+        }
         var passed = request.FirmwareVerified && request.IdentityVerified
             && request.PortalVerified && request.SensorVerified
             && string.Equals(request.FirmwareVersion.Trim(), job.Device.FactoryFirmwareVersion, StringComparison.Ordinal);
         var now = timeProvider.GetUtcNow();
-        job.Status = passed ? FactoryProvisioningStatus.Provisioned : FactoryProvisioningStatus.Failed;
+        job.Status = passed ? FactoryProvisioningStatus.Provisioned : FactoryProvisioningStatus.Quarantined;
         job.VerifiedAtUtc = now;
         job.FailureCode = passed ? null : NormalizeFailureCode(request.FailureCode);
         dbContext.ProvisioningAuditEvents.Add(new()
         {
             DeviceId = deviceId,
             EventType = passed ? "factory_verification_passed" : "factory_verification_failed",
-            ActorType = "factory",
-            ActorId = factoryOperatorId.Trim(),
+            ActorType = "staff",
+            ActorId = factoryOperator.UserId,
             DetailsJson = JsonSerializer.Serialize(new
             {
                 request.FirmwareVerified,
@@ -180,8 +197,61 @@ public sealed class EfFactoryDeviceRegistrationService(
         return new(deviceId, job.SerialNumber, job.Status, now, job.FailureCode);
     }
 
-    private static FactoryDeviceRegistration ToRegistration(Device device, DeviceBootstrapCredential credential) =>
-        new(device.Id, device.SerialNumber, device.Model, device.RegisteredAtUtc, credential.CredentialId);
+    public async Task<FactoryDeviceRegistration> RetryAsync(
+        Guid deviceId,
+        StaffActor factoryOperator,
+        CancellationToken cancellationToken = default)
+    {
+        var job = await dbContext.FactoryProvisioningJobs
+            .Include(candidate => candidate.Device)
+            .ThenInclude(device => device.BootstrapCredentials)
+            .SingleOrDefaultAsync(candidate => candidate.DeviceId == deviceId, cancellationToken)
+            ?? throw new KeyNotFoundException("Factory provisioning job was not found.");
+        if (!CanAccess(job, factoryOperator))
+        {
+            throw new KeyNotFoundException("Factory provisioning job was not found.");
+        }
+        if (job.Status == FactoryProvisioningStatus.Provisioned)
+        {
+            throw new InvalidOperationException("A provisioned factory job cannot be retried.");
+        }
+        if (job.Status != FactoryProvisioningStatus.Quarantined)
+        {
+            throw new InvalidOperationException("Only a quarantined factory job can be retried.");
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var previousStatus = job.Status;
+        job.Status = FactoryProvisioningStatus.Registered;
+        job.VerifiedAtUtc = null;
+        job.FailureCode = null;
+        dbContext.ProvisioningAuditEvents.Add(new()
+        {
+            DeviceId = deviceId,
+            EventType = "factory_provisioning_retried",
+            ActorType = "staff",
+            ActorId = factoryOperator.UserId,
+            DetailsJson = JsonSerializer.Serialize(new { PreviousStatus = previousStatus }),
+            OccurredAtUtc = now
+        });
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return ToRegistration(job);
+    }
+
+    private static bool CanAccess(FactoryProvisioningJob job, StaffActor actor) =>
+        actor.Role == StaffRole.WaterFlexAdministrator
+        || string.Equals(job.CreatedBy, actor.UserId, StringComparison.Ordinal);
+
+    private static FactoryDeviceRegistration ToRegistration(FactoryProvisioningJob job) =>
+        new(
+            job.Device.Id,
+            job.Device.SerialNumber,
+            job.Device.Model,
+            job.Device.RegisteredAtUtc,
+            job.Device.BootstrapCredentials.Single().CredentialId,
+            job.Status,
+            job.VerifiedAtUtc,
+            job.FailureCode);
 
     private static RegisterFactoryDeviceRequest Normalize(RegisterFactoryDeviceRequest request) => request with
     {

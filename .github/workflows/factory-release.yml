@@ -1,0 +1,41 @@
+name: Factory helper release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install pinned build tools
+        run: pip install platformio==6.1.19 pyinstaller==6.16.0 esptool==4.11.0 pyserial==3.5
+      - name: Build production firmware
+        working-directory: firmware
+        run: pio run -e arduino_nano_esp32_factory_production
+      - name: Create firmware bundle
+        working-directory: firmware
+        run: python tools/build_factory_bundle.py --output-dir factory-release
+      - name: Build standalone Windows helper
+        run: >-
+          pyinstaller --onefile --name WaterFlexFactoryHelper
+          --paths firmware/tools --collect-all esptool --collect-all serial
+          firmware/tools/factory_helper.py
+      - name: Assemble release
+        shell: pwsh
+        run: |
+          Copy-Item -LiteralPath dist/WaterFlexFactoryHelper.exe -Destination firmware/factory-release/WaterFlexFactoryHelper.exe
+          Compress-Archive -Path firmware/factory-release/* -DestinationPath WaterFlexFactoryHelper-${{ github.sha }}.zip
+      - name: Upload versioned factory release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: WaterFlexFactoryHelper-${{ github.sha }}
+          path: WaterFlexFactoryHelper-${{ github.sha }}.zip
+          if-no-files-found: error
