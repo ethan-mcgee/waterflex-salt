@@ -43,6 +43,13 @@ const EMPTY_SUMMARY: FleetSummary = {
   neverReported: 0,
 };
 
+/**
+ * Internal sensor fleet table. All filter/sort/page state lives in the URL's search params (not
+ * component state) so the view is shareable/bookmarkable; `deferredSearch` uses
+ * `useDeferredValue` to keep the search input responsive while the fleet re-fetches. Re-fetches
+ * summary, devices, and dealers together whenever any filter, the manual refresh counter, or the
+ * signed-in user changes.
+ */
 export default function FleetPage() {
   const { selectedUserId } = useDevelopmentIdentity();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -339,6 +346,7 @@ function FleetRow({ device, now }: { device: FleetDevice; now: string }) {
   );
 }
 
+/** Small labeled badge for a device's reporting status; reused on the device detail page. */
 export function ReportingBadge({ status }: { status: ReportingStatus }) {
   const labels: Record<ReportingStatus, string> = {
     reporting: 'Reporting',
@@ -355,6 +363,7 @@ export function ReportingBadge({ status }: { status: ReportingStatus }) {
   return <span className={`reporting-badge ${status}`}>{icons[status]}{labels[status]}</span>;
 }
 
+/** Formats an ISO timestamp as a locale-aware medium date + short time string. */
 export function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -362,6 +371,7 @@ export function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+/** Formats `value` relative to `nowValue` (e.g. "3 minutes ago"), picking the coarsest unit that keeps the number under 60 (or under 48 for hours). */
 export function formatRelative(value: string, nowValue: string): string {
   const seconds = Math.round((new Date(value).getTime() - new Date(nowValue).getTime()) / 1000);
   const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });

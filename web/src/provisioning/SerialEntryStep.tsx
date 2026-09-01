@@ -1,6 +1,7 @@
 import { Info, XCircle } from 'lucide-react';
 import type { InstallationWorkOrderView } from './types';
 
+/** Pre-session step 2: a plain text/number form for the sensor serial number and usable tank depth (no hardware connection or USB capture — values are typed in directly). */
 export default function SerialEntryStep({
   workOrder,
   serialNumber,

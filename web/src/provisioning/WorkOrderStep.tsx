@@ -1,6 +1,7 @@
 import { Building2, Check, LoaderCircle, Search, XCircle } from 'lucide-react';
 import type { InstallationWorkOrderView } from './types';
 
+/** Pre-session step 1: a single work-order-number lookup form (not a customer/location search-and-select UI) that resolves customer, location, and tank together. */
 export default function WorkOrderStep({
   workOrderNumber,
   onWorkOrderNumberChange,

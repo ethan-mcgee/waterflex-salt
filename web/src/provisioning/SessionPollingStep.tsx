@@ -1,6 +1,7 @@
 import { Check, Cpu, Wifi } from 'lucide-react';
 import type { CommissioningSessionView } from './types';
 
+/** Rendered while `session.status` is 'activatedAwaitingHealth' or 'awaitingFirstTelemetry': a passive progress display with no input — the parent's poller advances `session` automatically. */
 export default function SessionPollingStep({ session }: { session: CommissioningSessionView }) {
   const remaining = formatRemaining(session.expiresAtUtc);
 
@@ -32,6 +33,7 @@ export default function SessionPollingStep({ session }: { session: Commissioning
   );
 }
 
+/** Formats the time remaining until `expiresAtUtc` as `m:ss`, or null once it has passed. */
 function formatRemaining(expiresAtUtc: string): string | null {
   const remainingMs = new Date(expiresAtUtc).getTime() - Date.now();
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
