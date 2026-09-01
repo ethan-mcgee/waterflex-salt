@@ -39,6 +39,22 @@ const DEFAULT_USER_ID = 'wf-ops-alex';
 const DevelopmentIdentityContext = createContext<DevelopmentIdentityValue | null>(null);
 let activationRequest: Promise<DevelopmentUser> | null = null;
 
+/**
+ * Root identity provider for the console. Resolves "who is the current staff user" through one
+ * of two mutually exclusive flows depending on `mode`:
+ *
+ * - **development** — fetches the full list of seeded development users from
+ *   `/api/v1/development/users` and lets the technician pick one via {@link DevelopmentIdentitySelector}.
+ *   The choice is persisted to `localStorage` and echoed back on every API request by
+ *   {@link developmentIdentityHeaders}.
+ * - **production** — relies on the Cloudflare Access session cookie. It first asks
+ *   `/api/v1/staff/session` whether the signed-in user already has an activated staff record; if
+ *   not, it calls `/api/v1/staff/activate` to convert a pending invitation into an active account.
+ *
+ * While resolution is in flight (or has failed) children are not rendered — {@link IdentityStatusPage}
+ * is shown instead, and `status` is exposed to it via `onRetry`/`status` to allow the user to retry.
+ * Defaults to 'development' when running under Vite dev (`import.meta.env.DEV`), else 'production'.
+ */
 export function DevelopmentIdentityProvider({
   children,
   mode = import.meta.env.DEV ? 'development' : 'production',
@@ -100,8 +116,12 @@ export function DevelopmentIdentityProvider({
       {status === 'active' ? children : (
         <IdentityStatusPage
           status={status}
-          // Unauthorized needs a real navigation, not just a re-fetch: Cloudflare Access
-          // only silently renews an expired session cookie during a top-level navigation.
+          /**
+           * Unauthorized needs a real browser navigation, not just a re-fetch: Cloudflare Access
+           * only silently renews an expired session cookie during a top-level navigation, so a
+           * plain in-app retry (bumping `retry` to re-run the effect) would keep failing forever.
+           * Every other error status is safe to retry in place.
+           */
           onRetry={status === 'unauthorized' ? () => window.location.reload() : () => setRetry((value) => value + 1)}
         />
       )}
@@ -109,6 +129,7 @@ export function DevelopmentIdentityProvider({
   );
 }
 
+/** Thrown when a staff/development identity request returns a non-OK response; carries the HTTP status for callers to branch on (e.g. treating 401/403 as unauthorized). */
 class IdentityRequestError extends Error {
   constructor(public readonly status: number) {
     super(`Staff identity request failed with status ${status}.`);
@@ -178,12 +199,18 @@ function IdentityStatusPage({ status, onRetry }: { status: IdentityStatus; onRet
   );
 }
 
+/**
+ * Reads the current staff identity (available users, the selected user, and `selectUser`) from
+ * context. Must be called beneath {@link DevelopmentIdentityProvider} — throws otherwise, since
+ * by the time `children` renders the provider guarantees `status === 'active'`.
+ */
 export function useDevelopmentIdentity(): DevelopmentIdentityValue {
   const value = useContext(DevelopmentIdentityContext);
   if (!value) throw new Error('Development identity provider is missing.');
   return value;
 }
 
+/** Dev-only dropdown (renders nothing outside Vite dev) for switching which seeded staff user the console acts as. */
 export function DevelopmentIdentitySelector() {
   const { users, selectedUserId, selectUser } = useDevelopmentIdentity();
   if (!import.meta.env.DEV) return null;
@@ -208,6 +235,14 @@ export function DevelopmentIdentitySelector() {
   );
 }
 
+/**
+ * Returns the auth header(s) every API request in this app must send. In production this is a
+ * no-op (`{}`) — Cloudflare Access identifies the user via its own session cookie. In development
+ * it echoes back the developer's currently selected user id (from `localStorage`, defaulting to
+ * `DEFAULT_USER_ID`) as `X-WaterFlex-Development-User`, which the backend trusts in place of a
+ * real Access session. Used by every fetch wrapper in ops/api.ts, staff/api.ts, and
+ * provisioning/bootstrapApi.ts.
+ */
 export function developmentIdentityHeaders(): Record<string, string> {
   if (!import.meta.env.DEV) return {};
   const userId = window.localStorage.getItem(STORAGE_KEY) || DEFAULT_USER_ID;

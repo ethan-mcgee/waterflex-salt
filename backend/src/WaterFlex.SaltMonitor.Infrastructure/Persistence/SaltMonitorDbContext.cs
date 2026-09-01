@@ -2,6 +2,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// The single EF Core context for the salt monitor backend, covering provisioning, telemetry,
+/// alerting, and staff access. Table mappings, string-backed enum conversions, unique/partial
+/// indexes, and optimistic-concurrency row versions for every entity are all defined here in
+/// <see cref="OnModelCreating"/> rather than via per-entity configuration classes.
+/// </summary>
 public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> options)
     : DbContext(options)
 {

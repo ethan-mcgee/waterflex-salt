@@ -6,6 +6,7 @@ using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>Retention windows and batching knobs for rolling up and pruning telemetry history. Raw readings are kept the shortest; daily summaries the longest.</summary>
 public sealed class TelemetryHistoryOptions
 {
     public const string SectionName = "TelemetryHistory";
@@ -16,6 +17,7 @@ public sealed class TelemetryHistoryOptions
     public int MaintenanceIntervalMinutes { get; set; } = 15;
 }
 
+/// <summary>Outcome of one telemetry history maintenance run, reported for logging/observability.</summary>
 public sealed record TelemetryMaintenanceResult(
     int HourlyBucketsWritten,
     int DailyBucketsWritten,
@@ -27,11 +29,21 @@ public sealed record TelemetryMaintenanceResult(
     DateTimeOffset? OldestDailyBucketUtc,
     bool SkippedBecauseAlreadyRunning);
 
+/// <summary>Runs one pass of telemetry history rollup and retention pruning. Intended to be invoked periodically by a background scheduler.</summary>
 public interface ITelemetryHistoryMaintenanceService
 {
     Task<TelemetryMaintenanceResult> RunAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Rolls raw telemetry readings up into hourly and then daily summaries and prunes data past its
+/// retention window, all in batched, resumable SQL rather than loading rows into memory. A
+/// Postgres advisory lock ensures only one instance runs at a time across replicas; a run that
+/// cannot acquire the lock returns immediately with
+/// <see cref="TelemetryMaintenanceResult.SkippedBecauseAlreadyRunning"/> set rather than blocking.
+/// A raw reading is only deleted once both its hourly and daily summaries exist, so a mid-run
+/// failure can never delete data that hasn't been rolled up yet.
+/// </summary>
 public sealed class TelemetryHistoryMaintenanceService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider,

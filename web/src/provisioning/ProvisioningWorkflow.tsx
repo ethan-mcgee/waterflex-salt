@@ -55,6 +55,26 @@ const FAILURE_MESSAGES: Record<string, string> = {
   failed: 'The sensor could not activate. Reserve the sensor again to try once more.',
 };
 
+/**
+ * Technician-facing screen for commissioning a sensor against an installation work order.
+ *
+ * This component drives a **two-tier state machine**:
+ *
+ * 1. **Pre-session tier** — before a backend commissioning session exists, navigation is purely
+ *    local and tracked by the `step` state (`PreSessionStep`: 'workOrder' | 'sensor'). The
+ *    technician looks up a work order, then enters a serial number and tank depth. Nothing is
+ *    persisted server-side yet, so "Back"/"Continue" just flip `step`.
+ * 2. **Server-driven tier** — once {@link createWorkOrderCommissioningSession} succeeds, `session`
+ *    becomes non-null and control shifts entirely to `session.status` as reported by the backend
+ *    (pendingSensor, activatedAwaitingHealth, awaitingFirstTelemetry, completed, or a terminal
+ *    failure: expired/cancelled/failed). From this point the technician can no longer navigate
+ *    backward through `step` — the UI just reflects whatever the session is currently doing,
+ *    refreshed by the poller below, until it reaches a terminal state.
+ *
+ * The 5-item visual step rail (`RailStepId`) is not stored as its own state — it is derived from
+ * `(step, session)` on every render via {@link computeRailIndex} so the two tiers can never drift
+ * out of sync with the rail.
+ */
 export default function ProvisioningWorkflow() {
   const [step, setStep] = useState<PreSessionStep>('workOrder');
 
@@ -74,6 +94,12 @@ export default function ProvisioningWorkflow() {
     window.scrollTo({ top: 0 });
   }, [step, session?.status]);
 
+  // Server-driven tier: while a session exists and hasn't reached a terminal state (completed,
+  // or one of TERMINAL_FAILURE_STATUSES), poll the backend every POLL_INTERVAL_MS and replace
+  // `session` wholesale with the latest view. This is what advances the UI through
+  // pendingSensor -> activatedAwaitingHealth -> awaitingFirstTelemetry -> completed without any
+  // technician input. The interval is torn down and re-created whenever the session id or status
+  // changes, and stops entirely once a terminal status is reached.
   useEffect(() => {
     if (!session || session.status === 'completed' || TERMINAL_FAILURE_STATUSES.includes(session.status)) {
       return;
@@ -89,6 +115,7 @@ export default function ProvisioningWorkflow() {
     return () => window.clearInterval(interval);
   }, [session?.sessionId, session?.status]);
 
+  /** Pre-session step: looks up the work order by number and populates `workOrder`, or sets `workOrderError`. */
   async function lookupWorkOrder() {
     const number = workOrderNumber.trim();
     if (!number) {
@@ -106,6 +133,11 @@ export default function ProvisioningWorkflow() {
     }
   }
 
+  /**
+   * Transition point from the pre-session tier to the server-driven tier: creates the
+   * commissioning session for the entered serial/tank depth. On success this sets `session`,
+   * which hands control of the UI to `session.status` and starts the poller above.
+   */
   async function reserveSensor() {
     if (!workOrder) {
       return;
@@ -127,6 +159,10 @@ export default function ProvisioningWorkflow() {
     }
   }
 
+  /**
+   * Cancels the active session server-side (best-effort) and clears local `session` state,
+   * dropping the UI back to the pre-session tier at whatever `step` it last had.
+   */
   async function cancelReservation() {
     if (!session) {
       return;
@@ -139,6 +175,7 @@ export default function ProvisioningWorkflow() {
     setSession(null);
   }
 
+  /** Resets all local and session state so the technician can commission another sensor from scratch. */
   function restartWorkflow() {
     setStep('workOrder');
     setWorkOrderNumber('');
@@ -313,6 +350,13 @@ export default function ProvisioningWorkflow() {
   );
 }
 
+/**
+ * Derives the active index into `RAIL_STEPS` (0-4) from the two-tier state, so the visual rail
+ * never has state of its own to fall out of sync with `step`/`session`. Pre-session tier maps
+ * 'workOrder' | 'sensor' to indices 0/1; once a session exists, its status maps to the
+ * remaining rail steps (wifi/activating/complete), collapsing every non-terminal, non-telemetry
+ * status (e.g. pendingSensor) into index 2.
+ */
 function computeRailIndex(step: PreSessionStep, session: CommissioningSessionView | null): number {
   if (!session) {
     return step === 'workOrder' ? 0 : 1;
@@ -328,6 +372,7 @@ function computeRailIndex(step: PreSessionStep, session: CommissioningSessionVie
   }
 }
 
+/** Maps the current two-tier state to the workflow's page heading. */
 function headingFor(step: PreSessionStep, session: CommissioningSessionView | null): string {
   if (!session) {
     return step === 'workOrder' ? 'Find the installation' : 'Assign a sensor';
@@ -345,6 +390,7 @@ function headingFor(step: PreSessionStep, session: CommissioningSessionView | nu
   }
 }
 
+/** Renders the small status pill in the workflow header for the current session status (or "Draft" pre-session). */
 function statusPillFor(session: CommissioningSessionView | null) {
   if (!session) {
     return <span className="status-pill draft"><span /> Draft</span>;

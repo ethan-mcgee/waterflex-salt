@@ -38,6 +38,10 @@ void printFactoryStatus() {
 
 void provisionFactoryIdentity(const String& payload) {
   ensurePrefsReady();
+  // Factory identity is one-time: a device already carrying a serial
+  // number, setup passphrase, or bootstrap token must go through
+  // FACTORY_RESET before it can be re-provisioned, so a stray command
+  // post-deployment can't silently swap a unit's identity.
   if (!gPrefs.getString(kKeySerialNumber, "").isEmpty()
       || !gPrefs.getString(kKeyPassphrase, "").isEmpty()
       || !gPrefs.getString(kKeyBootstrapToken, "").isEmpty()) {

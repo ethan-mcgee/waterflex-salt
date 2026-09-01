@@ -37,6 +37,13 @@ function isAging(alert: AlertListItem, nowValue: string): boolean {
     && new Date(nowValue).getTime() - new Date(alert.openedAtUtc).getTime() > AGING_THRESHOLD_MS;
 }
 
+/**
+ * Review queue for low-salt alerts. `status`/`page` filters are local component state (unlike
+ * `FleetPage`'s URL-driven filters). `now` ticks every 60s purely to keep relative timestamps and
+ * the "aging" (open > 24h) flag fresh without re-fetching. Selecting a row loads its full audit
+ * detail into `detail`; acknowledge/approve/dismiss actions optimistically refresh both the
+ * selected detail and the list (via `refresh`).
+ */
 export default function AlertsPage() {
   const { selectedUserId } = useDevelopmentIdentity();
   const [status, setStatus] = useState<LowSaltAlertStatus | ''>('');

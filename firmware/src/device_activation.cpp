@@ -25,6 +25,10 @@ bool activateCandidateDevice(DeviceConfig* config) {
   String credentialId = gPrefs.getString(kKeyOperationalCredential, "");
   String operationalSecret = gPrefs.getString(kKeyOperationalSecret, "");
   String operationalSecretHash = gPrefs.getString(kKeyOperationalSecretHash, "");
+  // Stage the attempt id and generated credential in NVS before the network
+  // call. If the device resets mid-request, the next attempt reuses this
+  // same staged credential instead of minting a new one the server would
+  // treat as a distinct device.
   if (attemptId.isEmpty() || credentialId.isEmpty()
       || operationalSecret.isEmpty() || operationalSecretHash.isEmpty()) {
     uint8_t secret[32];

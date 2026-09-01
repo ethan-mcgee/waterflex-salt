@@ -3,12 +3,17 @@ using System.Text;
 
 namespace WaterFlex.SaltMonitor.Api;
 
+/// <summary>
+/// Stand-in factory authentication for local development: a shared key configured out-of-band, checked
+/// in constant time, instead of a real factory-floor identity system.
+/// </summary>
 public static class DevelopmentFactoryIdentity
 {
     public const string KeyHeaderName = "X-WaterFlex-Factory-Key";
     public const string OperatorHeaderName = "X-WaterFlex-Factory-Operator";
     private const string OperatorItemKey = "WaterFlex.FactoryOperator";
 
+    /// <summary>Adds an endpoint filter requiring the configured factory key and an operator identifier on every request in the group.</summary>
     public static RouteGroupBuilder RequireDevelopmentFactoryIdentity(this RouteGroupBuilder group)
     {
         group.AddEndpointFilter(async (context, next) =>
@@ -43,6 +48,7 @@ public static class DevelopmentFactoryIdentity
             ? operatorId
             : throw new InvalidOperationException("Factory operator was not resolved for this endpoint.");
 
+    /// <summary>Compares the two values by their SHA-256 hashes in fixed time, so key length and content don't leak through timing.</summary>
     private static bool SecureEquals(string presented, string expected)
     {
         var presentedHash = SHA256.HashData(Encoding.UTF8.GetBytes(presented));

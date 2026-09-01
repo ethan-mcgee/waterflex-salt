@@ -1,6 +1,7 @@
 import { Wifi } from 'lucide-react';
 import type { CommissioningSessionView } from './types';
 
+/** Rendered while `session.status === 'pendingSensor'`: instructs the technician to join the sensor's own Wi-Fi AP and hand its captive portal the site Wi-Fi credentials — the one manual, off-app step in the flow. */
 export default function WifiHandoffStep({ session }: { session: CommissioningSessionView }) {
   const apName = session.serialNumber;
 

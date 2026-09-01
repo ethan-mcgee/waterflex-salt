@@ -19,6 +19,13 @@ import { getFleetDevice, getFleetHistory, getFleetReadings } from './api';
 import { formatDateTime, ReportingBadge } from './FleetPage';
 import type { FleetDevice, FleetDeviceDetail, FleetHistoryPoint, FleetReading } from './types';
 
+/**
+ * Detail view for a single fleet device, routed at `/fleet/:deviceId`. Device detail and reading
+ * history are fetched independently (separate loading/error state) since history re-fetches on
+ * every `range` change while the device detail does not. For `range === '24h'` this loads raw
+ * readings via `getFleetReadings`; for longer ranges it loads bucketed history points via
+ * `getFleetHistory` instead — the two are rendered by different table branches below.
+ */
 export default function DeviceDetailPage() {
   const { selectedUserId } = useDevelopmentIdentity();
   const { deviceId = '' } = useParams();

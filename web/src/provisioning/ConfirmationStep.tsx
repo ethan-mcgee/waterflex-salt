@@ -1,5 +1,6 @@
 import type { CommissioningSessionView } from './types';
 
+/** Terminal success screen, rendered once `session.status === 'completed'` — the sensor has reported its first trustworthy reading. */
 export default function ConfirmationStep({ session }: { session: CommissioningSessionView }) {
   return (
     <div className="step-section">

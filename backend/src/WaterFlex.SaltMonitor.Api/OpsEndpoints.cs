@@ -7,6 +7,10 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Api;
 
+/// <summary>
+/// Internal operations endpoints for reviewing the sensor fleet and low-salt alerts, restricted to
+/// staff with fleet-operations capability and scoped to a single dealer for dealer administrators.
+/// </summary>
 public static class OpsEndpoints
 {
     public static IEndpointRouteBuilder MapOpsEndpoints(this IEndpointRouteBuilder endpoints)
@@ -258,6 +262,7 @@ public static class OpsEndpoints
         return endpoints;
     }
 
+    /// <summary>Registers a POST endpoint for one alert lifecycle transition (acknowledge/approve/dismiss), mapping each transition failure to its HTTP response.</summary>
     private static void MapAlertTransition(
         RouteGroupBuilder group,
         string route,
@@ -293,7 +298,7 @@ public static class OpsEndpoints
             .WithSummary($"{transition} a low-salt alert");
     }
 
-    // A dealer administrator only sees their own dealer's sensors and alerts; WaterFlex staff see the whole fleet.
+    /// <summary>A dealer administrator only sees their own dealer's sensors and alerts; WaterFlex staff see the whole fleet.</summary>
     private static string? DealerScope(StaffActor actor) =>
         actor.Role == StaffRole.DealerAdministrator ? actor.DealerExternalId : null;
 
@@ -306,6 +311,7 @@ public static class OpsEndpoints
         string? dealerId) =>
         new(search, reportingStatus, belowThreshold, lifecycleStatus, firmwareVersion, dealerId);
 
+    /// <summary>Parses the short-range query parameter (24h/7d/30d) used by the recent-readings endpoint.</summary>
     private static bool TryParseRange(string? value, out TimeSpan range)
     {
         range = value?.ToLowerInvariant() switch
@@ -318,6 +324,7 @@ public static class OpsEndpoints
         return range > TimeSpan.Zero;
     }
 
+    /// <summary>Parses the longer-range query parameter (24h/7d/30d/13m/3y) used by the history endpoint, also choosing the default bucket resolution for that range.</summary>
     private static bool TryParseHistoryRange(
         string? value,
         DateTimeOffset now,
@@ -341,6 +348,7 @@ public static class OpsEndpoints
         return fromUtc != DateTimeOffset.MaxValue;
     }
 
+    /// <summary>Parses the resolution query parameter, falling back to the range's default when it is "auto" or omitted.</summary>
     private static bool TryParseHistoryResolution(
         string? value,
         TelemetryHistoryResolution defaultResolution,
@@ -356,6 +364,7 @@ public static class OpsEndpoints
         return Enum.IsDefined(resolution);
     }
 
+    /// <summary>Derives a weak ETag from the history payload's contents so unchanged history can be served as 304 Not Modified.</summary>
     private static string CreateHistoryEntityTag(FleetHistory history)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(history);
@@ -363,6 +372,7 @@ public static class OpsEndpoints
         return $"W/\"{hash[..24]}\"";
     }
 
+    /// <summary>Rounds the history range's start down to a whole hour or day so bucket boundaries stay stable across requests.</summary>
     private static DateTimeOffset TruncateHistoryStart(
         DateTimeOffset value,
         TelemetryHistoryResolution resolution)
@@ -373,6 +383,7 @@ public static class OpsEndpoints
             : new DateTimeOffset(utc.Year, utc.Month, utc.Day, 0, 0, 0, TimeSpan.Zero);
     }
 
+    /// <summary>Parses an optional enum query parameter, treating a blank value as "no filter" but an unrecognized one as invalid.</summary>
     private static bool TryParseOptionalEnum<TEnum>(string? value, out TEnum? result)
         where TEnum : struct, Enum
     {

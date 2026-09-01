@@ -3,6 +3,11 @@ using WaterFlex.SaltMonitor.Operations;
 
 namespace WaterFlex.SaltMonitor.Api;
 
+/// <summary>
+/// Authorization policy naming and staff-actor extraction shared by both the real Cloudflare Access
+/// authentication and the local development identity provider, so endpoints don't need to know which
+/// one is active.
+/// </summary>
 public static class DevelopmentIdentity
 {
     public const string HeaderName = "X-WaterFlex-Development-User";
@@ -20,6 +25,7 @@ public static class DevelopmentIdentity
         this RouteGroupBuilder group,
         StaffCapability capability) => group.RequireAuthorization(CapabilityPolicyName(capability));
 
+    /// <summary>Reconstructs the authenticated <see cref="StaffActor"/> from the current request's claims.</summary>
     public static StaffActor GetStaffActor(this HttpContext context)
     {
         var user = context.User;

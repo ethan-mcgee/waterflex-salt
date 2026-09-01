@@ -30,6 +30,13 @@ const STATE_TONE: Record<StaffIdentityState, string> = {
   failed: 'suspended',
 };
 
+/**
+ * Staff administration screen: invite new staff, and suspend/reactivate existing accounts.
+ * Suspend/reactivate requires typing a reason inline (`pendingMemberId`/`pendingReason` track the
+ * in-progress confirmation) before {@link changeState} is called. Available roles and whether the
+ * dealer-id field is editable depend on `currentUser`'s own role (a WaterFlex administrator can
+ * grant any role and pick any dealer; others are scoped to dealer roles for their own dealer).
+ */
 export default function StaffPage() {
   const { currentUser } = useDevelopmentIdentity();
   const [staff, setStaff] = useState<StaffMember[]>([]);

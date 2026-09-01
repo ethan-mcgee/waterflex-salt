@@ -7,6 +7,14 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// EF-backed implementation of device self-activation: verifies the presented bootstrap secret
+/// against its stored hash in fixed time, consumes the bootstrap credential, and installs the
+/// device into the tank its commissioning session reserved. Retried requests with the same
+/// <see cref="ActivateDeviceRequest.ActivationAttemptId"/> are recognized and short-circuited to
+/// the original result instead of double-activating, so a sensor that never saw the first
+/// response can safely retry.
+/// </summary>
 public sealed class EfDeviceBootstrapActivationService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider) : IDeviceBootstrapActivationService

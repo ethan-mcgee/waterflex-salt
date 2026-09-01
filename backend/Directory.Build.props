@@ -4,9 +4,13 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest-minimum</AnalysisLevel>
     <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
-    <NoWarn>$(NoWarn);CA1014;CA1859;CA1861;CA1873</NoWarn>
+    <!-- CS1591: the codebase documents public types and non-obvious members with XML summaries but
+         intentionally skips self-evident members (enum values, trivial DTO properties); see the
+         existing convention in Domain/FillCalculator.cs. -->
+    <NoWarn>$(NoWarn);CA1014;CA1859;CA1861;CA1873;CS1591</NoWarn>
   </PropertyGroup>
 </Project>

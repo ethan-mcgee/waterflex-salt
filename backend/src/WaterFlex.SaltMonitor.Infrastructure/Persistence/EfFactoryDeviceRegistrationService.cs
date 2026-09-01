@@ -6,6 +6,13 @@ using WaterFlex.SaltMonitor.Provisioning;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// EF-backed implementation of factory-floor device registration and end-of-line verification.
+/// Assigns the next sequential factory serial number under a table-level lock so concurrent
+/// factory registrations cannot race onto the same sequence value, and treats a retried
+/// registration with an already-seen idempotency key as a success returning the original device
+/// rather than an error, so a factory tool retry after a dropped connection is safe.
+/// </summary>
 public sealed class EfFactoryDeviceRegistrationService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider) : IFactoryDeviceRegistrationService

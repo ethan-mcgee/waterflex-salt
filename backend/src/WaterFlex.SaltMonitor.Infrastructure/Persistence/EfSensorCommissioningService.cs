@@ -9,6 +9,14 @@ using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 
+/// <summary>
+/// EF-backed implementation of the direct commissioning path: a technician hand-types a sensor's
+/// serial number and tank calibration and this issues its operational credential immediately, with
+/// no factory pre-registration or bootstrap handshake involved. This is the older of the two
+/// provisioning flows (see <see cref="WaterFlex.SaltMonitor.Provisioning.ICommissioningSessionService"/>
+/// for the newer factory bootstrap/self-activation flow) and mints a device token that is returned once for the
+/// technician to paste into the sensor's captive Wi-Fi portal.
+/// </summary>
 public sealed class EfSensorCommissioningService(
     SaltMonitorDbContext dbContext,
     IWaterFlexCustomerDirectory customerDirectory,

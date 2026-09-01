@@ -6,6 +6,10 @@ using WaterFlex.SaltMonitor.Ingestion;
 
 namespace WaterFlex.SaltMonitor.Api;
 
+/// <summary>
+/// Authenticates device requests carrying a bearer device token (as opposed to staff session cookies),
+/// translating token validation failures into the appropriate 401/403 response.
+/// </summary>
 public sealed class DeviceTokenAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,

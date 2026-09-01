@@ -14,6 +14,9 @@ void beginWifiConnect(const WifiProfile& profile, bool applyOnSuccess) {
   gCandidateProfile = profile;
   gCandidateApplyOnSuccess = applyOnSuccess;
 
+  // Stay in AP+STA mode while the portal's SoftAP is up, so a candidate
+  // connect started from a portal submission doesn't drop the portal's own
+  // access point out from under the phone that's still talking to it.
   const wifi_mode_t mode = gPortalRunning ? WIFI_MODE_APSTA : WIFI_MODE_STA;
   WiFi.mode(mode);
   WiFi.disconnect(true, true);
@@ -82,6 +85,9 @@ void processWifiConnection() {
   gLastError = "wifi_connect_timeout";
   Serial.println("wifi connect timeout");
 
+  // Only reopen the portal for a saved-profile reconnect attempt (not a
+  // portal-submitted candidate, which already has the portal open and its
+  // own error path back to the setup page).
   if (!gCandidateApplyOnSuccess && gHasActiveProfile) {
     startPortal("wifi_connect_timeout");
   }

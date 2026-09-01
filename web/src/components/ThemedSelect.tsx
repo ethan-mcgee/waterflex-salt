@@ -21,6 +21,7 @@ interface ThemedSelectProps {
 
 const EMPTY_VALUE = '__waterflex_empty__';
 
+/** Theme-styled wrapper around Radix `Select` for the console's dropdowns. */
 export default function ThemedSelect({
   value,
   options,
