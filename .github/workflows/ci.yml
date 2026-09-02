@@ -112,6 +112,9 @@ jobs:
       - name: Check dependencies
         run: npm audit --audit-level=high
 
+  # Intentionally separate from factory-release.yml: this is fast unreviewed-branch CI feedback
+  # (no exe, no S3 upload, no GitHub Release), while factory-release.yml is the manual, reviewed
+  # path that actually ships a bundle + helper exe to factory workstations.
   firmware:
     name: Firmware build
     needs: changes

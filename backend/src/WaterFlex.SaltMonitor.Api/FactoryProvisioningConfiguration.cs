@@ -11,6 +11,8 @@ public sealed class FactoryProvisioningOptions
     public string ConfigurationVersion { get; set; } = "factory-v2";
     public string HelperBaseUrl { get; set; } = "http://127.0.0.1:8765";
     public string HelperProtocolVersion { get; set; } = "1";
+    public string? BundleBucket { get; set; }
+    public string? BundleKeyPrefix { get; set; }
 }
 
 /// <summary>Non-secret settings the factory console needs before starting a local provisioning job.</summary>
@@ -21,3 +23,13 @@ public sealed record FactoryProvisioningConfiguration(
     string ConfigurationVersion,
     string HelperBaseUrl,
     string HelperProtocolVersion);
+
+/// <summary>A presigned download for the approved factory firmware bundle, returned to the local helper.</summary>
+public sealed record FactoryBundleDownload(
+    string Model,
+    string FirmwareVersion,
+    string ConfigurationVersion,
+    string HelperProtocolVersion,
+    string DownloadUrl,
+    string Sha256,
+    DateTimeOffset ExpiresAtUtc);

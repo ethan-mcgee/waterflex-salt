@@ -27,6 +27,12 @@ DEFAULT_ORIGINS = {
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 }
+DEFAULT_BUNDLE_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA", ".")) / "WaterFlex" / "FactoryHelper" / "bundle"
+
+try:
+    from _default_config import DEFAULT_API_BASE_URL  # generated per-environment at release-build time
+except ImportError:
+    DEFAULT_API_BASE_URL = "http://127.0.0.1:5188"
 
 
 class JobStore:
@@ -240,6 +246,89 @@ def validate_start(body: dict, manifest: dict) -> None:
         raise ValueError("WaterFlex returned an invalid sensor serial number.")
 
 
+def cached_bundle_is_valid(cache_dir: Path, sha256: str | None = None) -> bool:
+    """True if `cache_dir` holds a checksum-verified bundle, optionally matching a specific sha256."""
+    try:
+        manifest = load_manifest(cache_dir)
+    except Exception:
+        return False
+    if sha256 is not None and manifest["mergedImage"]["sha256"].casefold() != sha256.casefold():
+        return False
+    return True
+
+
+def fetch_bundle_download(api_base_url: str) -> dict:
+    request = urllib.request.Request(f"{api_base_url.rstrip('/')}/api/v1/factory/bundle", method="GET")
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def download_bundle(download: dict, cache_dir: Path) -> None:
+    """Atomically replace the cached bundle image and manifest with the given presigned download."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    image_name = "waterflex-factory.bin"
+    temp_image = cache_dir / f"{image_name}.tmp"
+    try:
+        request = urllib.request.Request(download["downloadUrl"], method="GET")
+        with urllib.request.urlopen(request, timeout=120) as response:
+            temp_image.write_bytes(response.read())
+        actual_sha256 = hashlib.sha256(temp_image.read_bytes()).hexdigest()
+        if actual_sha256.casefold() != download["sha256"].casefold():
+            raise ValueError("Downloaded factory firmware bundle failed checksum verification.")
+        os.replace(temp_image, cache_dir / image_name)
+    finally:
+        temp_image.unlink(missing_ok=True)
+
+    manifest = {
+        "schemaVersion": 1,
+        "model": download["model"],
+        "firmwareVersion": download["firmwareVersion"],
+        "configurationVersion": download["configurationVersion"],
+        "helperProtocolVersion": download["helperProtocolVersion"],
+        "mergedImage": {"file": image_name, "sha256": download["sha256"]},
+    }
+    temp_manifest = cache_dir / "factory-bundle.json.tmp"
+    temp_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    os.replace(temp_manifest, cache_dir / "factory-bundle.json")
+
+
+def resolve_bundle(bundle_dir: Path | None, cache_dir: Path, api_base_url: str) -> Path:
+    """Resolve the directory the helper should flash from.
+
+    An explicit --bundle-dir is an engineer override, used as-is. Otherwise fetch the
+    backend-approved bundle into the cache (skipping the download if the cache already matches),
+    and on any network or API failure fall back to the newest cached bundle that still passes
+    checksum verification. Only refuse to start when there is neither a fresh fetch nor a usable
+    cache.
+    """
+    if bundle_dir is not None:
+        return bundle_dir
+
+    try:
+        download = fetch_bundle_download(api_base_url)
+    except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError) as error:
+        if cached_bundle_is_valid(cache_dir):
+            print(f"factory-helper: could not reach WaterFlex ({error}); using the cached bundle.")
+            return cache_dir
+        raise RuntimeError(
+            "Could not reach WaterFlex to fetch the approved firmware bundle, and no valid cached "
+            "bundle is available. Check network connectivity and try again."
+        ) from error
+
+    if cached_bundle_is_valid(cache_dir, download.get("sha256")):
+        return cache_dir
+
+    try:
+        download_bundle(download, cache_dir)
+    except (urllib.error.URLError, ValueError, KeyError) as error:
+        if cached_bundle_is_valid(cache_dir):
+            print(f"factory-helper: failed to download the latest bundle ({error}); using the cached bundle.")
+            return cache_dir
+        raise RuntimeError(f"Failed to download the approved firmware bundle: {error}") from error
+
+    return cache_dir
+
+
 def flash_merged_image(bundle_dir: Path, manifest: dict, esptool_path: Path) -> str:
     port = detect_port(None)
     image = bundle_dir / manifest["mergedImage"]["file"]
@@ -371,19 +460,30 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="WaterFlex factory workstation helper")
-    parser.add_argument("--bundle-dir", required=True, type=Path)
+    parser.add_argument(
+        "--bundle-dir", type=Path, default=None,
+        help="Use a local bundle directory instead of fetching the WaterFlex-approved bundle "
+             "(advanced/engineer override; the default fetches and caches it automatically).")
+    parser.add_argument("--bundle-cache-dir", type=Path, default=DEFAULT_BUNDLE_CACHE_DIR)
     parser.add_argument("--state-dir", type=Path, default=Path(os.environ.get("LOCALAPPDATA", ".")) / "WaterFlex" / "FactoryHelper" / "jobs")
     parser.add_argument("--allowed-origin", action="append", default=[])
     parser.add_argument("--esptool", type=Path)
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--api-base-url", required=True, help="WaterFlex backend base URL used to verify flash authorization before flashing.")
+    parser.add_argument(
+        "--api-base-url", default=DEFAULT_API_BASE_URL,
+        help="WaterFlex backend base URL used to fetch the approved firmware bundle and verify flash authorization.")
     args = parser.parse_args()
     if os.name != "nt":
         parser.error("The factory helper requires Windows DPAPI.")
-    esptool_path = args.esptool or args.bundle_dir / "tools" / "esptool.py"
+    try:
+        bundle_dir = resolve_bundle(args.bundle_dir, args.bundle_cache_dir, args.api_base_url)
+    except RuntimeError as error:
+        print(f"factory-helper: {error}", file=sys.stderr)
+        return 1
+    esptool_path = args.esptool or bundle_dir / "tools" / "esptool.py"
     if not getattr(sys, "frozen", False) and not esptool_path.exists():
         parser.error("The approved factory bundle does not contain esptool.py.")
-    helper = FactoryHelper(args.bundle_dir, args.state_dir, esptool_path, args.api_base_url)
+    helper = FactoryHelper(bundle_dir, args.state_dir, esptool_path, args.api_base_url)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.helper = helper  # type: ignore[attr-defined]
     server.allowed_origins = DEFAULT_ORIGINS | set(args.allowed_origin)  # type: ignore[attr-defined]
