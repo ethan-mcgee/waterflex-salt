@@ -22,6 +22,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<FactoryProvisioningJob> FactoryProvisioningJobs => Set<FactoryProvisioningJob>();
     public DbSet<DeviceBootstrapCredential> DeviceBootstrapCredentials => Set<DeviceBootstrapCredential>();
+    public DbSet<FactoryFlashAuthorization> FactoryFlashAuthorizations => Set<FactoryFlashAuthorization>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
     public DbSet<DeviceInstallation> DeviceInstallations => Set<DeviceInstallation>();
     public DbSet<CommissioningSession> CommissioningSessions => Set<CommissioningSession>();
@@ -199,6 +200,21 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasOne(credential => credential.Device)
                 .WithMany(device => device.BootstrapCredentials)
                 .HasForeignKey(credential => credential.DeviceId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<FactoryFlashAuthorization>(entity =>
+        {
+            entity.ToTable("FactoryFlashAuthorizations");
+            entity.HasKey(authorization => authorization.Id);
+            entity.Property(authorization => authorization.CredentialId).HasMaxLength(64);
+            entity.Property(authorization => authorization.SecretHash).HasMaxLength(32);
+            entity.Property(authorization => authorization.RowVersion).IsRowVersion();
+            entity.HasIndex(authorization => authorization.CredentialId).IsUnique();
+            entity.HasIndex(authorization => authorization.FactoryProvisioningJobId);
+            entity.HasOne(authorization => authorization.Job)
+                .WithMany()
+                .HasForeignKey(authorization => authorization.FactoryProvisioningJobId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

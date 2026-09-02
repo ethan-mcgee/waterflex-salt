@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $BundleDirectory,
+    [Parameter(Mandatory)] [string] $ApiBaseUrl,
     [string[]] $AllowedOrigin = @()
 )
 
@@ -13,7 +14,7 @@ if (-not (Test-Path -LiteralPath $BundleDirectory)) {
 }
 
 $resolvedBundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
-$arguments = @('--bundle-dir', $resolvedBundle, '--esptool', (Join-Path $resolvedBundle 'tools\esptool.py'))
+$arguments = @('--bundle-dir', $resolvedBundle, '--esptool', (Join-Path $resolvedBundle 'tools\esptool.py'), '--api-base-url', $ApiBaseUrl)
 foreach ($origin in $AllowedOrigin) {
     $arguments += @('--allowed-origin', $origin)
 }

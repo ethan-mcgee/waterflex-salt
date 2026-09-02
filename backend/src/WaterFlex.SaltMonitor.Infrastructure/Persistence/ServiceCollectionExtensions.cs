@@ -72,6 +72,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDeliveryTicketWorkProcessor, EfDeliveryTicketWorkProcessor>();
         services.AddScoped<IStaffAccessService, EfStaffAccessService>();
         services.AddScoped<IFactoryDeviceRegistrationService, EfFactoryDeviceRegistrationService>();
+        services.AddScoped<IFactoryFlashAuthorizationService, EfFactoryFlashAuthorizationService>();
         services.AddScoped<ICommissioningSessionService, EfCommissioningSessionService>();
         services.AddScoped<IDeviceBootstrapActivationService, EfDeviceBootstrapActivationService>();
         services.AddSingleton(serviceProvider =>

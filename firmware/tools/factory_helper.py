@@ -11,6 +11,8 @@ import os
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -82,12 +84,13 @@ class JobStore:
 
 
 class FactoryHelper:
-    def __init__(self, bundle_dir: Path, state_dir: Path, esptool_path: Path):
+    def __init__(self, bundle_dir: Path, state_dir: Path, esptool_path: Path, api_base_url: str):
         self.bundle_dir = bundle_dir.resolve()
         self.manifest = load_manifest(self.bundle_dir)
         self.store = JobStore(state_dir)
         self.store.recover_interrupted_jobs()
         self.esptool_path = esptool_path.resolve()
+        self.api_base_url = api_base_url.rstrip("/")
 
     def prepare(self, body: dict) -> dict:
         required = ("idempotencyKey", "bootstrapCredentialId", "bootstrapSecret", "setupPassphrase")
@@ -119,6 +122,7 @@ class FactoryHelper:
                 raise RuntimeError("Another sensor is already being provisioned on this workstation.")
             job = self.store.load(key)
             validate_start(body, self.manifest)
+            self._verify_flash_authorization(body["deviceId"], body["flashAuthorizationToken"])
             job.update({
                 "deviceId": body["deviceId"],
                 "serialNumber": body["serialNumber"],
@@ -134,6 +138,26 @@ class FactoryHelper:
             self.store.save(job)
             threading.Thread(target=self._run, args=(key,), daemon=True).start()
             return public_job(job)
+
+    def _verify_flash_authorization(self, device_id: str, token: str) -> None:
+        """Fails closed: any rejection, timeout, or network error blocks the flash. A local helper
+        that could touch hardware without confirming backend authorization would defeat the entire
+        point of this check."""
+        payload = json.dumps({"deviceId": device_id, "token": token}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.api_base_url}/api/v1/factory/flash-authorizations/verify",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                if response.status != HTTPStatus.OK:
+                    raise ValueError("WaterFlex denied flash authorization for this sensor.")
+        except urllib.error.HTTPError as error:
+            raise ValueError("WaterFlex denied flash authorization for this sensor.") from error
+        except urllib.error.URLError as error:
+            raise ValueError("Could not reach WaterFlex to authorize flashing. Check network connectivity.") from error
 
     def _update(self, job: dict, status: str, message: str) -> None:
         job["status"] = status
@@ -199,7 +223,10 @@ def load_manifest(bundle_dir: Path) -> dict:
 
 
 def validate_start(body: dict, manifest: dict) -> None:
-    required = ("deviceId", "serialNumber", "model", "firmwareVersion", "configurationVersion")
+    required = (
+        "deviceId", "serialNumber", "model", "firmwareVersion", "configurationVersion",
+        "flashAuthorizationToken",
+    )
     if any(not isinstance(body.get(name), str) or not body[name].strip() for name in required):
         raise ValueError("Registered factory job information is incomplete.")
     expected = {
@@ -349,13 +376,14 @@ def main() -> int:
     parser.add_argument("--allowed-origin", action="append", default=[])
     parser.add_argument("--esptool", type=Path)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--api-base-url", required=True, help="WaterFlex backend base URL used to verify flash authorization before flashing.")
     args = parser.parse_args()
     if os.name != "nt":
         parser.error("The factory helper requires Windows DPAPI.")
     esptool_path = args.esptool or args.bundle_dir / "tools" / "esptool.py"
     if not getattr(sys, "frozen", False) and not esptool_path.exists():
         parser.error("The approved factory bundle does not contain esptool.py.")
-    helper = FactoryHelper(args.bundle_dir, args.state_dir, esptool_path)
+    helper = FactoryHelper(args.bundle_dir, args.state_dir, esptool_path, args.api_base_url)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.helper = helper  # type: ignore[attr-defined]
     server.allowed_origins = DEFAULT_ORIGINS | set(args.allowed_origin)  # type: ignore[attr-defined]

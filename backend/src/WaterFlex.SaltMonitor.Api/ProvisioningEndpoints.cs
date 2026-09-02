@@ -94,6 +94,27 @@ public static class ProvisioningEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        factoryApi.MapGet("/devices/active", async (
+                HttpContext httpContext,
+                IFactoryDeviceRegistrationService registrationService,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await registrationService.FindActiveByOperatorAsync(
+                    httpContext.GetStaffActor(),
+                    cancellationToken);
+                return result.IsSuccess
+                    ? Results.Ok(result.Registration)
+                    : Results.NotFound();
+            })
+            .WithName("GetActiveFactoryDevice")
+            .WithSummary("Resume the caller's own in-progress factory provisioning job, if any")
+            .WithDescription(
+                "Lets the console recover an operator's own Registered or Quarantined job when local browser " +
+                "state is lost, so a new job is never started (and a new serial never minted) for a unit that " +
+                "already has one in progress.")
+            .Produces<FactoryDeviceRegistration>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         factoryApi.MapGet("/devices/by-idempotency/{idempotencyKey}", async (
                 string idempotencyKey,
                 HttpContext httpContext,
@@ -169,6 +190,31 @@ public static class ProvisioningEndpoints
             .Produces<FactoryDeviceRegistration>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // Unauthenticated-by-staff: the local factory workstation helper that actually flashes the
+        // device has no staff session of its own. Possessing a valid, unexpired, single-use token
+        // minted by a staff-authenticated register/retry call above is the entire authorization
+        // check, mirroring how /api/v1/device/activate is safely unauthenticated-by-staff today.
+        endpoints.MapPost("/api/v1/factory/flash-authorizations/verify", async (
+                FlashAuthorizationVerificationRequest request,
+                IFactoryFlashAuthorizationService flashAuthorizationService,
+                CancellationToken cancellationToken) =>
+            {
+                var authorized = !string.IsNullOrWhiteSpace(request.Token)
+                    && await flashAuthorizationService.VerifyAsync(
+                        request.DeviceId,
+                        request.Token,
+                        cancellationToken);
+                return authorized
+                    ? Results.Ok(new { authorized = true })
+                    : Results.Json(new { errorCode = "flash_authorization_invalid" }, statusCode: StatusCodes.Status403Forbidden);
+            })
+            .WithName("VerifyFactoryFlashAuthorization")
+            .WithSummary("Redeem a factory flash-authorization token before the local helper flashes a device")
+            .RequireRateLimiting(RateLimitPolicies.Activation)
+            .Accepts<FlashAuthorizationVerificationRequest>("application/json")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status403Forbidden);
 
         return endpoints;
     }

@@ -1,4 +1,5 @@
 using System.Data;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -47,10 +48,14 @@ public sealed class EfFactoryDeviceRegistrationService(
                     .SingleOrDefaultAsync(job => job.IdempotencyKey == normalized.IdempotencyKey, cancellationToken);
                 if (existing is not null)
                 {
+                    if (!CanAccess(existing, factoryOperator))
+                    {
+                        await transaction.CommitAsync(cancellationToken);
+                        return FactoryRegistrationResult.Failed(FactoryRegistrationFailure.DeviceAlreadyRegistered);
+                    }
+                    var existingToken = await EnsureFlashAuthorizationAsync(existing, cancellationToken);
                     await transaction.CommitAsync(cancellationToken);
-                    return CanAccess(existing, factoryOperator)
-                        ? FactoryRegistrationResult.Success(ToRegistration(existing))
-                        : FactoryRegistrationResult.Failed(FactoryRegistrationFailure.DeviceAlreadyRegistered);
+                    return FactoryRegistrationResult.Success(ToRegistration(existing, existingToken));
                 }
 
                 if (await dbContext.DeviceBootstrapCredentials.AnyAsync(
@@ -117,8 +122,9 @@ public sealed class EfFactoryDeviceRegistrationService(
 
                 dbContext.AddRange(device, credential, job, auditEvent);
                 await dbContext.SaveChangesAsync(cancellationToken);
+                var token = await EnsureFlashAuthorizationAsync(job, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-                return FactoryRegistrationResult.Success(ToRegistration(job));
+                return FactoryRegistrationResult.Success(ToRegistration(job, token));
             });
         }
         catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
@@ -143,9 +149,33 @@ public sealed class EfFactoryDeviceRegistrationService(
             .Include(candidate => candidate.Device)
             .ThenInclude(device => device.BootstrapCredentials)
             .SingleOrDefaultAsync(candidate => candidate.IdempotencyKey == normalizedKey, cancellationToken);
-        return job is null || !CanAccess(job, factoryOperator)
-            ? FactoryRegistrationResult.Failed(FactoryRegistrationFailure.DeviceAlreadyRegistered)
-            : FactoryRegistrationResult.Success(ToRegistration(job));
+        if (job is null || !CanAccess(job, factoryOperator))
+        {
+            return FactoryRegistrationResult.Failed(FactoryRegistrationFailure.DeviceAlreadyRegistered);
+        }
+        var token = await EnsureFlashAuthorizationAsync(job, cancellationToken);
+        return FactoryRegistrationResult.Success(ToRegistration(job, token));
+    }
+
+    public async Task<FactoryRegistrationResult> FindActiveByOperatorAsync(
+        StaffActor factoryOperator,
+        CancellationToken cancellationToken = default)
+    {
+        var job = await dbContext.FactoryProvisioningJobs
+            .AsNoTracking()
+            .Include(candidate => candidate.Device)
+            .ThenInclude(device => device.BootstrapCredentials)
+            .Where(candidate => candidate.CreatedBy == factoryOperator.UserId
+                && (candidate.Status == FactoryProvisioningStatus.Registered
+                    || candidate.Status == FactoryProvisioningStatus.Quarantined))
+            .OrderByDescending(candidate => candidate.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (job is null)
+        {
+            return FactoryRegistrationResult.Failed(FactoryRegistrationFailure.DeviceAlreadyRegistered);
+        }
+        var token = await EnsureFlashAuthorizationAsync(job, cancellationToken);
+        return FactoryRegistrationResult.Success(ToRegistration(job, token));
     }
 
     public async Task<FactoryVerificationResult> RecordVerificationAsync(
@@ -193,6 +223,7 @@ public sealed class EfFactoryDeviceRegistrationService(
             }),
             OccurredAtUtc = now
         });
+        await RevokeLiveFlashAuthorizationsAsync(job.Id, now, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         return new(deviceId, job.SerialNumber, job.Status, now, job.FailureCode);
     }
@@ -235,23 +266,79 @@ public sealed class EfFactoryDeviceRegistrationService(
             OccurredAtUtc = now
         });
         await dbContext.SaveChangesAsync(cancellationToken);
-        return ToRegistration(job);
+        var token = await EnsureFlashAuthorizationAsync(job, cancellationToken);
+        return ToRegistration(job, token);
     }
 
     private static bool CanAccess(FactoryProvisioningJob job, StaffActor actor) =>
         actor.Role == StaffRole.WaterFlexAdministrator
         || string.Equals(job.CreatedBy, actor.UserId, StringComparison.Ordinal);
 
-    private static FactoryDeviceRegistration ToRegistration(FactoryProvisioningJob job) =>
+    /// <summary>
+    /// Mints a fresh single-use flash-authorization token for a <see cref="FactoryProvisioningStatus.Registered"/>
+    /// job, revoking any prior unconsumed one for the same job so a stale token can never be replayed
+    /// once a newer one has been issued. Returns null for a job that isn't Registered — a Quarantined
+    /// or Provisioned job has no business authorizing a flash.
+    /// </summary>
+    private async Task<string?> EnsureFlashAuthorizationAsync(
+        FactoryProvisioningJob job,
+        CancellationToken cancellationToken)
+    {
+        if (job.Status != FactoryProvisioningStatus.Registered)
+        {
+            return null;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        await RevokeLiveFlashAuthorizationsAsync(job.Id, now, cancellationToken);
+
+        var secret = RandomNumberGenerator.GetBytes(32);
+        var authorization = new FactoryFlashAuthorization
+        {
+            Id = Guid.NewGuid(),
+            FactoryProvisioningJobId = job.Id,
+            DeviceId = job.DeviceId,
+            CredentialId = $"wf_flash_{Guid.NewGuid():N}",
+            SecretHash = SHA256.HashData(secret),
+            IssuedAtUtc = now,
+            ExpiresAtUtc = now.AddMinutes(10)
+        };
+        dbContext.FactoryFlashAuthorizations.Add(authorization);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return $"{authorization.CredentialId}.{Base64Url(secret)}";
+    }
+
+    private async Task RevokeLiveFlashAuthorizationsAsync(
+        Guid factoryProvisioningJobId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var live = await dbContext.FactoryFlashAuthorizations
+            .Where(candidate => candidate.FactoryProvisioningJobId == factoryProvisioningJobId
+                && candidate.ConsumedAtUtc == null
+                && candidate.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var authorization in live)
+        {
+            authorization.RevokedAtUtc = now;
+        }
+    }
+
+    private static string Base64Url(byte[] value) =>
+        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static FactoryDeviceRegistration ToRegistration(FactoryProvisioningJob job, string? flashAuthorizationToken) =>
         new(
             job.Device.Id,
+            job.IdempotencyKey,
             job.Device.SerialNumber,
             job.Device.Model,
             job.Device.RegisteredAtUtc,
             job.Device.BootstrapCredentials.Single().CredentialId,
             job.Status,
             job.VerifiedAtUtc,
-            job.FailureCode);
+            job.FailureCode,
+            flashAuthorizationToken);
 
     private static RegisterFactoryDeviceRequest Normalize(RegisterFactoryDeviceRequest request) => request with
     {

@@ -2,6 +2,7 @@ import { AlertTriangle, Check, CircuitBoard, LoaderCircle, PlugZap, Printer, Rot
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createFactorySecrets,
+  findActiveFactoryDevice,
   findFactoryDevice,
   getFactoryConfiguration,
   recordFactoryVerification,
@@ -29,6 +30,7 @@ export default function FactoryProvisioningPage() {
   const [helperJob, setHelperJob] = useState<HelperJob | null>(null);
   const [verification, setVerification] = useState<FactoryVerification | null>(null);
   const [activeKey, setActiveKey] = useState(() => window.localStorage.getItem(ACTIVE_JOB_KEY));
+  const [activeChecked, setActiveChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const finalizing = useRef(false);
@@ -56,6 +58,24 @@ export default function FactoryProvisioningPage() {
   }, [refreshHelper]);
 
   useEffect(() => {
+    if (!configuration || !configuration.enabled) return;
+    const controller = new AbortController();
+    findActiveFactoryDevice(controller.signal)
+      .then((active) => {
+        if (controller.signal.aborted) return;
+        window.localStorage.setItem(ACTIVE_JOB_KEY, active.idempotencyKey);
+        setActiveKey(active.idempotencyKey);
+      })
+      .catch(() => {
+        // No non-terminal job for this operator on the backend; fall back to whatever localStorage has.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setActiveChecked(true);
+      });
+    return () => controller.abort();
+  }, [configuration]);
+
+  useEffect(() => {
     if (!configuration || !activeKey) return;
     const controller = new AbortController();
     (async () => {
@@ -75,12 +95,14 @@ export default function FactoryProvisioningPage() {
         });
       }
       if (registered.status === 'registered' && localJob.status === 'prepared') {
+        if (!registered.flashAuthorizationToken) throw new Error('WaterFlex did not issue a flash authorization for this job.');
         localJob = await startHelperJob(configuration.helperBaseUrl, activeKey, {
           deviceId: registered.deviceId,
           serialNumber: registered.serialNumber,
           model: registered.model,
           firmwareVersion: configuration.approvedFirmwareVersion,
           configurationVersion: configuration.configurationVersion,
+          flashAuthorizationToken: registered.flashAuthorizationToken,
         });
       }
       setRegistration(registered);
@@ -149,6 +171,7 @@ export default function FactoryProvisioningPage() {
         firmwareVersion: configuration.approvedFirmwareVersion,
         configurationVersion: configuration.configurationVersion,
       });
+      if (!registered.flashAuthorizationToken) throw new Error('WaterFlex did not issue a flash authorization for this job.');
       setActiveKey(secrets.idempotencyKey);
       setRegistration(registered);
       const job = await startHelperJob(configuration.helperBaseUrl, secrets.idempotencyKey, {
@@ -157,6 +180,7 @@ export default function FactoryProvisioningPage() {
         model: registered.model,
         firmwareVersion: configuration.approvedFirmwareVersion,
         configurationVersion: configuration.configurationVersion,
+        flashAuthorizationToken: registered.flashAuthorizationToken,
       });
       setHelperJob(job);
     } catch (reason) {
@@ -173,13 +197,16 @@ export default function FactoryProvisioningPage() {
     setError('');
     setVerification(null);
     try {
-      await retryFactoryDevice(registration.deviceId);
+      const retried = await retryFactoryDevice(registration.deviceId);
+      if (!retried.flashAuthorizationToken) throw new Error('WaterFlex did not issue a flash authorization for this job.');
+      setRegistration(retried);
       const job = await startHelperJob(configuration.helperBaseUrl, activeKey, {
-        deviceId: registration.deviceId,
-        serialNumber: registration.serialNumber,
-        model: registration.model,
+        deviceId: retried.deviceId,
+        serialNumber: retried.serialNumber,
+        model: retried.model,
         firmwareVersion: configuration.approvedFirmwareVersion,
         configurationVersion: configuration.configurationVersion,
+        flashAuthorizationToken: retried.flashAuthorizationToken,
       });
       setHelperJob(job);
     } catch (reason) {
@@ -257,7 +284,7 @@ export default function FactoryProvisioningPage() {
 
       <footer className="factory-actions">
         {!registration && (
-          <button className="button button-primary" type="button" disabled={busy || !helperReady || !configuration?.enabled} onClick={startProvisioning}>
+          <button className="button button-primary" type="button" disabled={busy || !helperReady || !activeChecked || !configuration?.enabled} onClick={startProvisioning}>
             {busy ? <LoaderCircle className="spin" size={17} /> : <CircuitBoard size={17} />}Provision sensor
           </button>
         )}

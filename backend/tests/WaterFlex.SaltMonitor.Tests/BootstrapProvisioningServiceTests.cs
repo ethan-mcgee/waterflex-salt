@@ -85,6 +85,133 @@ public sealed class BootstrapProvisioningServiceTests
     }
 
     [Fact]
+    public async Task FactoryActiveJob_ResumesCreatorsOwnNonTerminalJobOnly()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new EfFactoryDeviceRegistrationService(database.Context, new MutableTimeProvider(Now));
+        var created = await service.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+        Assert.True(created.IsSuccess);
+
+        var resumedByCreator = await service.FindActiveByOperatorAsync(FactoryWorker);
+        var resumedByOther = await service.FindActiveByOperatorAsync(OtherFactoryWorker);
+
+        Assert.True(resumedByCreator.IsSuccess);
+        Assert.Equal(created.Registration!.DeviceId, resumedByCreator.Registration!.DeviceId);
+        Assert.Equal("factory-test-job-0001", resumedByCreator.Registration.IdempotencyKey);
+        Assert.False(resumedByOther.IsSuccess);
+    }
+
+    [Fact]
+    public async Task FactoryActiveJob_ExcludesProvisionedJobsSoANewOneCanStart()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new EfFactoryDeviceRegistrationService(database.Context, new MutableTimeProvider(Now));
+        var created = await service.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+        await service.RecordVerificationAsync(
+            created.Registration!.DeviceId,
+            new(true, true, true, true, "1.0.0", null),
+            FactoryWorker);
+
+        var resumed = await service.FindActiveByOperatorAsync(FactoryWorker);
+
+        Assert.False(resumed.IsSuccess);
+    }
+
+    [Fact]
+    public async Task FactoryActiveJob_ResumesAQuarantinedJobUntilRetried()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new EfFactoryDeviceRegistrationService(database.Context, new MutableTimeProvider(Now));
+        var created = await service.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+        await service.RecordVerificationAsync(
+            created.Registration!.DeviceId,
+            new(false, true, true, true, "1.0.0", "firmware_check_failed"),
+            FactoryWorker);
+
+        var resumed = await service.FindActiveByOperatorAsync(FactoryWorker);
+
+        Assert.True(resumed.IsSuccess);
+        Assert.Equal(FactoryProvisioningStatus.Quarantined, resumed.Registration!.Status);
+        Assert.Equal(created.Registration.SerialNumber, resumed.Registration.SerialNumber);
+    }
+
+    [Fact]
+    public async Task FlashAuthorization_RegistrationMintsATokenThatVerifiesOnceAndRejectsReplay()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var timeProvider = new MutableTimeProvider(Now);
+        var registrationService = new EfFactoryDeviceRegistrationService(database.Context, timeProvider);
+        var flashAuthorizationService = new EfFactoryFlashAuthorizationService(database.Context, timeProvider);
+        var created = await registrationService.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+        var deviceId = created.Registration!.DeviceId;
+        var token = created.Registration.FlashAuthorizationToken!;
+
+        var wrongDevice = await flashAuthorizationService.VerifyAsync(Guid.NewGuid(), token);
+        var firstUse = await flashAuthorizationService.VerifyAsync(deviceId, token);
+        var replay = await flashAuthorizationService.VerifyAsync(deviceId, token);
+
+        Assert.NotNull(token);
+        Assert.False(wrongDevice);
+        Assert.True(firstUse);
+        Assert.False(replay);
+    }
+
+    [Fact]
+    public async Task FlashAuthorization_ReissuingRevokesThePriorUnconsumedToken()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var timeProvider = new MutableTimeProvider(Now);
+        var registrationService = new EfFactoryDeviceRegistrationService(database.Context, timeProvider);
+        var flashAuthorizationService = new EfFactoryFlashAuthorizationService(database.Context, timeProvider);
+        var created = await registrationService.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+        var deviceId = created.Registration!.DeviceId;
+        var staleToken = created.Registration.FlashAuthorizationToken!;
+
+        var resumed = await registrationService.FindActiveByOperatorAsync(FactoryWorker);
+        var freshToken = resumed.Registration!.FlashAuthorizationToken!;
+
+        var staleUse = await flashAuthorizationService.VerifyAsync(deviceId, staleToken);
+        var freshUse = await flashAuthorizationService.VerifyAsync(deviceId, freshToken);
+
+        Assert.NotEqual(staleToken, freshToken);
+        Assert.False(staleUse);
+        Assert.True(freshUse);
+    }
+
+    [Fact]
+    public async Task FlashAuthorization_QuarantineRevokesAnyLiveTokenSoAFlashCannotProceed()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var timeProvider = new MutableTimeProvider(Now);
+        var registrationService = new EfFactoryDeviceRegistrationService(database.Context, timeProvider);
+        var flashAuthorizationService = new EfFactoryFlashAuthorizationService(database.Context, timeProvider);
+        var created = await registrationService.RegisterAsync(
+            CreateFactoryRequest(SHA256.HashData(Encoding.UTF8.GetBytes("factory-secret"))),
+            FactoryWorker);
+        var deviceId = created.Registration!.DeviceId;
+        var token = created.Registration.FlashAuthorizationToken!;
+
+        await registrationService.RecordVerificationAsync(
+            deviceId,
+            new(false, true, true, true, "1.0.0", "firmware_check_failed"),
+            FactoryWorker);
+
+        var authorized = await flashAuthorizationService.VerifyAsync(deviceId, token);
+
+        Assert.False(authorized);
+    }
+
+    [Fact]
     public async Task FactoryVerification_QuarantinesFailureAndMakesProvisionedTerminal()
     {
         await using var database = await TestDatabase.CreateAsync();
