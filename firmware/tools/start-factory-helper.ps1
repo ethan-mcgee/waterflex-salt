@@ -1,7 +1,11 @@
+# Advanced/engineer override entry point for the factory helper: use this when you need a custom
+# local bundle directory, a custom esptool, or a non-default WaterFlex API URL. The primary,
+# non-technical path is simply double-clicking WaterFlexFactoryHelper.exe with no arguments -- it
+# fetches and caches the WaterFlex-approved bundle automatically.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $BundleDirectory,
-    [Parameter(Mandatory)] [string] $ApiBaseUrl,
+    [string] $BundleDirectory,
+    [string] $ApiBaseUrl,
     [string[]] $AllowedOrigin = @()
 )
 
@@ -9,12 +13,18 @@ $ErrorActionPreference = 'Stop'
 $executable = Join-Path $PSScriptRoot 'WaterFlexFactoryHelper.exe'
 $python = Join-Path $env:USERPROFILE '.platformio\penv\Scripts\python.exe'
 $helper = Join-Path $PSScriptRoot 'factory_helper.py'
-if (-not (Test-Path -LiteralPath $BundleDirectory)) {
-    throw 'The selected WaterFlex factory firmware bundle does not exist.'
-}
 
-$resolvedBundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
-$arguments = @('--bundle-dir', $resolvedBundle, '--esptool', (Join-Path $resolvedBundle 'tools\esptool.py'), '--api-base-url', $ApiBaseUrl)
+$arguments = @()
+if ($BundleDirectory) {
+    if (-not (Test-Path -LiteralPath $BundleDirectory)) {
+        throw 'The selected WaterFlex factory firmware bundle does not exist.'
+    }
+    $resolvedBundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
+    $arguments += @('--bundle-dir', $resolvedBundle, '--esptool', (Join-Path $resolvedBundle 'tools\esptool.py'))
+}
+if ($ApiBaseUrl) {
+    $arguments += @('--api-base-url', $ApiBaseUrl)
+}
 foreach ($origin in $AllowedOrigin) {
     $arguments += @('--allowed-origin', $origin)
 }

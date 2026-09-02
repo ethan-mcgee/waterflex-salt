@@ -4,12 +4,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  id-token: write
 
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      firmware_version: ${{ steps.bundle-info.outputs.firmware_version }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -23,19 +27,73 @@ jobs:
       - name: Create firmware bundle
         working-directory: firmware
         run: python tools/build_factory_bundle.py --output-dir factory-release
-      - name: Build standalone Windows helper
-        run: >-
-          pyinstaller --onefile --name WaterFlexFactoryHelper
-          --paths firmware/tools --collect-all esptool --collect-all serial
-          firmware/tools/factory_helper.py
-      - name: Assemble release
+      - name: Read bundle info
+        id: bundle-info
         shell: pwsh
         run: |
-          Copy-Item -LiteralPath dist/WaterFlexFactoryHelper.exe -Destination firmware/factory-release/WaterFlexFactoryHelper.exe
-          Compress-Archive -Path firmware/factory-release/* -DestinationPath WaterFlexFactoryHelper-${{ github.sha }}.zip
-      - name: Upload versioned factory release
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          $manifest = Get-Content firmware/factory-release/factory-bundle.json | ConvertFrom-Json
+          "firmware_version=$($manifest.firmwareVersion)" >> $env:GITHUB_OUTPUT
+          "configuration_version=$($manifest.configurationVersion)" >> $env:GITHUB_OUTPUT
+          "sha256=$($manifest.mergedImage.sha256)" >> $env:GITHUB_OUTPUT
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
         with:
-          name: WaterFlexFactoryHelper-${{ github.sha }}
-          path: WaterFlexFactoryHelper-${{ github.sha }}.zip
-          if-no-files-found: error
+          role-to-assume: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
+      - name: Upload firmware bundle to S3
+        env:
+          BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
+          FIRMWARE_VERSION: ${{ steps.bundle-info.outputs.firmware_version }}
+          CONFIGURATION_VERSION: ${{ steps.bundle-info.outputs.configuration_version }}
+          SHA256: ${{ steps.bundle-info.outputs.sha256 }}
+        shell: bash
+        run: |
+          [[ -n "$BUCKET" ]] || { echo "Missing repository variable STAGING_DEPLOY_BUCKET." >&2; exit 1; }
+          PREFIX="s3://$BUCKET/factory-bundles/$FIRMWARE_VERSION/$CONFIGURATION_VERSION"
+          aws s3 cp firmware/factory-release/waterflex-factory.bin "$PREFIX/waterflex-factory.bin" \
+            --metadata sha256="$SHA256" --only-show-errors
+          aws s3 cp firmware/factory-release/factory-bundle.json "$PREFIX/factory-bundle.json" --only-show-errors
+      - name: Determine release tag
+        id: tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIRMWARE_TAG: fw-${{ steps.bundle-info.outputs.firmware_version }}
+        run: |
+          # A release already exists for this exact firmware version, so this run only rebuilt the
+          # helper (no firmware change) — tag by commit instead of reusing/colliding with that release.
+          if gh release view "$FIRMWARE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "tag=helper-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$FIRMWARE_TAG" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Require API base URLs
+        env:
+          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+          PRODUCTION_URL: ${{ vars.FACTORY_HELPER_PRODUCTION_API_URL }}
+        shell: bash
+        run: |
+          [[ -n "$STAGING_URL" ]] || { echo "Missing repository variable FACTORY_HELPER_STAGING_API_URL." >&2; exit 1; }
+          [[ -n "$PRODUCTION_URL" ]] || { echo "Missing repository variable FACTORY_HELPER_PRODUCTION_API_URL." >&2; exit 1; }
+      - name: Build staging Windows helper
+        env:
+          API_BASE_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+        shell: pwsh
+        run: |
+          "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
+          pyinstaller --onefile --name WaterFlexFactoryHelper-staging --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+      - name: Build production Windows helper
+        env:
+          API_BASE_URL: ${{ vars.FACTORY_HELPER_PRODUCTION_API_URL }}
+        shell: pwsh
+        run: |
+          "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
+          pyinstaller --onefile --name WaterFlexFactoryHelper-production --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          body_path: firmware/tools/FACTORY_HELPER_README.md
+          fail_on_unmatched_files: true
+          files: |
+            dist/WaterFlexFactoryHelper-staging.exe
+            dist/WaterFlexFactoryHelper-production.exe

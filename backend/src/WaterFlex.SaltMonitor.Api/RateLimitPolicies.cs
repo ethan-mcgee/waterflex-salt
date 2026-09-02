@@ -7,4 +7,5 @@ public static class RateLimitPolicies
     public const string Activation = "activation";
     public const string Staff = "staff";
     public const string Factory = "factory";
+    public const string FactoryBundle = "factory-bundle";
 }

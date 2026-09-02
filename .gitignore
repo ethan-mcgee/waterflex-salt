@@ -10,6 +10,7 @@
 **/.pio/
 **/__pycache__/
 .factory-bundle-test/
+firmware/tools/_default_config.py
 
 # Env / secrets
 .env

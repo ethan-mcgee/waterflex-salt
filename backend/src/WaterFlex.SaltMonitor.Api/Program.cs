@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using Amazon.S3;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
@@ -67,6 +68,8 @@ builder.Services.Configure<CloudflareAccessOptions>(
 builder.Services.Configure<FactoryProvisioningOptions>(
 	builder.Configuration.GetSection(FactoryProvisioningOptions.SectionName));
 builder.Services.AddSingleton<ICloudflareAccessTokenValidator, CloudflareAccessTokenValidator>();
+builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client());
+builder.Services.AddSingleton<IFactoryBundleStorage, FactoryBundleStorage>();
 builder.Services.AddAuthorization(options =>
 {
 	options.AddPolicy(DevelopmentIdentity.AuthenticatedPolicy, policy => policy
@@ -151,6 +154,7 @@ builder.Services.AddRateLimiter(options =>
 	options.AddPolicy(RateLimitPolicies.Activation, context => FixedIpLimit(context, RateLimitPolicies.Activation, 10, TimeSpan.FromMinutes(15)));
 	options.AddPolicy(RateLimitPolicies.Staff, context => FixedIpLimit(context, RateLimitPolicies.Staff, 120, TimeSpan.FromMinutes(1)));
 	options.AddPolicy(RateLimitPolicies.Factory, context => FixedStaffLimit(context, RateLimitPolicies.Factory, 120, TimeSpan.FromHours(1)));
+	options.AddPolicy(RateLimitPolicies.FactoryBundle, context => FixedIpLimit(context, RateLimitPolicies.FactoryBundle, 30, TimeSpan.FromHours(1)));
 });
 
 var app = builder.Build();

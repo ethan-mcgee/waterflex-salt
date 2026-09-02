@@ -216,6 +216,64 @@ public static class ProvisioningEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status403Forbidden);
 
+        // Unauthenticated-by-staff for the same reason as the endpoint above: the local helper has no
+        // staff session. The firmware image itself isn't secret, so possession of no token at all is
+        // sufficient here — only the ability to flash a device (gated by flash-authorizations/verify)
+        // is protected.
+        endpoints.MapGet("/api/v1/factory/bundle", async (
+                IOptions<FactoryProvisioningOptions> configured,
+                IFactoryBundleStorage bundleStorage,
+                CancellationToken cancellationToken) =>
+            {
+                var options = configured.Value;
+                if (!options.Enabled)
+                {
+                    return Results.Problem(
+                        statusCode: StatusCodes.Status503ServiceUnavailable,
+                        title: "Factory provisioning is disabled");
+                }
+
+                FactoryBundleLocation? location;
+                try
+                {
+                    location = await bundleStorage.ResolveAsync(
+                        options.ApprovedFirmwareVersion,
+                        options.ConfigurationVersion,
+                        cancellationToken);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    return Results.Problem(
+                        statusCode: StatusCodes.Status500InternalServerError,
+                        title: "Failed to resolve the approved factory firmware bundle");
+                }
+
+                if (location is null)
+                {
+                    return Results.Problem(
+                        statusCode: StatusCodes.Status500InternalServerError,
+                        title: "Failed to resolve the approved factory firmware bundle");
+                }
+
+                return Results.Ok(new FactoryBundleDownload(
+                    options.Model,
+                    options.ApprovedFirmwareVersion,
+                    options.ConfigurationVersion,
+                    options.HelperProtocolVersion,
+                    location.DownloadUrl,
+                    location.Sha256,
+                    location.ExpiresAtUtc));
+            })
+            .WithName("GetFactoryBundleDownload")
+            .WithSummary("Get a presigned download URL for the approved factory firmware bundle")
+            .WithDescription(
+                "Called by the local factory workstation helper to fetch the bundle the backend currently " +
+                "approves, keeping every workstation in lockstep without a manual copy step.")
+            .RequireRateLimiting(RateLimitPolicies.FactoryBundle)
+            .Produces<FactoryBundleDownload>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         return endpoints;
     }
 
