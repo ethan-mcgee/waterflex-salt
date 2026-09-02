@@ -29,16 +29,24 @@ public sealed record RegisterFactoryDeviceRequest(
     string FirmwareVersion,
     string ConfigurationVersion);
 
-/// <summary>Result of a successful factory registration, including the server-issued canonical serial number.</summary>
+/// <summary>
+/// Result of a successful factory registration, including the server-issued canonical serial
+/// number. <see cref="FlashAuthorizationToken"/> is a short-lived, single-use credential the local
+/// factory workstation helper must redeem with the backend before it will flash the device — it is
+/// null only when a job is <see cref="FactoryProvisioningStatus.Quarantined"/>, since a retry mints
+/// its own token when it is ready to flash again.
+/// </summary>
 public sealed record FactoryDeviceRegistration(
     Guid DeviceId,
+    string IdempotencyKey,
     string SerialNumber,
     string Model,
     DateTimeOffset RegisteredAtUtc,
     string BootstrapCredentialId,
     FactoryProvisioningStatus Status,
     DateTimeOffset? VerifiedAtUtc,
-    string? FailureCode);
+    string? FailureCode,
+    string? FlashAuthorizationToken);
 
 /// <summary>Reasons a factory registration attempt was rejected.</summary>
 public enum FactoryRegistrationFailure
@@ -87,6 +95,15 @@ public interface IFactoryDeviceRegistrationService
         StaffActor factoryOperator,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Finds the caller's own most recent non-terminal (<see cref="FactoryProvisioningStatus.Registered"/>
+    /// or <see cref="FactoryProvisioningStatus.Quarantined"/>) job, if any, so the console can resume it
+    /// instead of starting a new one and minting a redundant serial number when local browser state is lost.
+    /// </summary>
+    Task<FactoryRegistrationResult> FindActiveByOperatorAsync(
+        StaffActor factoryOperator,
+        CancellationToken cancellationToken = default);
+
     Task<FactoryVerificationResult> RecordVerificationAsync(
         Guid deviceId,
         FactoryVerificationRequest request,
@@ -98,6 +115,24 @@ public interface IFactoryDeviceRegistrationService
         StaffActor factoryOperator,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Redeems a factory flash-authorization token on behalf of the local, loopback-only factory
+/// workstation helper, which has no staff session of its own. Possession of a valid, unexpired,
+/// unconsumed token for the given device is the entire authorization check — the token itself was
+/// only ever handed to a staff-authenticated console call, so redeeming it here confirms the flash
+/// was approved without requiring the helper to carry staff credentials.
+/// </summary>
+public interface IFactoryFlashAuthorizationService
+{
+    Task<bool> VerifyAsync(
+        Guid deviceId,
+        string token,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Request the local factory workstation helper sends the backend to redeem a flash-authorization token before flashing a device.</summary>
+public sealed record FlashAuthorizationVerificationRequest(Guid DeviceId, string Token);
 
 /// <summary>End-of-line factory verification outcome for a device, gating whether it is allowed to ship.</summary>
 public enum FactoryProvisioningStatus

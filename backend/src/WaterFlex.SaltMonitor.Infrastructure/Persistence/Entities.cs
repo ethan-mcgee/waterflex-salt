@@ -140,6 +140,29 @@ public sealed class DeviceBootstrapCredential
     public Device Device { get; set; } = null!;
 }
 
+/// <summary>
+/// A short-lived, single-use credential the backend issues after a factory job is registered or
+/// retried, which the local factory workstation helper must redeem before it is allowed to flash
+/// the device. This is what closes the gap between the staff-authenticated backend and the
+/// loopback-only helper process, which otherwise has no way to confirm the flash was authorized.
+/// Minting a new authorization for a job revokes any prior unconsumed one for that job.
+/// </summary>
+public sealed class FactoryFlashAuthorization
+{
+    public Guid Id { get; set; }
+    public Guid FactoryProvisioningJobId { get; set; }
+    public Guid DeviceId { get; set; }
+    public required string CredentialId { get; set; }
+    public required byte[] SecretHash { get; set; }
+    public DateTimeOffset IssuedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+    public int FailedAttemptCount { get; set; }
+    public uint RowVersion { get; set; }
+    public FactoryProvisioningJob Job { get; set; } = null!;
+}
+
 /// <summary>The operational credential a device uses for ongoing telemetry/API calls after it has been activated or directly commissioned.</summary>
 public sealed class DeviceCredential
 {

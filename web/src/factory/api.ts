@@ -13,6 +13,7 @@ export type FactoryProvisioningStatus = 'registered' | 'provisioned' | 'failed' 
 
 export interface FactoryRegistration {
   deviceId: string;
+  idempotencyKey: string;
   serialNumber: string;
   model: string;
   registeredAtUtc: string;
@@ -20,6 +21,8 @@ export interface FactoryRegistration {
   status: FactoryProvisioningStatus;
   verifiedAtUtc: string | null;
   failureCode: string | null;
+  /** Short-lived, single-use token the local helper must present to flash the device. Null while quarantined — a retry mints its own. */
+  flashAuthorizationToken: string | null;
 }
 
 export interface FactoryVerification {
@@ -67,6 +70,9 @@ export const registerFactoryDevice = (input: FactoryRegistrationRequest) =>
 
 export const findFactoryDevice = (idempotencyKey: string, signal?: AbortSignal) =>
   request<FactoryRegistration>(`/api/v1/factory/devices/by-idempotency/${encodeURIComponent(idempotencyKey)}`, { signal });
+
+export const findActiveFactoryDevice = (signal?: AbortSignal) =>
+  request<FactoryRegistration>('/api/v1/factory/devices/active', { signal });
 
 export const recordFactoryVerification = (
   deviceId: string,

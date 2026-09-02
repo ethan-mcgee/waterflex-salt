@@ -86,6 +86,75 @@ public sealed class BootstrapProvisioningApiTests
     }
 
     [Fact]
+    public async Task ActiveFactoryDevice_ResumesCreatorsOwnJobAndHidesItFromOtherWorkers()
+    {
+        await using var factory = new BootstrapApiFactory();
+        await factory.InitializeDatabaseAsync();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-factory-riley");
+        var registered = await client.PostAsJsonAsync(
+            "/api/v1/factory/devices",
+            new RegisterFactoryDeviceRequest(
+                "factory-active-job-0001",
+                "Arduino Nano ESP32",
+                "wf_boot_active_0001",
+                Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("active-bootstrap-secret"))),
+                "wf-uart-pilot-0.1",
+                "factory-v2"));
+        var registration = await registered.Content.ReadFromJsonAsync<FactoryDeviceRegistration>(JsonOptions);
+
+        var resumedByCreator = await client.GetAsync("/api/v1/factory/devices/active");
+        var resumedBody = await resumedByCreator.Content.ReadFromJsonAsync<FactoryDeviceRegistration>(JsonOptions);
+
+        client.DefaultRequestHeaders.Remove("X-WaterFlex-Development-User");
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-admin-avery");
+        var resumedByOther = await client.GetAsync("/api/v1/factory/devices/active");
+
+        Assert.Equal(HttpStatusCode.Created, registered.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, resumedByCreator.StatusCode);
+        Assert.Equal(registration!.DeviceId, resumedBody!.DeviceId);
+        Assert.Equal("factory-active-job-0001", resumedBody.IdempotencyKey);
+        Assert.Equal(HttpStatusCode.NotFound, resumedByOther.StatusCode);
+    }
+
+    [Fact]
+    public async Task FlashAuthorizationVerify_RequiresNoStaffSessionButOnlyAcceptsAValidTokenOnce()
+    {
+        await using var factory = new BootstrapApiFactory();
+        await factory.InitializeDatabaseAsync();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-factory-riley");
+        var registered = await client.PostAsJsonAsync(
+            "/api/v1/factory/devices",
+            new RegisterFactoryDeviceRequest(
+                "factory-flash-job-0001",
+                "Arduino Nano ESP32",
+                "wf_boot_flash_0001",
+                Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("flash-bootstrap-secret"))),
+                "wf-uart-pilot-0.1",
+                "factory-v2"));
+        var registration = await registered.Content.ReadFromJsonAsync<FactoryDeviceRegistration>(JsonOptions);
+        client.DefaultRequestHeaders.Remove("X-WaterFlex-Development-User");
+
+        var badToken = await client.PostAsJsonAsync(
+            "/api/v1/factory/flash-authorizations/verify",
+            new FlashAuthorizationVerificationRequest(registration!.DeviceId, "not-a-real-token"));
+        var firstUse = await client.PostAsJsonAsync(
+            "/api/v1/factory/flash-authorizations/verify",
+            new FlashAuthorizationVerificationRequest(registration.DeviceId, registration.FlashAuthorizationToken!));
+        var replay = await client.PostAsJsonAsync(
+            "/api/v1/factory/flash-authorizations/verify",
+            new FlashAuthorizationVerificationRequest(registration.DeviceId, registration.FlashAuthorizationToken!));
+
+        Assert.NotNull(registration!.FlashAuthorizationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, badToken.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, firstUse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, replay.StatusCode);
+    }
+
+    [Fact]
     public async Task DisabledFactoryProvisioning_LeavesConfigurationReadableAndRejectsRegistration()
     {
         await using var factory = new BootstrapApiFactory(factoryProvisioningEnabled: false);

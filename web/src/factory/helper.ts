@@ -36,6 +36,7 @@ export const prepareHelperJob = (baseUrl: string, input: {
 
 export const startHelperJob = (baseUrl: string, idempotencyKey: string, input: {
   deviceId: string; serialNumber: string; model: string; firmwareVersion: string; configurationVersion: string;
+  flashAuthorizationToken: string;
 }) => helperRequest<HelperJob>(baseUrl, `/v1/jobs/${encodeURIComponent(idempotencyKey)}/start`, { method: 'POST', body: JSON.stringify(input) });
 
 export const getHelperJob = (baseUrl: string, idempotencyKey: string, signal?: AbortSignal) =>
