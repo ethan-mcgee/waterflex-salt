@@ -30,6 +30,8 @@ Create these repository variables under **Settings -> Secrets and variables -> A
 | `AWS_STAGING_DEPLOY_ROLE_ARN` | ARN of the GitHub OIDC staging deployment role |
 | `STAGING_DEPLOY_BUCKET` | Private versioned S3 bucket used for release bundles |
 | `STAGING_INSTANCE_ID` | Managed staging EC2 instance ID |
+| `FACTORY_HELPER_STAGING_API_URL` | Base URL the staging build of the factory helper exe talks to (`https://console-staging.saltmonitor.dev`) |
+| `FACTORY_HELPER_PRODUCTION_API_URL` | Base URL the production build of the factory helper exe talks to (`https://saltmonitor.dev`) |
 
 No long-lived AWS access key or database password belongs in GitHub.
 
@@ -65,6 +67,9 @@ The GitHub publishing role needs only:
 - ECR authorization plus describe/create/push operations for `waterflex-api`, `waterflex-worker`, `waterflex-web`,
   and `waterflex-migrations`.
 - `s3:PutObject` for `<deployment-bucket>/releases/*` and bucket-location access.
+- `s3:PutObject` and `s3:AbortMultipartUpload` for `<deployment-bucket>/factory-bundles/*`, used by the separate
+  `factory-release` workflow to upload the approved firmware bundle (granted via the `WaterFlexFactoryBundlePublish`
+  inline policy).
 
 The GitHub deployment role needs only `ssm:SendCommand` restricted to the staging instance and
 `AWS-RunShellScript` document, plus `ssm:GetCommandInvocation` and command-status reads. It does not need ECR,
@@ -79,6 +84,8 @@ The staging instance role needs:
 
 - Read-only ECR access to the four WaterFlex repositories.
 - `s3:GetObject` for `<deployment-bucket>/releases/*`.
+- `s3:GetObject` for `<deployment-bucket>/factory-bundles/*`, so the API can presign download URLs for
+  `GET /api/v1/factory/bundle` (granted via the `WaterFlexFactoryBundleRead` inline policy).
 - `secretsmanager:GetSecretValue` for `waterflex/staging/database/runtime` and
   `waterflex/staging/database/migrator` only.
 
@@ -92,6 +99,8 @@ and the existing `waterflex-api.service`. `/etc/waterflex/deployment.env` must b
 ```text
 AWS_REGION=us-east-2
 MIGRATION_SECRET_ID=waterflex/staging/database/migrator
+FactoryProvisioning__BundleBucket=waterflex-staging-deploy-067506874148-us-east-2
+FactoryProvisioning__BundleKeyPrefix=factory-bundles
 ```
 
 ## First activation and verification
