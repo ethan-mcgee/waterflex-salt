@@ -50,7 +50,8 @@ public sealed class FactoryBundleStorage(
             return null;
         }
 
-        if (!metadata.Metadata.Keys.Contains("sha256"))
+        var sha256 = metadata.Metadata["sha256"];
+        if (string.IsNullOrWhiteSpace(sha256))
         {
             throw new InvalidOperationException($"Factory bundle object '{key}' is missing required sha256 metadata.");
         }
@@ -64,6 +65,6 @@ public sealed class FactoryBundleStorage(
             Expires = expiresAtUtc.UtcDateTime
         });
 
-        return new FactoryBundleLocation(downloadUrl, metadata.Metadata["sha256"], expiresAtUtc);
+        return new FactoryBundleLocation(downloadUrl, sha256, expiresAtUtc);
     }
 }
