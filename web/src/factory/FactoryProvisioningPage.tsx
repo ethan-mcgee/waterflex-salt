@@ -39,11 +39,7 @@ export default function FactoryProvisioningPage() {
   const [error, setError] = useState('');
   const finalizing = useRef(false);
 
-  const refreshHelper = useCallback(async (config: FactoryConfiguration, signal?: AbortSignal) => {
-    const health = await checkHelper(config.helperBaseUrl, signal);
-    if (health.protocolVersion !== config.helperProtocolVersion) {
-      throw new Error(`Update the factory helper. Protocol ${health.protocolVersion} is installed; protocol ${config.helperProtocolVersion} is required.`);
-    }
+  const refreshHelperDevices = useCallback(async (config: FactoryConfiguration, signal?: AbortSignal) => {
     const devices = await getHelperDevices(config.helperBaseUrl, signal);
     setHelperDevices(devices);
     setHelperReady(true);
@@ -60,26 +56,40 @@ export default function FactoryProvisioningPage() {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Factory configuration is unavailable.');
       });
     return () => controller.abort();
-  }, [refreshHelper]);
+  }, []);
 
   useEffect(() => {
     if (!configuration?.enabled) return;
     const controller = new AbortController();
-    const refresh = () => {
-      refreshHelper(configuration, controller.signal).catch((reason: unknown) => {
+    let timer: number | undefined;
+    const refreshDevices = () => {
+      refreshHelperDevices(configuration, controller.signal).catch((reason: unknown) => {
         if (controller.signal.aborted) return;
         setHelperReady(false);
         setHelperDevices(null);
         setHelperStatusError(reason instanceof Error ? reason.message : 'Factory helper detection is unavailable.');
       });
     };
-    refresh();
-    const timer = window.setInterval(refresh, 1000);
+    (async () => {
+      try {
+        const health = await checkHelper(configuration.helperBaseUrl, controller.signal);
+        if (health.protocolVersion !== configuration.helperProtocolVersion) {
+          throw new Error(`Update the factory helper. Protocol ${health.protocolVersion} is installed; protocol ${configuration.helperProtocolVersion} is required.`);
+        }
+        await refreshHelperDevices(configuration, controller.signal);
+        if (!controller.signal.aborted) timer = window.setInterval(refreshDevices, 1000);
+      } catch (reason) {
+        if (controller.signal.aborted) return;
+        setHelperReady(false);
+        setHelperDevices(null);
+        setHelperStatusError(reason instanceof Error ? reason.message : 'Factory helper detection is unavailable.');
+      }
+    })();
     return () => {
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
       controller.abort();
     };
-  }, [configuration, refreshHelper]);
+  }, [configuration, refreshHelperDevices]);
 
   useEffect(() => {
     if (!configuration || !configuration.enabled) return;
@@ -304,7 +314,7 @@ export default function FactoryProvisioningPage() {
             <p>{helperReady ? 'The workstation helper is ready to access USB hardware.' : 'Install and start the WaterFlex factory helper on this workstation.'}</p></div>
         </article>
         <article className="factory-card">
-          <div className="factory-card-icon"><CircuitBoard size={22} /></div>
+          <div className={`factory-card-icon ${exactlyOneDevice ? 'ready' : ''}`}><CircuitBoard size={22} /></div>
           <div><span className="factory-card-kicker">Connected unit</span><h2>{registration?.serialNumber ?? deviceHeading}</h2>
             <p>{helperJob?.message ?? deviceMessage}</p></div>
         </article>
