@@ -40,6 +40,9 @@ describe('FactoryProvisioningPage', () => {
     expect(screen.getByText('Checking for sensor')).toBeInTheDocument();
     expect(await screen.findByText('Connected')).toBeInTheDocument();
     expect(await screen.findByText('Nano detected')).toBeInTheDocument();
+    expect(cardIcon('Local helper')).toHaveClass('ready');
+    expect(cardIcon('Connected unit')).toHaveClass('ready');
+    expect(cardIcon('Acceptance')).not.toHaveClass('ready');
     expect(screen.getByText(/COM4 — Arduino Nano ESP32/)).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /provision sensor/i })).toBeEnabled();
   });
@@ -79,12 +82,54 @@ describe('FactoryProvisioningPage', () => {
 
     render(<FactoryProvisioningPage />);
     expect(await screen.findByText('Nano detected')).toBeInTheDocument();
+    expect(cardIcon('Connected unit')).toHaveClass('ready');
     deviceResponse = { status: 'none', devices: [] };
     await waitFor(() => expect(screen.getByText('No Nano detected')).toBeInTheDocument(), { timeout: 1600 });
+    expect(cardIcon('Connected unit')).not.toHaveClass('ready');
     deviceResponse = detected;
     await waitFor(() => expect(screen.getByText('Nano detected')).toBeInTheDocument(), { timeout: 1600 });
-    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/v1/health')).length).toBeGreaterThanOrEqual(3);
+    expect(cardIcon('Connected unit')).toHaveClass('ready');
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/v1/health'))).toHaveLength(1);
     expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/v1/devices')).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('turns the acceptance icon green after all checks pass', async () => {
+    window.localStorage.setItem('waterflex-factory-active-job', 'factory-complete-job-0001');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (url.endsWith('/v1/devices')) return json(detected);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      if (url.endsWith('/v1/jobs/factory-complete-job-0001')) return json({
+        idempotencyKey: 'factory-complete-job-0001',
+        bootstrapCredentialId: 'wf_boot_complete_0001',
+        bootstrapSecretHash: 'safe-hash',
+        status: 'completed',
+        message: 'All local factory acceptance checks passed.',
+        serialNumber: 'WF-NANO-0042',
+        evidence: { firmware: true, identity: true, portal: true, sensor: true },
+        failureCode: null,
+      });
+      if (url === '/api/v1/factory/devices/by-idempotency/factory-complete-job-0001') return json({
+        deviceId: '11111111-1111-1111-1111-111111111111',
+        idempotencyKey: 'factory-complete-job-0001',
+        serialNumber: 'WF-NANO-0042',
+        model: configuration.model,
+        registeredAtUtc: '2026-09-01T00:00:00Z',
+        bootstrapCredentialId: 'wf_boot_complete_0001',
+        status: 'provisioned',
+        verifiedAtUtc: '2026-09-01T00:01:00Z',
+        failureCode: null,
+        flashAuthorizationToken: null,
+      });
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect(await screen.findByText('All checks passed')).toBeInTheDocument();
+    expect(cardIcon('Acceptance')).toHaveClass('ready');
   });
 
   it('rejects protocol v1 with an update-helper message and does not query devices', async () => {
@@ -237,4 +282,10 @@ function json(body: unknown) {
 
 function notFound() {
   return Promise.resolve(new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } }));
+}
+
+function cardIcon(kicker: string) {
+  const icon = screen.getByText(kicker).closest('.factory-card')?.querySelector('.factory-card-icon');
+  if (!(icon instanceof HTMLElement)) throw new Error(`Missing icon for ${kicker}`);
+  return icon;
 }
