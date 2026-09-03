@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import FactoryProvisioningPage from './FactoryProvisioningPage';
 
@@ -9,12 +9,18 @@ const configuration = {
   approvedFirmwareVersion: 'wf-uart-pilot-0.1',
   configurationVersion: 'factory-v2',
   helperBaseUrl: 'http://127.0.0.1:8765',
-  helperProtocolVersion: '1',
+  helperProtocolVersion: '2',
+};
+
+const detected = {
+  status: 'detected',
+  devices: [{ port: 'COM4', description: 'Arduino Nano ESP32' }],
 };
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   window.localStorage.clear();
 });
 
@@ -23,15 +29,95 @@ describe('FactoryProvisioningPage', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '1' });
+      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '2' });
+      if (url === 'http://127.0.0.1:8765/v1/devices') return json(detected);
       if (url === '/api/v1/factory/devices/active') return notFound();
       throw new Error(`Unexpected URL ${url}`);
     });
 
     render(<FactoryProvisioningPage />);
 
+    expect(screen.getByText('Checking for sensor')).toBeInTheDocument();
     expect(await screen.findByText('Connected')).toBeInTheDocument();
+    expect(await screen.findByText('Nano detected')).toBeInTheDocument();
+    expect(screen.getByText(/COM4 — Arduino Nano ESP32/)).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /provision sensor/i })).toBeEnabled();
+  });
+
+  it.each([
+    [{ status: 'none', devices: [] }, 'No Nano detected'],
+    [{ status: 'multiple', devices: [
+      { port: 'COM4', description: 'Arduino Nano ESP32' },
+      { port: 'COM7', description: 'ESP32 USB JTAG' },
+    ] }, 'Multiple Nanos detected — disconnect all but one'],
+  ])('blocks provisioning when detection is $status', async (deviceResponse, heading) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (url.endsWith('/v1/devices')) return json(deviceResponse);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect(await screen.findByText(heading)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /provision sensor/i })).toBeDisabled();
+  });
+
+  it('polls once per second and reflects unplug and replug transitions', async () => {
+    let deviceResponse: unknown = detected;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (url.endsWith('/v1/devices')) return json(deviceResponse);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+    expect(await screen.findByText('Nano detected')).toBeInTheDocument();
+    deviceResponse = { status: 'none', devices: [] };
+    await waitFor(() => expect(screen.getByText('No Nano detected')).toBeInTheDocument(), { timeout: 1600 });
+    deviceResponse = detected;
+    await waitFor(() => expect(screen.getByText('Nano detected')).toBeInTheDocument(), { timeout: 1600 });
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/v1/health')).length).toBeGreaterThanOrEqual(3);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/v1/devices')).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('rejects protocol v1 with an update-helper message and does not query devices', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '1' });
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect((await screen.findAllByText('Update the factory helper. Protocol 1 is installed; protocol 2 is required.')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /provision sensor/i })).toBeDisabled();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/v1/devices'))).toBe(false);
+  });
+
+  it('shows endpoint failures and keeps provisioning disabled', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (url.endsWith('/v1/devices')) return Promise.resolve(new Response('{}', { status: 503 }));
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect((await screen.findAllByText('Factory helper request failed (503).')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Detection unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /provision sensor/i })).toBeDisabled();
   });
 
   it('shows an environment-level disable without contacting the helper', async () => {
@@ -49,7 +135,8 @@ describe('FactoryProvisioningPage', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '1' });
+      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '2' });
+      if (url === 'http://127.0.0.1:8765/v1/devices') return json(detected);
       if (url.endsWith('/v1/jobs/factory-resume-job-0001') && !init?.method) return json({
         idempotencyKey: 'factory-resume-job-0001',
         bootstrapCredentialId: 'wf_boot_resume_0001',
@@ -97,6 +184,47 @@ describe('FactoryProvisioningPage', () => {
       String(callInput).endsWith('/v1/jobs/factory-resume-job-0001/start'));
     expect(JSON.parse(String(startCall?.[1]?.body))).toEqual(
       expect.objectContaining({ flashAuthorizationToken: 'wf_flash_resume_0001.resume-secret' }));
+    expect(screen.getByText('Waiting for sensor')).toBeInTheDocument();
+  });
+
+  it('keeps retry disabled when a quarantined job does not have exactly one detected Nano', async () => {
+    window.localStorage.setItem('waterflex-factory-active-job', 'factory-quarantined-job-0001');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (url.endsWith('/v1/devices')) return json({ status: 'none', devices: [] });
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      if (url.endsWith('/v1/jobs/factory-quarantined-job-0001')) return json({
+        idempotencyKey: 'factory-quarantined-job-0001',
+        bootstrapCredentialId: 'wf_boot_quarantined_0001',
+        bootstrapSecretHash: 'safe-hash',
+        status: 'failed',
+        message: 'Sensor verification failed',
+        serialNumber: 'WF-NANO-0042',
+        evidence: { firmware: true, identity: true, portal: true, sensor: false },
+        failureCode: 'factory_helper_failed',
+      });
+      if (url === '/api/v1/factory/devices/by-idempotency/factory-quarantined-job-0001') return json({
+        deviceId: '11111111-1111-1111-1111-111111111111',
+        idempotencyKey: 'factory-quarantined-job-0001',
+        serialNumber: 'WF-NANO-0042',
+        model: configuration.model,
+        registeredAtUtc: '2026-09-01T00:00:00Z',
+        bootstrapCredentialId: 'wf_boot_quarantined_0001',
+        status: 'quarantined',
+        verifiedAtUtc: '2026-09-01T00:01:00Z',
+        failureCode: 'factory_helper_failed',
+        flashAuthorizationToken: null,
+      });
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect(await screen.findByText('WF-NANO-0042')).toBeInTheDocument();
+    expect(screen.getByText('Sensor verification failed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry this sensor/i })).toBeDisabled();
   });
 });
 

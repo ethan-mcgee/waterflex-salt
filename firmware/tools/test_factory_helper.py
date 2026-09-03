@@ -8,12 +8,16 @@ import unittest
 import os
 import socket
 import ssl
+import threading
 import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from factory_helper import (
     FactoryHelper,
+    Handler,
     LOGGER,
     configure_startup_logging,
     public_job,
@@ -33,7 +37,7 @@ class FactoryHelperTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.1",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "1",
+            "helperProtocolVersion": "2",
             "mergedImage": {"file": image.name, "sha256": hashlib.sha256(image.read_bytes()).hexdigest()},
         }), encoding="utf-8")
         self.esptool = self.root / "esptool.py"
@@ -181,7 +185,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.1",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "1",
+            "helperProtocolVersion": "2",
             "mergedImage": {"file": image.name, "sha256": sha256},
         }), encoding="utf-8")
         return sha256
@@ -198,7 +202,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.1",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "1",
+            "helperProtocolVersion": "2",
             "downloadUrl": "http://example.invalid/should-not-be-fetched",
             "sha256": sha256,
         }).encode("utf-8")
@@ -218,7 +222,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.2",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "1",
+            "helperProtocolVersion": "2",
             "downloadUrl": "http://example.invalid/waterflex-factory.bin",
             "sha256": new_sha256,
         }).encode("utf-8")
@@ -242,7 +246,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.2",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "1",
+            "helperProtocolVersion": "2",
             "downloadUrl": "http://example.invalid/waterflex-factory.bin",
             "sha256": "0" * 64,  # will never match the downloaded bytes below
         }).encode("utf-8")
@@ -320,7 +324,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.2",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "1",
+            "helperProtocolVersion": "2",
             "downloadUrl": "https://example.invalid/waterflex-factory.bin",
             "sha256": "0" * 64,
         }).encode("utf-8")
@@ -368,6 +372,59 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(1, result)
         show_dialog.assert_called_once_with("startup exploded")
         self.assertIn("startup exploded", log_path.read_text(encoding="utf-8"))
+
+
+class DeviceEndpointTests(unittest.TestCase):
+    @staticmethod
+    def _request(origin: str, host: str = "127.0.0.1") -> tuple[int, dict, dict]:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.allowed_origins = {"https://console-staging.saltmonitor.dev"}  # type: ignore[attr-defined]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/v1/devices",
+                headers={"Origin": origin, "Host": host},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    return response.status, json.loads(response.read()), dict(response.headers)
+            except urllib.error.HTTPError as error:
+                return error.code, json.loads(error.read()), dict(error.headers)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_devices_endpoint_returns_none_detected_and_multiple(self) -> None:
+        cases = [
+            ([], "none"),
+            ([{"port": "COM4", "description": "Arduino Nano ESP32"}], "detected"),
+            ([
+                {"port": "COM4", "description": "Arduino Nano ESP32"},
+                {"port": "COM7", "description": "USB JTAG/serial debug unit"},
+            ], "multiple"),
+        ]
+        for devices, expected_status in cases:
+            with self.subTest(expected_status), patch("factory_helper.enumerate_devices", return_value=devices):
+                status, body, headers = self._request("https://console-staging.saltmonitor.dev")
+            self.assertEqual(200, status)
+            self.assertEqual({"status": expected_status, "devices": devices}, body)
+            self.assertEqual("https://console-staging.saltmonitor.dev", headers["Access-Control-Allow-Origin"])
+
+    def test_devices_endpoint_rejects_unapproved_origin(self) -> None:
+        with patch("factory_helper.enumerate_devices") as enumerate_mock:
+            status, body, _ = self._request("https://evil.example")
+        self.assertEqual(403, status)
+        self.assertEqual({"error": "origin_not_allowed"}, body)
+        enumerate_mock.assert_not_called()
+
+    def test_devices_endpoint_rejects_non_loopback_host(self) -> None:
+        with patch("factory_helper.enumerate_devices") as enumerate_mock:
+            status, body, _ = self._request("https://console-staging.saltmonitor.dev", "attacker.example")
+        self.assertEqual(403, status)
+        self.assertEqual({"error": "origin_not_allowed"}, body)
+        enumerate_mock.assert_not_called()
 
 
 if __name__ == "__main__":

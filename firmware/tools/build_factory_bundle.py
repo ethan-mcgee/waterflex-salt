@@ -47,7 +47,7 @@ def main() -> int:
         "model": "Arduino Nano ESP32",
         "firmwareVersion": firmware_version,
         "configurationVersion": args.configuration_version,
-        "helperProtocolVersion": "1",
+        "helperProtocolVersion": "2",
         "mergedImage": {"file": merged.name, "sha256": hashlib.sha256(merged.read_bytes()).hexdigest()},
     }
     (output / "factory-bundle.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

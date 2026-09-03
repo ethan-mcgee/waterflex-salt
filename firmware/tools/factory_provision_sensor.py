@@ -52,17 +52,24 @@ def dpapi(value: bytes, decrypt: bool = False) -> bytes:
         ctypes.windll.kernel32.LocalFree(output_blob.pbData)
 
 
+def enumerate_devices(available_ports=None) -> list[dict[str, str]]:
+    """Return Nano-like USB serial devices without opening or otherwise touching their ports."""
+    available = list(list_ports.comports() if available_ports is None else available_ports)
+    devices = []
+    for port in available:
+        description = port.description or port.manufacturer or "USB serial device"
+        if any(marker in f"{description} {port.manufacturer or ''}".lower()
+               for marker in ("arduino", "nano esp32", "esp32", "usb jtag")):
+            devices.append({"port": port.device, "description": description})
+    return devices
+
+
 def detect_port(explicit_port: str | None) -> str:
     """Require exactly one connected Nano-like serial device unless an explicit port still exists."""
     available = list(list_ports.comports())
     if explicit_port and any(port.device.casefold() == explicit_port.casefold() for port in available):
         return explicit_port
-    candidates = [
-        port.device
-        for port in available
-        if any(marker in f"{port.description} {port.manufacturer}".lower()
-               for marker in ("arduino", "nano esp32", "esp32", "usb jtag"))
-    ]
+    candidates = [device["port"] for device in enumerate_devices(available)]
     if len(candidates) != 1:
         raise RuntimeError(f"Expected exactly one Nano ESP32 serial port; found {candidates or 'none'}.")
     return candidates[0]

@@ -18,6 +18,16 @@ export interface HelperJob {
   failureCode: string | null;
 }
 
+export interface HelperDevice {
+  port: string;
+  description: string;
+}
+
+export interface HelperDevices {
+  status: 'none' | 'detected' | 'multiple';
+  devices: HelperDevice[];
+}
+
 async function helperRequest<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
     ...init,
@@ -29,6 +39,9 @@ async function helperRequest<T>(baseUrl: string, path: string, init?: RequestIni
 
 export const checkHelper = (baseUrl: string, signal?: AbortSignal) =>
   helperRequest<{ status: 'ready'; protocolVersion: string }>(baseUrl, '/v1/health', { signal });
+
+export const getHelperDevices = (baseUrl: string, signal?: AbortSignal) =>
+  helperRequest<HelperDevices>(baseUrl, '/v1/devices', { signal });
 
 export const prepareHelperJob = (baseUrl: string, input: {
   idempotencyKey: string; bootstrapCredentialId: string; bootstrapSecret: string; setupPassphrase: string;

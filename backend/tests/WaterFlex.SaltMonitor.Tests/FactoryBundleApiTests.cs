@@ -65,6 +65,7 @@ public sealed class FactoryBundleApiTests
         Assert.NotNull(body);
         Assert.Equal("wf-uart-pilot-0.1", body!.FirmwareVersion);
         Assert.Equal("factory-v2", body.ConfigurationVersion);
+        Assert.Equal("2", body.HelperProtocolVersion);
         Assert.Equal("https://example-bucket.s3.amazonaws.com/signed", body.DownloadUrl);
         Assert.Equal("deadbeef", body.Sha256);
     }
