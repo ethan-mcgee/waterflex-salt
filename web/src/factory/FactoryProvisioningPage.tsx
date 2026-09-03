@@ -15,10 +15,12 @@ import {
 import {
   checkHelper,
   clearHelperJob,
+  getHelperDevices,
   getHelperJob,
   prepareHelperJob,
   startHelperJob,
   type HelperJob,
+  type HelperDevices,
 } from './helper';
 
 const ACTIVE_JOB_KEY = 'waterflex-factory-active-job';
@@ -26,6 +28,8 @@ const ACTIVE_JOB_KEY = 'waterflex-factory-active-job';
 export default function FactoryProvisioningPage() {
   const [configuration, setConfiguration] = useState<FactoryConfiguration | null>(null);
   const [helperReady, setHelperReady] = useState(false);
+  const [helperDevices, setHelperDevices] = useState<HelperDevices | null>(null);
+  const [helperStatusError, setHelperStatusError] = useState('');
   const [registration, setRegistration] = useState<FactoryRegistration | null>(null);
   const [helperJob, setHelperJob] = useState<HelperJob | null>(null);
   const [verification, setVerification] = useState<FactoryVerification | null>(null);
@@ -38,9 +42,12 @@ export default function FactoryProvisioningPage() {
   const refreshHelper = useCallback(async (config: FactoryConfiguration, signal?: AbortSignal) => {
     const health = await checkHelper(config.helperBaseUrl, signal);
     if (health.protocolVersion !== config.helperProtocolVersion) {
-      throw new Error(`Factory helper protocol ${health.protocolVersion} is not approved. Expected ${config.helperProtocolVersion}.`);
+      throw new Error(`Update the factory helper. Protocol ${health.protocolVersion} is installed; protocol ${config.helperProtocolVersion} is required.`);
     }
+    const devices = await getHelperDevices(config.helperBaseUrl, signal);
+    setHelperDevices(devices);
     setHelperReady(true);
+    setHelperStatusError('');
   }, []);
 
   useEffect(() => {
@@ -48,14 +55,31 @@ export default function FactoryProvisioningPage() {
     getFactoryConfiguration(controller.signal)
       .then(async (config) => {
         setConfiguration(config);
-        if (!config.enabled) return;
-        await refreshHelper(config, controller.signal);
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Factory configuration is unavailable.');
       });
     return () => controller.abort();
   }, [refreshHelper]);
+
+  useEffect(() => {
+    if (!configuration?.enabled) return;
+    const controller = new AbortController();
+    const refresh = () => {
+      refreshHelper(configuration, controller.signal).catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        setHelperReady(false);
+        setHelperDevices(null);
+        setHelperStatusError(reason instanceof Error ? reason.message : 'Factory helper detection is unavailable.');
+      });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    return () => {
+      window.clearInterval(timer);
+      controller.abort();
+    };
+  }, [configuration, refreshHelper]);
 
   useEffect(() => {
     if (!configuration || !configuration.enabled) return;
@@ -150,7 +174,7 @@ export default function FactoryProvisioningPage() {
   }, [configuration, helperJob, registration, verification]);
 
   async function startProvisioning() {
-    if (!configuration || !helperReady || !configuration.enabled) return;
+    if (!configuration || !helperReady || helperDevices?.status !== 'detected' || helperDevices.devices.length !== 1 || !configuration.enabled) return;
     setBusy(true);
     setError('');
     setVerification(null);
@@ -192,7 +216,7 @@ export default function FactoryProvisioningPage() {
   }
 
   async function retryProvisioning() {
-    if (!configuration || !registration || !activeKey) return;
+    if (!configuration || !registration || !activeKey || !helperReady || helperDevices?.status !== 'detected' || helperDevices.devices.length !== 1) return;
     setBusy(true);
     setError('');
     setVerification(null);
@@ -237,6 +261,22 @@ export default function FactoryProvisioningPage() {
   const complete = verification?.status === 'provisioned';
   const quarantined = verification?.status === 'quarantined';
   const working = helperJob && !['completed', 'failed'].includes(helperJob.status);
+  const exactlyOneDevice = helperReady && helperDevices?.status === 'detected' && helperDevices.devices.length === 1;
+  const detectedDevice = exactlyOneDevice ? helperDevices.devices[0] : null;
+  const deviceHeading = !helperReady
+    ? helperStatusError ? 'Detection unavailable' : 'Checking for sensor'
+    : helperDevices?.status === 'none'
+      ? 'No Nano detected'
+      : helperDevices?.status === 'multiple'
+        ? 'Multiple Nanos detected — disconnect all but one'
+        : detectedDevice ? 'Nano detected' : 'Checking for sensor';
+  const deviceMessage = detectedDevice
+    ? `${detectedDevice.port} — ${detectedDevice.description}. USB presence only; this does not show whether the unit was previously provisioned.`
+    : helperDevices?.status === 'multiple'
+      ? `${helperDevices.devices.length} matching USB serial devices are connected. USB detection cannot identify prior provisioning.`
+      : helperDevices?.status === 'none'
+        ? 'Plug one Nano ESP32 into this workstation. USB detection cannot identify prior provisioning.'
+        : helperStatusError || 'Checking the workstation for a matching USB serial device.';
 
   return (
     <section className="factory-page" aria-labelledby="factory-title">
@@ -252,6 +292,7 @@ export default function FactoryProvisioningPage() {
       </header>
 
       {error && <div className="inline-alert error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}
+      {helperStatusError && <div className="inline-alert error" role="alert"><AlertTriangle size={17} /><span>{helperStatusError}</span></div>}
       {configuration && !configuration.enabled && (
         <div className="inline-alert warning"><AlertTriangle size={17} /><span>Factory provisioning is disabled in this environment.</span></div>
       )}
@@ -264,8 +305,8 @@ export default function FactoryProvisioningPage() {
         </article>
         <article className="factory-card">
           <div className="factory-card-icon"><CircuitBoard size={22} /></div>
-          <div><span className="factory-card-kicker">Connected unit</span><h2>{registration?.serialNumber ?? 'Waiting for sensor'}</h2>
-            <p>{helperJob?.message ?? 'Plug one Nano ESP32 into this workstation before starting.'}</p></div>
+          <div><span className="factory-card-kicker">Connected unit</span><h2>{registration?.serialNumber ?? deviceHeading}</h2>
+            <p>{helperJob?.message ?? deviceMessage}</p></div>
         </article>
         <article className="factory-card">
           <div className={`factory-card-icon ${complete ? 'ready' : ''}`}><ShieldCheck size={22} /></div>
@@ -284,12 +325,12 @@ export default function FactoryProvisioningPage() {
 
       <footer className="factory-actions">
         {!registration && (
-          <button className="button button-primary" type="button" disabled={busy || !helperReady || !activeChecked || !configuration?.enabled} onClick={startProvisioning}>
+          <button className="button button-primary" type="button" disabled={busy || !exactlyOneDevice || !activeChecked || !configuration?.enabled} onClick={startProvisioning}>
             {busy ? <LoaderCircle className="spin" size={17} /> : <CircuitBoard size={17} />}Provision sensor
           </button>
         )}
         {quarantined && (
-          <button className="button button-primary" type="button" disabled={busy} onClick={retryProvisioning}><RotateCcw size={17} />Retry this sensor</button>
+          <button className="button button-primary" type="button" disabled={busy || !exactlyOneDevice} onClick={retryProvisioning}><RotateCcw size={17} />Retry this sensor</button>
         )}
         {complete && <button className="button button-secondary" type="button" onClick={() => window.print()}><Printer size={17} />Print label</button>}
         {complete && <button className="button button-primary" type="button" disabled={busy} onClick={finishJob}>Clear and start next</button>}

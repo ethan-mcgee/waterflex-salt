@@ -13,7 +13,7 @@ services:
       FactoryProvisioning__ApprovedFirmwareVersion: ${FactoryProvisioning__ApprovedFirmwareVersion:-wf-uart-pilot-0.1}
       FactoryProvisioning__ConfigurationVersion: ${FactoryProvisioning__ConfigurationVersion:-factory-v2}
       FactoryProvisioning__HelperBaseUrl: ${FactoryProvisioning__HelperBaseUrl:-http://127.0.0.1:8765}
-      FactoryProvisioning__HelperProtocolVersion: ${FactoryProvisioning__HelperProtocolVersion:-1}
+      FactoryProvisioning__HelperProtocolVersion: ${FactoryProvisioning__HelperProtocolVersion:-2}
       FactoryProvisioning__BundleBucket: ${FactoryProvisioning__BundleBucket:-}
       FactoryProvisioning__BundleKeyPrefix: ${FactoryProvisioning__BundleKeyPrefix:-factory-bundles}
       AWS_REGION: ${AWS_REGION:-us-east-2}

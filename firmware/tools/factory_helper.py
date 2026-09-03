@@ -22,9 +22,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from factory_provision_sensor import detect_port, dpapi, serial_factory_provision
+from factory_provision_sensor import detect_port, dpapi, enumerate_devices, serial_factory_provision
 
-PROTOCOL_VERSION = "1"
+PROTOCOL_VERSION = "2"
 DEFAULT_ORIGINS = {
     "https://console-staging.saltmonitor.dev",
     "https://saltmonitor.dev",
@@ -510,7 +510,7 @@ def invoke_esptool(esptool_path: Path, arguments: list[str]) -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "WaterFlexFactoryHelper/1"
+    server_version = "WaterFlexFactoryHelper/2"
 
     def _origin_allowed(self) -> bool:
         origin = self.headers.get("Origin")
@@ -562,6 +562,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if segments == ["v1", "health"]:
                 self._json(HTTPStatus.OK, {"status": "ready", "protocolVersion": PROTOCOL_VERSION})
+            elif segments == ["v1", "devices"]:
+                devices = enumerate_devices()
+                status = "none" if not devices else "detected" if len(devices) == 1 else "multiple"
+                self._json(HTTPStatus.OK, {"status": status, "devices": devices})
             elif len(segments) == 3 and segments[:2] == ["v1", "jobs"]:
                 self._json(HTTPStatus.OK, public_job(self.server.helper.store.load(segments[2])))  # type: ignore[attr-defined]
             else:

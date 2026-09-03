@@ -32,6 +32,13 @@ If you're not sure which one to use, ask your supervisor. Click the file name to
 5. Once you see a line that says the helper is ready, plug in the WaterFlex sensor over USB and
    switch to the WaterFlex web console in your browser to start provisioning that unit.
 
+The web console checks once per second for matching USB serial devices. It will show **No Nano
+detected**, the COM port for one detected Nano, or **Multiple Nanos detected**. Provisioning and
+retry remain disabled until exactly one Nano is present.
+
+This check confirms USB presence only. It does not open the serial port, reset the Nano, read its
+identity, create a factory job, or determine whether the attached unit was previously provisioned.
+
 ## The black console window
 
 That window is the helper doing its job in the background — flashing firmware, writing the sensor's
@@ -61,6 +68,9 @@ just needs to stay open alongside it.
 | "WaterFlex denied flash authorization for this sensor" | The web console hasn't cleared this specific sensor to be flashed yet, or already did | Go back to the web console and make sure you started the job for this sensor there first |
 | "The local firmware bundle is not the version approved by WaterFlex" | The firmware on this workstation doesn't match what WaterFlex currently expects | Close and reopen the helper so it can fetch the current approved version; if it still happens, tell your supervisor |
 | "Another sensor is already being provisioned on this workstation" | Only one sensor can be worked on per workstation at a time | Wait for the current sensor's job to finish (or fail) before starting another |
+| "Update the factory helper" | The web console requires a newer helper protocol | Download and start the latest helper for this environment |
+| "No Nano detected" | No matching Arduino/Nano/ESP32 USB serial device is visible | Connect one Nano with a USB data cable and wait a moment |
+| "Multiple Nanos detected" | More than one matching USB serial device is visible | Disconnect all but the unit being provisioned |
 | The black window closes on its own | The helper crashed or was closed accidentally | Read the Windows error dialog, then check `%LOCALAPPDATA%\WaterFlex\FactoryHelper\factory-helper.log`; reopen the `.exe` only after addressing the error |
 
 If something doesn't match anything above, or keeps happening after you've tried the fix, stop and

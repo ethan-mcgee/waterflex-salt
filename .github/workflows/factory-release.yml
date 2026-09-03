@@ -137,7 +137,11 @@ jobs:
               }
               try {
                 $health = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8765/v1/health' -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } -TimeoutSec 2
-                if ($health.status -eq 'ready') {
+                if ($health.status -eq 'ready' -and $health.protocolVersion -eq '2') {
+                  $devices = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8765/v1/devices' -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } -TimeoutSec 2
+                  if ($devices.status -notin @('none', 'detected', 'multiple') -or $null -eq $devices.devices) {
+                    throw 'The packaged helper returned an invalid device-detection response.'
+                  }
                   $ready = $true
                   break
                 }
