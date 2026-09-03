@@ -10,8 +10,9 @@ Public hostnames:
 
 - `console-staging.saltmonitor.dev` serves the staff UI and same-origin API. A Cloudflare Access application must
   protect the entire hostname.
-- `telemetry-staging.saltmonitor.dev` exposes only `GET /health`, `POST /api/v1/device/activate`, and
-  `POST /api/v1/device/telemetry`. Nginx returns 404 for the staff UI and all other API paths.
+- `telemetry-staging.saltmonitor.dev` exposes only health, device activation/telemetry, and the helper-only
+  `GET /api/v1/factory/bundle` and `POST /api/v1/factory/flash-authorizations/verify` routes. Nginx returns 404
+  for the staff UI and every other factory, staff, and operations API path.
 
 The EC2 origin is `3.142.69.53`. Both Cloudflare DNS records must be proxied (orange cloud). Never commit a TLS
 certificate private key, Cloudflare API token, device credential, or database credential.
@@ -120,6 +121,10 @@ Run these tests from a workstation. Do not use `--insecure` for public verificat
 ```bash
 curl -i https://telemetry-staging.saltmonitor.dev/health
 curl -i https://telemetry-staging.saltmonitor.dev/api/v1/ops/dealers
+curl -i https://telemetry-staging.saltmonitor.dev/api/v1/factory/bundle
+curl -i -X POST https://telemetry-staging.saltmonitor.dev/api/v1/factory/flash-authorizations/verify \
+  -H 'Content-Type: application/json' --data '{}'
+curl -i -X POST https://telemetry-staging.saltmonitor.dev/api/v1/factory/bundle
 curl -i -X POST https://telemetry-staging.saltmonitor.dev/api/v1/device/telemetry \
   -H 'Content-Type: application/json' \
   --data '{}'
@@ -129,6 +134,8 @@ Expected results:
 
 - Health returns HTTP 200.
 - The operations route returns HTTP 404 on the telemetry hostname.
+- The factory bundle route returns HTTP 200 JSON, its presigned image downloads, and the image SHA-256 matches.
+- An invalid flash authorization returns HTTP 403; wrong methods are rejected.
 - Telemetry without a bearer token returns HTTP 401.
 - `https://console-staging.saltmonitor.dev` requires Cloudflare Access before displaying the console.
 - A valid commissioned-device request returns HTTP 200 and persists a reading in RDS.

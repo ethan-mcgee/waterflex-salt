@@ -88,7 +88,7 @@ token is still available or a replacement device credential will be issued.
 ## 8. Release a New Factory Firmware Version
 
 Factory workstations no longer keep a local copy of the bundle — the local helper fetches it from
-`GET /api/v1/factory/bundle`, which resolves to whatever `FactoryProvisioning__ApprovedFirmwareVersion`
+`GET https://telemetry-staging.saltmonitor.dev/api/v1/factory/bundle`, which resolves to whatever `FactoryProvisioning__ApprovedFirmwareVersion`
 and `FactoryProvisioning__ConfigurationVersion` the API is currently configured with. Releasing a new
 firmware version is a two-step procedure:
 
@@ -96,12 +96,17 @@ firmware version is a two-step procedure:
    It builds the firmware, creates `waterflex-factory.bin` + `factory-bundle.json`, and uploads them to
    `s3://<STAGING_DEPLOY_BUCKET>/factory-bundles/<firmwareVersion>/<configurationVersion>/`. It also
    publishes a GitHub Release with the staging and production helper `.exe` files attached.
+   The workflow verifies the live presigned image checksum and starts the packaged staging EXE before publishing.
+   The production EXE remains attached but unavailable until production DNS/ingress and factory provisioning exist.
 2. **Redeploy the API** with matching `FactoryProvisioning__ApprovedFirmwareVersion` /
    `FactoryProvisioning__ConfigurationVersion` values (docker-compose env vars for the `api` service).
 
 The order is safe either way: until the redeploy happens, `/configuration` and `/bundle` both keep
 serving the previous, still-matching version — no workstation is ever pointed at a firmware version that
 hasn't been uploaded yet.
+
+`FACTORY_HELPER_STAGING_API_URL` must be `https://telemetry-staging.saltmonitor.dev`. Updating that GitHub
+variable changes only future executable builds; previously published or downloaded EXEs keep their compiled URL.
 
 The API's runtime AWS role needs `s3:GetObject` on `factory-bundles/*` in the deploy bucket to presign
 download URLs; the CI publish role needs `s3:PutObject` on the same prefix to upload new bundles.

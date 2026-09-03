@@ -35,6 +35,29 @@ jobs:
           "firmware_version=$($manifest.firmwareVersion)" >> $env:GITHUB_OUTPUT
           "configuration_version=$($manifest.configurationVersion)" >> $env:GITHUB_OUTPUT
           "sha256=$($manifest.mergedImage.sha256)" >> $env:GITHUB_OUTPUT
+      - name: Validate helper API base URLs
+        env:
+          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+          PRODUCTION_URL: ${{ vars.FACTORY_HELPER_PRODUCTION_API_URL }}
+        shell: pwsh
+        run: |
+          foreach ($entry in @(
+            @{ Name = 'FACTORY_HELPER_STAGING_API_URL'; Value = $env:STAGING_URL },
+            @{ Name = 'FACTORY_HELPER_PRODUCTION_API_URL'; Value = $env:PRODUCTION_URL }
+          )) {
+            if ([string]::IsNullOrWhiteSpace($entry.Value)) {
+              throw "Missing repository variable $($entry.Name)."
+            }
+            $uri = $null
+            if (-not [Uri]::TryCreate($entry.Value, [UriKind]::Absolute, [ref]$uri) -or
+                $uri.Scheme -ne 'https' -or -not [string]::IsNullOrEmpty($uri.UserInfo)) {
+              throw "$($entry.Name) must be an absolute HTTPS URL without embedded credentials."
+            }
+          }
+          $stagingHost = ([Uri]$env:STAGING_URL).DnsSafeHost.ToLowerInvariant()
+          if ($stagingHost -in @('console-staging.saltmonitor.dev', 'saltmonitor.dev')) {
+            throw 'FACTORY_HELPER_STAGING_API_URL points to a Cloudflare Access-protected console hostname. Use the public telemetry hostname.'
+          }
       - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
         with:
           role-to-assume: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
@@ -52,6 +75,26 @@ jobs:
           aws s3 cp firmware/factory-release/waterflex-factory.bin "$PREFIX/waterflex-factory.bin" \
             --metadata sha256="$SHA256" --only-show-errors
           aws s3 cp firmware/factory-release/factory-bundle.json "$PREFIX/factory-bundle.json" --only-show-errors
+      - name: Verify live staging bundle and presigned image
+        env:
+          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+        shell: pwsh
+        run: |
+          $downloadPath = Join-Path $env:RUNNER_TEMP 'waterflex-factory-live.bin'
+          try {
+            $metadata = Invoke-RestMethod -Method Get -Uri "$($env:STAGING_URL.TrimEnd('/'))/api/v1/factory/bundle" -MaximumRedirection 0 -TimeoutSec 30
+            if ($metadata.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or [string]::IsNullOrWhiteSpace($metadata.downloadUrl)) {
+              throw 'The live staging bundle response is missing a valid SHA-256 or download URL.'
+            }
+            Invoke-WebRequest -Method Get -Uri $metadata.downloadUrl -OutFile $downloadPath -MaximumRedirection 5 -TimeoutSec 120
+            $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $downloadPath).Hash.ToLowerInvariant()
+            if ($actualSha256 -ne $metadata.sha256.ToLowerInvariant()) {
+              throw "The live staging bundle checksum did not match: expected $($metadata.sha256), got $actualSha256."
+            }
+          }
+          finally {
+            Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+          }
       - name: Determine release tag
         id: tag
         shell: bash
@@ -66,14 +109,6 @@ jobs:
           else
             echo "tag=$FIRMWARE_TAG" >> "$GITHUB_OUTPUT"
           fi
-      - name: Require API base URLs
-        env:
-          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
-          PRODUCTION_URL: ${{ vars.FACTORY_HELPER_PRODUCTION_API_URL }}
-        shell: bash
-        run: |
-          [[ -n "$STAGING_URL" ]] || { echo "Missing repository variable FACTORY_HELPER_STAGING_API_URL." >&2; exit 1; }
-          [[ -n "$PRODUCTION_URL" ]] || { echo "Missing repository variable FACTORY_HELPER_PRODUCTION_API_URL." >&2; exit 1; }
       - name: Build staging Windows helper
         env:
           API_BASE_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
@@ -88,6 +123,42 @@ jobs:
         run: |
           "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
           pyinstaller --onefile --name WaterFlexFactoryHelper-production --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+      - name: Smoke test packaged staging helper
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP 'factory-helper-smoke.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'factory-helper-smoke.stderr.log'
+          $helper = Start-Process -FilePath "$pwd/dist/WaterFlexFactoryHelper-staging.exe" -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $ready = $false
+            for ($attempt = 1; $attempt -le 30; $attempt++) {
+              if ($helper.HasExited) {
+                throw "The packaged staging helper exited before becoming ready (exit code $($helper.ExitCode))."
+              }
+              try {
+                $health = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8765/v1/health' -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } -TimeoutSec 2
+                if ($health.status -eq 'ready') {
+                  $ready = $true
+                  break
+                }
+              }
+              catch {
+                # PyInstaller extraction and the first approved-bundle download can take a few seconds.
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (-not $ready) {
+              throw 'The packaged staging helper did not report ready within 60 seconds.'
+            }
+          }
+          finally {
+            if (-not $helper.HasExited) {
+              Stop-Process -Id $helper.Id -Force
+              $helper.WaitForExit()
+            }
+            if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout }
+            if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr }
+          }
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
         with:

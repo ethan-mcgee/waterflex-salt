@@ -16,7 +16,8 @@ Record timestamps and command/console evidence for each item before making chang
 - RDS is private, encrypted, deletion-protected, and has at least seven days of automated backups. Record the backup
   window, latest restorable time, storage, connection alarms, and the runtime/migrator database roles.
 - Runtime database credentials cannot create or alter schema. Only the migration job can use the migrator secret.
-- `https://telemetry-staging.saltmonitor.dev/health/ready` succeeds; unrelated telemetry-host routes return 404.
+- `https://telemetry-staging.saltmonitor.dev/health/ready` and the two exact machine-facing factory helper routes
+  succeed as appropriate; unlisted factory, staff, and operations routes on that hostname return 404.
 - A forged `X-WaterFlex-Development-User` header in Staging is rejected and cannot select another staff identity.
 
 Any discrepancy blocks rollout. Record it as a release issue; do not silently remediate during the evidence pass.
