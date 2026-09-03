@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
 import hashlib
 import json
+import logging
 import os
+import socket
+import ssl
 import sys
 import threading
 import time
@@ -27,12 +31,76 @@ DEFAULT_ORIGINS = {
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 }
-DEFAULT_BUNDLE_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA", ".")) / "WaterFlex" / "FactoryHelper" / "bundle"
+DEFAULT_DATA_DIR = Path(os.environ.get("LOCALAPPDATA", ".")) / "WaterFlex" / "FactoryHelper"
+DEFAULT_BUNDLE_CACHE_DIR = DEFAULT_DATA_DIR / "bundle"
+DEFAULT_LOG_PATH = DEFAULT_DATA_DIR / "factory-helper.log"
+LOGGER = logging.getLogger("waterflex.factory_helper")
 
 try:
     from _default_config import DEFAULT_API_BASE_URL  # generated per-environment at release-build time
 except ImportError:
     DEFAULT_API_BASE_URL = "http://127.0.0.1:5188"
+
+
+class FactoryHelperStartupError(RuntimeError):
+    """An operator-actionable failure while resolving the approved bundle."""
+
+
+def configure_startup_logging(log_path: Path = DEFAULT_LOG_PATH) -> Path:
+    """Create the persistent startup log and direct helper diagnostics to it."""
+    log_path = log_path.resolve()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    for handler in list(LOGGER.handlers):
+        handler.close()
+        LOGGER.removeHandler(handler)
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOGGER.addHandler(handler)
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
+    return log_path
+
+
+def _cloudflare_access_url(value: str | None) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(value)
+    return parsed.path.startswith("/cdn-cgi/access/") or parsed.hostname is not None and (
+        parsed.hostname.casefold().endswith(".cloudflareaccess.com")
+        or parsed.hostname.casefold() == "cloudflareaccess.com"
+    )
+
+
+def _network_failure(error: urllib.error.URLError) -> FactoryHelperStartupError:
+    reason = error.reason
+    if isinstance(reason, socket.gaierror):
+        detail = "DNS lookup failed"
+    elif isinstance(reason, ssl.SSLError):
+        detail = "TLS validation failed"
+    else:
+        detail = "the network connection failed"
+    return FactoryHelperStartupError(
+        f"Could not reach WaterFlex because {detail}. Check the network, DNS, VPN, and system clock."
+    )
+
+
+def _metadata_http_failure(error: urllib.error.HTTPError) -> FactoryHelperStartupError:
+    location = error.headers.get("Location") if error.headers is not None else None
+    if 300 <= error.code < 400 and _cloudflare_access_url(location):
+        return FactoryHelperStartupError(
+            "WaterFlex redirected the helper to Cloudflare Access. The helper must use the public telemetry hostname."
+        )
+    if error.code == HTTPStatus.NOT_FOUND:
+        return FactoryHelperStartupError(
+            "WaterFlex returned HTTP 404 for the factory bundle endpoint. The staging ingress may not be deployed yet."
+        )
+    if 500 <= error.code < 600:
+        return FactoryHelperStartupError(
+            f"WaterFlex could not provide the factory bundle (HTTP {error.code}). Try again after the service recovers."
+        )
+    return FactoryHelperStartupError(
+        f"WaterFlex rejected the factory bundle request (HTTP {error.code})."
+    )
 
 
 class JobStore:
@@ -158,12 +226,49 @@ class FactoryHelper:
         )
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
+                final_url = response.geturl()
+                if isinstance(final_url, str) and _cloudflare_access_url(final_url):
+                    raise ValueError(
+                        "WaterFlex redirected flash authorization to Cloudflare Access. "
+                        "Install a helper built for the public telemetry hostname."
+                    )
                 if response.status != HTTPStatus.OK:
                     raise ValueError("WaterFlex denied flash authorization for this sensor.")
+                try:
+                    result = json.loads(response.read().decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                    raise ValueError(
+                        "WaterFlex returned invalid JSON while authorizing the flash. Flashing was blocked."
+                    ) from error
+                if not isinstance(result, dict) or result.get("authorized") is not True:
+                    raise ValueError("WaterFlex denied flash authorization for this sensor.")
         except urllib.error.HTTPError as error:
+            location = error.headers.get("Location") if error.headers is not None else None
+            if 300 <= error.code < 400 and _cloudflare_access_url(location):
+                raise ValueError(
+                    "WaterFlex redirected flash authorization to Cloudflare Access. "
+                    "Install a helper built for the public telemetry hostname."
+                ) from error
+            if error.code == HTTPStatus.NOT_FOUND:
+                raise ValueError(
+                    "WaterFlex returned HTTP 404 for flash authorization. Flashing was blocked."
+                ) from error
+            if 500 <= error.code < 600:
+                raise ValueError(
+                    f"WaterFlex could not verify flash authorization (HTTP {error.code}). Flashing was blocked."
+                ) from error
             raise ValueError("WaterFlex denied flash authorization for this sensor.") from error
         except urllib.error.URLError as error:
-            raise ValueError("Could not reach WaterFlex to authorize flashing. Check network connectivity.") from error
+            reason = error.reason
+            if isinstance(reason, socket.gaierror):
+                detail = "DNS lookup failed"
+            elif isinstance(reason, ssl.SSLError):
+                detail = "TLS validation failed"
+            else:
+                detail = "the network connection failed"
+            raise ValueError(
+                f"Could not reach WaterFlex to authorize flashing because {detail}. Flashing was blocked."
+            ) from error
 
     def _update(self, job: dict, status: str, message: str) -> None:
         job["status"] = status
@@ -258,9 +363,43 @@ def cached_bundle_is_valid(cache_dir: Path, sha256: str | None = None) -> bool:
 
 
 def fetch_bundle_download(api_base_url: str) -> dict:
-    request = urllib.request.Request(f"{api_base_url.rstrip('/')}/api/v1/factory/bundle", method="GET")
-    with urllib.request.urlopen(request, timeout=15) as response:
-        return json.loads(response.read().decode("utf-8"))
+    request_url = f"{api_base_url.rstrip('/')}/api/v1/factory/bundle"
+    request = urllib.request.Request(request_url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            final_url = response.geturl()
+            if isinstance(final_url, str) and final_url != request_url and _cloudflare_access_url(final_url):
+                raise FactoryHelperStartupError(
+                    "WaterFlex redirected the helper to Cloudflare Access. The helper must use the public telemetry hostname."
+                )
+            status = getattr(response, "status", HTTPStatus.OK)
+            if not isinstance(status, int):
+                status = HTTPStatus.OK
+            if status == HTTPStatus.NOT_FOUND:
+                raise FactoryHelperStartupError(
+                    "WaterFlex returned HTTP 404 for the factory bundle endpoint. The staging ingress may not be deployed yet."
+                )
+            if 500 <= status < 600:
+                raise FactoryHelperStartupError(
+                    f"WaterFlex could not provide the factory bundle (HTTP {status}). Try again after the service recovers."
+                )
+            raw_body = response.read()
+    except urllib.error.HTTPError as error:
+        raise _metadata_http_failure(error) from error
+    except urllib.error.URLError as error:
+        raise _network_failure(error) from error
+
+    try:
+        result = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise FactoryHelperStartupError(
+            "WaterFlex returned invalid JSON for the approved factory bundle. The helper cannot safely continue."
+        ) from error
+    if not isinstance(result, dict):
+        raise FactoryHelperStartupError(
+            "WaterFlex returned invalid JSON for the approved factory bundle. The helper cannot safely continue."
+        )
+    return result
 
 
 def download_bundle(download: dict, cache_dir: Path) -> None:
@@ -270,8 +409,17 @@ def download_bundle(download: dict, cache_dir: Path) -> None:
     temp_image = cache_dir / f"{image_name}.tmp"
     try:
         request = urllib.request.Request(download["downloadUrl"], method="GET")
-        with urllib.request.urlopen(request, timeout=120) as response:
-            temp_image.write_bytes(response.read())
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                temp_image.write_bytes(response.read())
+        except urllib.error.HTTPError as error:
+            raise FactoryHelperStartupError(
+                f"The approved firmware download is unavailable from storage (HTTP {error.code})."
+            ) from error
+        except urllib.error.URLError as error:
+            raise FactoryHelperStartupError(
+                "The approved firmware download is unavailable from storage. Check network connectivity and try again."
+            ) from error
         actual_sha256 = hashlib.sha256(temp_image.read_bytes()).hexdigest()
         if actual_sha256.casefold() != download["sha256"].casefold():
             raise ValueError("Downloaded factory firmware bundle failed checksum verification.")
@@ -302,30 +450,36 @@ def resolve_bundle(bundle_dir: Path | None, cache_dir: Path, api_base_url: str) 
     cache.
     """
     if bundle_dir is not None:
+        LOGGER.info("Using explicit factory bundle directory: %s", bundle_dir.resolve())
         return bundle_dir
 
     try:
         download = fetch_bundle_download(api_base_url)
-    except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError) as error:
+    except (FactoryHelperStartupError, ValueError, KeyError, TypeError) as error:
         if cached_bundle_is_valid(cache_dir):
-            print(f"factory-helper: could not reach WaterFlex ({error}); using the cached bundle.")
+            message = f"{error} Using the checksum-verified cached bundle."
+            LOGGER.warning(message)
+            print(f"factory-helper: {message}")
             return cache_dir
-        raise RuntimeError(
-            "Could not reach WaterFlex to fetch the approved firmware bundle, and no valid cached "
-            "bundle is available. Check network connectivity and try again."
+        raise FactoryHelperStartupError(
+            f"{error} No valid cached bundle is available."
         ) from error
 
     if cached_bundle_is_valid(cache_dir, download.get("sha256")):
+        LOGGER.info("Using cached approved factory bundle with SHA-256 %s", download.get("sha256"))
         return cache_dir
 
     try:
         download_bundle(download, cache_dir)
-    except (urllib.error.URLError, ValueError, KeyError) as error:
+    except (FactoryHelperStartupError, ValueError, KeyError, TypeError) as error:
         if cached_bundle_is_valid(cache_dir):
-            print(f"factory-helper: failed to download the latest bundle ({error}); using the cached bundle.")
+            message = f"{error} Using the checksum-verified cached bundle."
+            LOGGER.warning(message)
+            print(f"factory-helper: {message}")
             return cache_dir
-        raise RuntimeError(f"Failed to download the approved firmware bundle: {error}") from error
+        raise FactoryHelperStartupError(f"{error} No valid cached bundle is available.") from error
 
+    LOGGER.info("Downloaded and verified approved factory bundle with SHA-256 %s", download.get("sha256"))
     return cache_dir
 
 
@@ -465,7 +619,7 @@ def main() -> int:
         help="Use a local bundle directory instead of fetching the WaterFlex-approved bundle "
              "(advanced/engineer override; the default fetches and caches it automatically).")
     parser.add_argument("--bundle-cache-dir", type=Path, default=DEFAULT_BUNDLE_CACHE_DIR)
-    parser.add_argument("--state-dir", type=Path, default=Path(os.environ.get("LOCALAPPDATA", ".")) / "WaterFlex" / "FactoryHelper" / "jobs")
+    parser.add_argument("--state-dir", type=Path, default=DEFAULT_DATA_DIR / "jobs")
     parser.add_argument("--allowed-origin", action="append", default=[])
     parser.add_argument("--esptool", type=Path)
     parser.add_argument("--port", type=int, default=8765)
@@ -475,22 +629,61 @@ def main() -> int:
     args = parser.parse_args()
     if os.name != "nt":
         parser.error("The factory helper requires Windows DPAPI.")
-    try:
-        bundle_dir = resolve_bundle(args.bundle_dir, args.bundle_cache_dir, args.api_base_url)
-    except RuntimeError as error:
-        print(f"factory-helper: {error}", file=sys.stderr)
-        return 1
+    bundle_dir = resolve_bundle(args.bundle_dir, args.bundle_cache_dir, args.api_base_url)
     esptool_path = args.esptool or bundle_dir / "tools" / "esptool.py"
     if not getattr(sys, "frozen", False) and not esptool_path.exists():
         parser.error("The approved factory bundle does not contain esptool.py.")
     helper = FactoryHelper(bundle_dir, args.state_dir, esptool_path, args.api_base_url)
+    LOGGER.info(
+        "Loaded factory bundle version=%s configuration=%s",
+        helper.manifest.get("firmwareVersion"),
+        helper.manifest.get("configurationVersion"),
+    )
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.helper = helper  # type: ignore[attr-defined]
     server.allowed_origins = DEFAULT_ORIGINS | set(args.allowed_origin)  # type: ignore[attr-defined]
     print(f"WaterFlex factory helper ready on http://127.0.0.1:{args.port}")
+    LOGGER.info("Factory helper ready on http://127.0.0.1:%s", args.port)
     server.serve_forever()
     return 0
 
 
+def show_frozen_startup_error(message: str) -> None:
+    """Keep double-click startup failures visible for a packaged Windows executable."""
+    ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
+        None,
+        f"{message}\n\nDiagnostics were written to:\n{DEFAULT_LOG_PATH}",
+        "WaterFlex Factory Helper could not start",
+        0x10,
+    )
+
+
+def run(log_path: Path = DEFAULT_LOG_PATH) -> int:
+    """Configure durable diagnostics and convert startup failures into operator-visible errors."""
+    try:
+        actual_log_path = configure_startup_logging(log_path)
+    except OSError as error:
+        actual_log_path = log_path
+        print(f"factory-helper: could not create startup log: {error}", file=sys.stderr)
+    LOGGER.info(
+        "Starting WaterFlex Factory Helper (frozen=%s, api_base_url=%s)",
+        bool(getattr(sys, "frozen", False)),
+        DEFAULT_API_BASE_URL,
+    )
+    try:
+        return main()
+    except Exception as error:  # noqa: BLE001 - top-level startup boundary
+        message = str(error) or error.__class__.__name__
+        LOGGER.error("Factory helper startup failed: %s", message)
+        print(f"factory-helper: {message}", file=sys.stderr)
+        if getattr(sys, "frozen", False):
+            try:
+                show_frozen_startup_error(message)
+            except Exception as dialog_error:  # noqa: BLE001 - logging is the final fallback
+                LOGGER.error("Could not display the Windows startup error dialog: %s", dialog_error)
+        LOGGER.info("Startup diagnostics path: %s", actual_log_path)
+        return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run())

@@ -6,11 +6,20 @@ import json
 import tempfile
 import unittest
 import os
+import socket
+import ssl
 import urllib.error
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from factory_helper import FactoryHelper, public_job, resolve_bundle
+from factory_helper import (
+    FactoryHelper,
+    LOGGER,
+    configure_startup_logging,
+    public_job,
+    resolve_bundle,
+    run,
+)
 
 
 class FactoryHelperTests(unittest.TestCase):
@@ -99,9 +108,24 @@ class FactoryHelperTests(unittest.TestCase):
     def test_verify_flash_authorization_succeeds_when_backend_grants_the_token(self) -> None:
         with patch("factory_helper.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value.status = 200
+            mock_urlopen.return_value.__enter__.return_value.geturl.return_value = (
+                "http://127.0.0.1:9/api/v1/factory/flash-authorizations/verify"
+            )
+            mock_urlopen.return_value.__enter__.return_value.read.return_value = b'{"authorized":true}'
             self.helper._verify_flash_authorization(  # noqa: SLF001 - exercising the fail-closed check directly
                 "11111111-1111-1111-1111-111111111111", "wf_flash_test.not-a-real-secret",
             )
+
+    def test_verify_flash_authorization_blocks_cloudflare_access_redirect(self) -> None:
+        with patch("factory_helper.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value.status = 200
+            mock_urlopen.return_value.__enter__.return_value.geturl.return_value = (
+                "https://example.cloudflareaccess.com/cdn-cgi/access/login"
+            )
+            with self.assertRaisesRegex(ValueError, "Cloudflare Access"):
+                self.helper._verify_flash_authorization(  # noqa: SLF001
+                    "11111111-1111-1111-1111-111111111111", "wf_flash_test.not-a-real-secret",
+                )
 
     def _prepare_job(self, idempotency_key: str) -> None:
         bootstrap_secret = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii").rstrip("=")
@@ -244,9 +268,106 @@ class ResolveBundleTests(unittest.TestCase):
         self.assertEqual(self.cache_dir, result)
 
     def test_backend_unreachable_with_no_cache_raises(self) -> None:
-        with patch("factory_helper.urllib.request.urlopen", side_effect=urllib.error.URLError("no route")):
-            with self.assertRaisesRegex(RuntimeError, "Could not reach WaterFlex"):
+        with patch(
+            "factory_helper.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(socket.gaierror("host not found")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "DNS lookup failed"):
                 resolve_bundle(None, self.cache_dir, "http://127.0.0.1:9")
+
+    def test_tls_failure_with_no_cache_is_reported_separately(self) -> None:
+        with patch(
+            "factory_helper.urllib.request.urlopen",
+            side_effect=urllib.error.URLError(ssl.SSLError("certificate verify failed")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "TLS validation failed"):
+                resolve_bundle(None, self.cache_dir, "https://telemetry-staging.saltmonitor.dev")
+
+    def test_cloudflare_access_redirect_is_reported_separately(self) -> None:
+        response = MagicMock()
+        response.__enter__.return_value.geturl.return_value = (
+            "https://example.cloudflareaccess.com/cdn-cgi/access/login"
+        )
+        with patch("factory_helper.urllib.request.urlopen", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "redirected.*Cloudflare Access"):
+                resolve_bundle(None, self.cache_dir, "https://console-staging.saltmonitor.dev")
+
+    def test_bundle_endpoint_404_is_reported_separately(self) -> None:
+        error = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
+        with patch("factory_helper.urllib.request.urlopen", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
+                resolve_bundle(None, self.cache_dir, "https://telemetry-staging.saltmonitor.dev")
+
+    def test_bundle_endpoint_5xx_is_reported_separately(self) -> None:
+        error = urllib.error.HTTPError("url", 503, "Unavailable", {}, None)
+        with patch("factory_helper.urllib.request.urlopen", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+                resolve_bundle(None, self.cache_dir, "https://telemetry-staging.saltmonitor.dev")
+
+    def test_invalid_bundle_json_is_reported_separately(self) -> None:
+        response = MagicMock()
+        response.__enter__.return_value.geturl.return_value = (
+            "https://telemetry-staging.saltmonitor.dev/api/v1/factory/bundle"
+        )
+        response.__enter__.return_value.status = 200
+        response.__enter__.return_value.read.return_value = b"<html>not json</html>"
+        with patch("factory_helper.urllib.request.urlopen", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "invalid JSON"):
+                resolve_bundle(None, self.cache_dir, "https://telemetry-staging.saltmonitor.dev")
+
+    def test_unavailable_s3_download_is_reported_separately(self) -> None:
+        metadata = json.dumps({
+            "model": "Arduino Nano ESP32",
+            "firmwareVersion": "wf-uart-pilot-0.2",
+            "configurationVersion": "factory-v2",
+            "helperProtocolVersion": "1",
+            "downloadUrl": "https://example.invalid/waterflex-factory.bin",
+            "sha256": "0" * 64,
+        }).encode("utf-8")
+        metadata_response = MagicMock()
+        metadata_response.__enter__.return_value.geturl.return_value = (
+            "https://telemetry-staging.saltmonitor.dev/api/v1/factory/bundle"
+        )
+        metadata_response.__enter__.return_value.status = 200
+        metadata_response.__enter__.return_value.read.return_value = metadata
+        unavailable = urllib.error.HTTPError("url", 503, "Unavailable", {}, None)
+        with patch(
+            "factory_helper.urllib.request.urlopen",
+            side_effect=[metadata_response, unavailable],
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unavailable from storage.*HTTP 503"):
+                resolve_bundle(None, self.cache_dir, "https://telemetry-staging.saltmonitor.dev")
+
+
+class StartupDiagnosticsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self) -> None:
+        for handler in list(LOGGER.handlers):
+            handler.close()
+            LOGGER.removeHandler(handler)
+        self.temporary.cleanup()
+
+    def test_startup_log_is_created(self) -> None:
+        log_path = self.root / "WaterFlex" / "FactoryHelper" / "factory-helper.log"
+        configure_startup_logging(log_path)
+
+        self.assertTrue(log_path.is_file())
+
+    def test_frozen_exe_startup_failure_displays_windows_error(self) -> None:
+        log_path = self.root / "factory-helper.log"
+        with (
+            patch("factory_helper.main", side_effect=RuntimeError("startup exploded")),
+            patch("factory_helper.show_frozen_startup_error") as show_dialog,
+            patch("factory_helper.sys.frozen", True, create=True),
+        ):
+            result = run(log_path)
+
+        self.assertEqual(1, result)
+        show_dialog.assert_called_once_with("startup exploded")
+        self.assertIn("startup exploded", log_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

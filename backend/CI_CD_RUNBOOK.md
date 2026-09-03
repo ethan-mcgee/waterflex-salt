@@ -30,10 +30,15 @@ Create these repository variables under **Settings -> Secrets and variables -> A
 | `AWS_STAGING_DEPLOY_ROLE_ARN` | ARN of the GitHub OIDC staging deployment role |
 | `STAGING_DEPLOY_BUCKET` | Private versioned S3 bucket used for release bundles |
 | `STAGING_INSTANCE_ID` | Managed staging EC2 instance ID |
-| `FACTORY_HELPER_STAGING_API_URL` | Base URL the staging build of the factory helper exe talks to (`https://console-staging.saltmonitor.dev`) |
+| `FACTORY_HELPER_STAGING_API_URL` | Public machine API used by the staging helper (`https://telemetry-staging.saltmonitor.dev`) |
 | `FACTORY_HELPER_PRODUCTION_API_URL` | Base URL the production build of the factory helper exe talks to (`https://saltmonitor.dev`) |
 
 No long-lived AWS access key or database password belongs in GitHub.
+
+The helper API URLs are compiled into the Windows executables. Changing either GitHub variable affects only
+future workflow builds; it does not repair an executable that has already been published. The release workflow
+rejects non-HTTPS URLs and an Access-protected staging console URL, validates the live bundle and its checksum,
+and starts the exact packaged staging executable before publishing either asset.
 
 Create a GitHub environment named `staging`. Permit `main` (used by both the `workflow_run` orchestration and manual
 dispatch), require approval for pilot deployments when the repository plan supports reviewers, prevent

@@ -13,7 +13,9 @@ Go to the **Releases** page for this project and find the latest release. You'll
 
 - **`WaterFlexFactoryHelper-staging.exe`** — use this only if you were told you're working in the
   staging/test environment.
-- **`WaterFlexFactoryHelper-production.exe`** — use this for normal factory-floor production work.
+- **`WaterFlexFactoryHelper-production.exe`** — attached for release completeness, but **not available for use yet**.
+  Production DNS/ingress and factory provisioning are not active. Do not use it until production activation is
+  explicitly announced.
 
 If you're not sure which one to use, ask your supervisor. Click the file name to download it.
 
@@ -50,11 +52,16 @@ just needs to stay open alongside it.
 | --- | --- | --- |
 | "Windows protected your PC" | Normal for a new internal tool | Click **More info** → **Run anyway** |
 | "Could not reach WaterFlex to fetch the approved firmware bundle..." | The helper can't reach the WaterFlex server on startup, and doesn't have a firmware copy saved from a previous run | Check your network/Wi-Fi/VPN connection, then try running the helper again |
+| "WaterFlex redirected the helper to Cloudflare Access" | This helper was built with the protected console URL instead of the public machine API | Download a newer staging helper; changing the GitHub variable does not update an EXE already on disk |
+| "WaterFlex returned HTTP 404 for the factory bundle endpoint" | The public factory ingress is not deployed at the helper's configured hostname | Stop and ask the release owner to verify the staging deployment |
+| "WaterFlex could not provide the factory bundle (HTTP 5xx)" | The API or bundle service is temporarily unhealthy | Wait for service recovery, then reopen the helper |
+| "WaterFlex returned invalid JSON" | The configured hostname returned a page or malformed response instead of bundle metadata | Stop and give support the startup log path shown in the error dialog |
+| "The approved firmware download is unavailable from storage" | The API responded, but its presigned S3 image could not be downloaded | Check connectivity and retry; if it persists, ask the release owner to verify the S3 object and URL |
 | "Could not reach WaterFlex to authorize flashing..." | The helper can't reach the WaterFlex server while trying to flash a sensor | Check your network/Wi-Fi/VPN connection and try that unit again from the web console |
 | "WaterFlex denied flash authorization for this sensor" | The web console hasn't cleared this specific sensor to be flashed yet, or already did | Go back to the web console and make sure you started the job for this sensor there first |
 | "The local firmware bundle is not the version approved by WaterFlex" | The firmware on this workstation doesn't match what WaterFlex currently expects | Close and reopen the helper so it can fetch the current approved version; if it still happens, tell your supervisor |
 | "Another sensor is already being provisioned on this workstation" | Only one sensor can be worked on per workstation at a time | Wait for the current sensor's job to finish (or fail) before starting another |
-| The black window closes on its own | The helper crashed or was closed accidentally | Reopen the `.exe` and check the current sensor's status in the web console before continuing |
+| The black window closes on its own | The helper crashed or was closed accidentally | Read the Windows error dialog, then check `%LOCALAPPDATA%\WaterFlex\FactoryHelper\factory-helper.log`; reopen the `.exe` only after addressing the error |
 
 If something doesn't match anything above, or keeps happening after you've tried the fix, stop and
 contact:
