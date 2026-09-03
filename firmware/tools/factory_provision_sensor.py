@@ -14,6 +14,10 @@ import serial
 from serial.tools import list_ports
 
 FACTORY_BAUD = 115200
+NANO_USB_IDS = {
+    (0x2341, 0x0070),  # Arduino Nano ESP32 application firmware
+    (0x303A, 0x1001),  # ESP32-S3 ROM bootloader used by the Nano ESP32
+}
 
 
 class DataBlob(ctypes.Structure):
@@ -58,8 +62,12 @@ def enumerate_devices(available_ports=None) -> list[dict[str, str]]:
     devices = []
     for port in available:
         description = port.description or port.manufacturer or "USB serial device"
-        if any(marker in f"{description} {port.manufacturer or ''}".lower()
-               for marker in ("arduino", "nano esp32", "esp32", "usb jtag")):
+        descriptor_matches = any(
+            marker in f"{description} {port.manufacturer or ''}".lower()
+            for marker in ("arduino", "nano esp32", "esp32", "usb jtag")
+        )
+        usb_id_matches = (getattr(port, "vid", None), getattr(port, "pid", None)) in NANO_USB_IDS
+        if descriptor_matches or usb_id_matches:
             devices.append({"port": port.device, "description": description})
     return devices
 
