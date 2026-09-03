@@ -7,6 +7,10 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: factory-helper-release
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -95,20 +99,36 @@ jobs:
           finally {
             Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
           }
-      - name: Determine release tag
+      - name: Determine release identity
         id: tag
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           FIRMWARE_TAG: fw-${{ steps.bundle-info.outputs.firmware_version }}
         run: |
           # A release already exists for this exact firmware version, so this run only rebuilt the
           # helper (no firmware change) — tag by commit instead of reusing/colliding with that release.
-          if gh release view "$FIRMWARE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "tag=helper-${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=$FIRMWARE_TAG" >> "$GITHUB_OUTPUT"
-          fi
+          gh release view $env:FIRMWARE_TAG --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            "tag=helper-${{ github.sha }}" >> $env:GITHUB_OUTPUT
+          }
+          else {
+            "tag=$env:FIRMWARE_TAG" >> $env:GITHUB_OUTPUT
+          }
+
+          $releaseDate = [DateTime]::UtcNow.ToString('yyyy.MM.dd')
+          $titlePrefix = "WaterFlex Factory Helper — $releaseDate."
+          $maximumSequence = 0
+          $releases = gh release list --repo "${{ github.repository }}" --limit 100 --json name | ConvertFrom-Json
+          foreach ($release in $releases) {
+            if (-not $release.name.StartsWith($titlePrefix, [StringComparison]::Ordinal)) { continue }
+            $sequence = 0
+            if ([int]::TryParse($release.name.Substring($titlePrefix.Length), [ref]$sequence) -and
+                $sequence -gt $maximumSequence) {
+              $maximumSequence = $sequence
+            }
+          }
+          "release_name=$titlePrefix$($maximumSequence + 1)" >> $env:GITHUB_OUTPUT
       - name: Build staging Windows helper
         env:
           API_BASE_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
@@ -167,6 +187,7 @@ jobs:
         uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.release_name }}
           body_path: firmware/tools/FACTORY_HELPER_README.md
           fail_on_unmatched_files: true
           files: |
