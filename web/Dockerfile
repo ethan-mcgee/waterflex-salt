@@ -8,7 +8,7 @@ RUN npm ci --no-audit --no-fund
 COPY web/ .
 RUN npm run build
 
-FROM nginx:1.28.3-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+FROM nginx:1.31.5-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3
 # Forces the apk upgrade below to re-run against current package indexes instead of reusing a
 # stale cached layer, so newly published Alpine security patches actually land in the image.
 ARG PACKAGE_CACHE_BUST=unset
