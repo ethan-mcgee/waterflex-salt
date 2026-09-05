@@ -22,7 +22,7 @@ function New-FakeAws([hashtable]$State) {
         $keyIndex = [Array]::IndexOf($Arguments, '--key')
         $key = $Arguments[$keyIndex + 1]
         if ($operation -eq 'head-object') {
-            if (-not $State.Objects.ContainsKey($key)) { return [pscustomobject]@{ ExitCode = 255; Output = '404 Not Found' } }
+            if (-not $State.Objects.ContainsKey($key)) { return [pscustomobject]@{ ExitCode = 255; Output = $State.MissingOutput } }
             return [pscustomobject]@{ ExitCode = 0; Output = (@{ Metadata = @{ sha256 = $State.Objects[$key].Sha256 } } | ConvertTo-Json -Compress) }
         }
         if ($operation -eq 'get-object') {
@@ -52,8 +52,8 @@ function New-FakeAws([hashtable]$State) {
     }.GetNewClosure()
 }
 
-function New-State {
-    return @{ Objects = @{}; PutKeys = [Collections.Generic.List[string]]::new(); PutOutcomes = [Collections.Generic.Queue[string]]::new() }
+function New-State([string]$MissingOutput = '404 Not Found') {
+    return @{ Objects = @{}; PutKeys = [Collections.Generic.List[string]]::new(); PutOutcomes = [Collections.Generic.Queue[string]]::new(); MissingOutput = $MissingOutput }
 }
 
 function Invoke-Publisher([hashtable]$State, [string]$Bundle, [string]$Evidence) {
@@ -75,6 +75,10 @@ try {
     Invoke-Publisher $state $bundle $evidence
     Assert-Equal "$binaryKey,$manifestKey" ($state.PutKeys -join ',') 'Missing objects were not published binary first and manifest last.'
     Assert-Equal 2 $state.Objects.Count 'Missing-object publication did not create both objects.'
+
+    $forbiddenHead = New-State '403 AccessDenied'
+    Invoke-Publisher $forbiddenHead $bundle $evidence
+    Assert-Equal 2 $forbiddenHead.Objects.Count 'A missing object reported as 403 was not conditionally created.'
 
     $state.PutKeys.Clear()
     Invoke-Publisher $state $bundle $evidence

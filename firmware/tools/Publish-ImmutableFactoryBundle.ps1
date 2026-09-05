@@ -28,7 +28,9 @@ function Invoke-Aws([string[]]$Arguments) {
 function Assert-ExistingObject([string]$Key, [string]$Path, [string]$Sha256, [switch]$IsManifest) {
     $headResult = Invoke-Aws @('s3api', 'head-object', '--bucket', $Bucket, '--key', $Key)
     if ($headResult.ExitCode -ne 0) {
-        if ($headResult.Output -match '404|Not Found|NoSuchKey') { return $false }
+        # Without s3:ListBucket, S3 intentionally returns 403 rather than 404 for a missing key.
+        # The conditional PutObject remains the authoritative create check and still fails closed.
+        if ($headResult.Output -match '403|AccessDenied|404|Not Found|NoSuchKey') { return $false }
         throw "Could not inspect s3://$Bucket/$Key."
     }
     $head = $headResult.Output | ConvertFrom-Json
