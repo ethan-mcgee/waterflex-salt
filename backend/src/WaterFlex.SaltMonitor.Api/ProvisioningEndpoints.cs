@@ -134,16 +134,16 @@ public static class ProvisioningEndpoints
             .Produces<FactoryDeviceRegistration>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
-        factoryApi.MapPost("/devices/{deviceId:guid}/verification", async (
+        factoryApi.MapPost("/devices/{deviceId:guid}/abandon", async (
                 Guid deviceId,
-                FactoryVerificationRequest request,
+                FactoryAbandonRequest request,
                 HttpContext httpContext,
                 IFactoryDeviceRegistrationService registrationService,
                 CancellationToken cancellationToken) =>
             {
                 try
                 {
-                    return Results.Ok(await registrationService.RecordVerificationAsync(
+                    return Results.Ok(await registrationService.AbandonAsync(
                         deviceId,
                         request,
                         httpContext.GetStaffActor(),
@@ -158,9 +158,9 @@ public static class ProvisioningEndpoints
                     return Results.Conflict(new { errorCode = "factory_job_terminal", detail = exception.Message });
                 }
             })
-            .WithName("RecordFactoryDeviceVerification")
-            .WithSummary("Record redacted factory acceptance evidence")
-            .Produces<FactoryVerificationResult>(StatusCodes.Status200OK)
+            .WithName("AbandonFactoryDeviceProvisioning")
+            .WithSummary("Retire an unresolved factory job without reusing its serial")
+            .Produces<FactoryDeviceRegistration>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         factoryApi.MapPost("/devices/{deviceId:guid}/retry", async (
@@ -191,22 +191,63 @@ public static class ProvisioningEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        var stationAdminApi = endpoints.MapGroup("/api/v1/factory/stations")
+            .WithTags("Factory stations")
+            .RequireRateLimiting(RateLimitPolicies.Factory)
+            .RequireStaffCapability(StaffCapability.FactoryProvisioning);
+
+        stationAdminApi.MapPost("/enrollment-grants", async (FactoryStationEnrollmentGrantRequest request, HttpContext context, IFactoryStationService service, CancellationToken cancellationToken) =>
+        {
+            var actor = context.GetStaffActor();
+            if (actor.Role != StaffRole.WaterFlexAdministrator) return Results.Forbid();
+            var result = await service.CreateGrantAsync(request, actor, cancellationToken);
+            return result is null ? Results.ValidationProblem(new Dictionary<string, string[]> { ["station"] = ["The station public key, thumbprint, or display name is invalid."] }) : Results.Ok(result);
+        });
+        stationAdminApi.MapGet("/", async (HttpContext context, IFactoryStationService service, CancellationToken cancellationToken) =>
+            context.GetStaffActor().Role == StaffRole.WaterFlexAdministrator ? Results.Ok(await service.ListAsync(cancellationToken)) : Results.Forbid());
+        stationAdminApi.MapGet("/{stationId:guid}", async (Guid stationId, IFactoryStationService service, CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetAsync(stationId, cancellationToken);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        });
+        stationAdminApi.MapPut("/{stationId:guid}", async (Guid stationId, RenameFactoryStationRequest request, HttpContext context, IFactoryStationService service, CancellationToken cancellationToken) =>
+        {
+            var actor = context.GetStaffActor();
+            if (actor.Role != StaffRole.WaterFlexAdministrator) return Results.Forbid();
+            var result = await service.RenameAsync(stationId, request, actor, cancellationToken);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        });
+        stationAdminApi.MapPost("/{stationId:guid}/revoke", async (Guid stationId, HttpContext context, IFactoryStationService service, CancellationToken cancellationToken) =>
+        {
+            var actor = context.GetStaffActor();
+            if (actor.Role != StaffRole.WaterFlexAdministrator) return Results.Forbid();
+            var result = await service.RevokeAsync(stationId, actor, cancellationToken);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        });
+
+        endpoints.MapPost("/api/v1/factory/stations/enroll", async (EnrollFactoryStationRequest request, IFactoryStationService service, CancellationToken cancellationToken) =>
+        {
+            var result = await service.EnrollAsync(request, cancellationToken);
+            return result is null ? Results.Json(new { errorCode = "station_enrollment_invalid" }, statusCode: StatusCodes.Status403Forbidden) : Results.Ok(result);
+        }).RequireRateLimiting(RateLimitPolicies.Activation);
+
         // Unauthenticated-by-staff: the local factory workstation helper that actually flashes the
         // device has no staff session of its own. Possessing a valid, unexpired, single-use token
         // minted by a staff-authenticated register/retry call above is the entire authorization
         // check, mirroring how /api/v1/device/activate is safely unauthenticated-by-staff today.
         endpoints.MapPost("/api/v1/factory/flash-authorizations/verify", async (
                 FlashAuthorizationVerificationRequest request,
+                HttpContext httpContext,
+                IFactoryStationService stationService,
                 IFactoryFlashAuthorizationService flashAuthorizationService,
                 CancellationToken cancellationToken) =>
             {
-                var authorized = !string.IsNullOrWhiteSpace(request.Token)
-                    && await flashAuthorizationService.VerifyAsync(
-                        request.DeviceId,
-                        request.Token,
-                        cancellationToken);
-                return authorized
-                    ? Results.Ok(new { authorized = true })
+                var stationId = await ValidateStationRequestAsync(httpContext, stationService, cancellationToken);
+                var redemption = stationId is not null && !string.IsNullOrWhiteSpace(request.Token)
+                    ? await flashAuthorizationService.RedeemAsync(request, stationId.Value, cancellationToken)
+                    : null;
+                return redemption is not null
+                    ? Results.Ok(new { authorized = true, verificationToken = redemption.VerificationToken })
                     : Results.Json(new { errorCode = "flash_authorization_invalid" }, statusCode: StatusCodes.Status403Forbidden);
             })
             .WithName("VerifyFactoryFlashAuthorization")
@@ -216,9 +257,31 @@ public static class ProvisioningEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status403Forbidden);
 
+        endpoints.MapPost("/api/v1/factory/verifications", async (
+                FactoryHelperVerificationRequest request,
+                HttpContext httpContext,
+                IFactoryStationService stationService,
+                IFactoryHelperVerificationService verificationService,
+                CancellationToken cancellationToken) =>
+            {
+                var stationId = await ValidateStationRequestAsync(httpContext, stationService, cancellationToken);
+                var result = stationId is not null
+                    ? await verificationService.RecordAsync(request, stationId.Value, cancellationToken)
+                    : null;
+                return result is not null
+                    ? Results.Ok(result)
+                    : Results.Json(new { errorCode = "factory_verification_invalid" }, statusCode: StatusCodes.Status403Forbidden);
+            })
+            .WithName("RecordFactoryHelperVerification")
+            .WithSummary("Record factory acceptance evidence from a redeemed local helper authorization")
+            .RequireRateLimiting(RateLimitPolicies.Activation)
+            .Accepts<FactoryHelperVerificationRequest>("application/json")
+            .Produces<FactoryVerificationResult>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status403Forbidden);
+
         // Unauthenticated-by-staff for the same reason as the endpoint above: the local helper has no
         // staff session. The firmware image itself isn't secret, so possession of no token at all is
-        // sufficient here — only the ability to flash a device (gated by flash-authorizations/verify)
+        // sufficient here. Only the ability to flash a device (gated by flash-authorizations/verify)
         // is protected.
         endpoints.MapGet("/api/v1/factory/bundle", async (
                 IOptions<FactoryProvisioningOptions> configured,
@@ -226,13 +289,6 @@ public static class ProvisioningEndpoints
                 CancellationToken cancellationToken) =>
             {
                 var options = configured.Value;
-                if (!options.Enabled)
-                {
-                    return Results.Problem(
-                        statusCode: StatusCodes.Status503ServiceUnavailable,
-                        title: "Factory provisioning is disabled");
-                }
-
                 FactoryBundleLocation? location;
                 try
                 {
@@ -275,6 +331,16 @@ public static class ProvisioningEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         return endpoints;
+    }
+
+    private static Task<Guid?> ValidateStationRequestAsync(HttpContext context, IFactoryStationService service, CancellationToken cancellationToken)
+    {
+        var body = context.Items["FactorySignedBody"] as byte[] ?? [];
+        return service.ValidateSignedRequestAsync(
+            context.Request.Headers["X-WaterFlex-Station-Id"].ToString(), context.Request.Method,
+            context.Request.Path.Value ?? string.Empty, context.Request.Headers["X-WaterFlex-Station-Timestamp"].ToString(),
+            context.Request.Headers["X-WaterFlex-Station-Nonce"].ToString(), context.Request.Headers["X-WaterFlex-Station-Signature"].ToString(),
+            body, cancellationToken);
     }
 
     /// <summary>Maps the unauthenticated-by-staff endpoint a device itself calls to exchange its bootstrap credential for an operational one once commissioning is pending.</summary>

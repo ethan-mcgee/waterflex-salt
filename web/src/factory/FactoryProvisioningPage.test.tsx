@@ -6,16 +6,24 @@ import FactoryProvisioningPage from './FactoryProvisioningPage';
 const configuration = {
   enabled: true,
   model: 'Arduino Nano ESP32',
-  approvedFirmwareVersion: 'wf-uart-pilot-0.1',
+  approvedFirmwareVersion: 'wf-uart-pilot-0.2',
   configurationVersion: 'factory-v2',
   helperBaseUrl: 'http://127.0.0.1:8765',
-  helperProtocolVersion: '2',
+  helperProtocolVersion: '4',
 };
 
 const detected = {
   status: 'detected',
   devices: [{ port: 'COM4', description: 'Arduino Nano ESP32' }],
 };
+const helperStation = { helperVersion: '4.0.0', protocolVersion: '4', enrollmentStatus: 'enrolled', proposedWorkstationName: 'TEST-PC', stationId: '22222222-2222-2222-2222-222222222222', displayName: 'Test Station', publicKeyThumbprint: 'a'.repeat(64), publicKey: 'test', keyProviderType: 'software' };
+const backendStation = { stationId: helperStation.stationId, displayName: 'Test Station', thumbprint: helperStation.publicKeyThumbprint, keyProviderType: 'software', helperVersion: '4.0.0', protocolVersion: '4', enrolledAtUtc: '2026-09-01T00:00:00Z', lastSeenAtUtc: '2026-09-01T00:00:00Z', revokedAtUtc: null };
+
+function stationResponse(url: string) {
+  if (url.endsWith('/v1/station')) return json(helperStation);
+  if (url === `/api/v1/factory/stations/${helperStation.stationId}`) return json(backendStation);
+  return null;
+}
 
 afterEach(() => {
   cleanup();
@@ -29,7 +37,8 @@ describe('FactoryProvisioningPage', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '2' });
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '4' });
       if (url === 'http://127.0.0.1:8765/v1/devices') return json(detected);
       if (url === '/api/v1/factory/devices/active') return notFound();
       throw new Error(`Unexpected URL ${url}`);
@@ -57,7 +66,8 @@ describe('FactoryProvisioningPage', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '4' });
       if (url.endsWith('/v1/devices')) return json(deviceResponse);
       if (url === '/api/v1/factory/devices/active') return notFound();
       throw new Error(`Unexpected URL ${url}`);
@@ -74,7 +84,8 @@ describe('FactoryProvisioningPage', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '4' });
       if (url.endsWith('/v1/devices')) return json(deviceResponse);
       if (url === '/api/v1/factory/devices/active') return notFound();
       throw new Error(`Unexpected URL ${url}`);
@@ -98,7 +109,8 @@ describe('FactoryProvisioningPage', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '4' });
       if (url.endsWith('/v1/devices')) return json(detected);
       if (url === '/api/v1/factory/devices/active') return notFound();
       if (url.endsWith('/v1/jobs/factory-complete-job-0001')) return json({
@@ -136,6 +148,7 @@ describe('FactoryProvisioningPage', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (stationResponse(url)) return stationResponse(url)!;
       if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '1' });
       if (url === '/api/v1/factory/devices/active') return notFound();
       throw new Error(`Unexpected URL ${url}`);
@@ -143,7 +156,7 @@ describe('FactoryProvisioningPage', () => {
 
     render(<FactoryProvisioningPage />);
 
-    expect((await screen.findAllByText('Update the factory helper. Protocol 1 is installed; protocol 2 is required.')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Update the factory helper. Protocol 1 is installed; protocol 4 is required.')).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /provision sensor/i })).toBeDisabled();
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/v1/devices'))).toBe(false);
   });
@@ -152,7 +165,8 @@ describe('FactoryProvisioningPage', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '4' });
       if (url.endsWith('/v1/devices')) return Promise.resolve(new Response('{}', { status: 503 }));
       if (url === '/api/v1/factory/devices/active') return notFound();
       throw new Error(`Unexpected URL ${url}`);
@@ -180,7 +194,8 @@ describe('FactoryProvisioningPage', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '2' });
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url === 'http://127.0.0.1:8765/v1/health') return json({ status: 'ready', protocolVersion: '4' });
       if (url === 'http://127.0.0.1:8765/v1/devices') return json(detected);
       if (url.endsWith('/v1/jobs/factory-resume-job-0001') && !init?.method) return json({
         idempotencyKey: 'factory-resume-job-0001',
@@ -237,7 +252,8 @@ describe('FactoryProvisioningPage', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url === '/api/v1/factory/configuration') return json(configuration);
-      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '2' });
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url.endsWith('/v1/health')) return json({ status: 'ready', protocolVersion: '4' });
       if (url.endsWith('/v1/devices')) return json({ status: 'none', devices: [] });
       if (url === '/api/v1/factory/devices/active') return notFound();
       if (url.endsWith('/v1/jobs/factory-quarantined-job-0001')) return json({

@@ -21,6 +21,22 @@ If you're not sure which one to use, ask your supervisor. Click the file name to
 
 ## Run it
 
+Install the helper for the current Windows user with the release's installation script:
+
+`./Install-WaterFlexFactoryHelper.ps1 -Environment staging`
+
+The installer copies the environment-specific executable to `%LOCALAPPDATA%\WaterFlex\FactoryHelper\bin`
+and registers it as a hidden startup application at sign-in. The first launch creates a non-exportable
+Windows CNG station key. A WaterFlex administrator must enroll the workstation from the factory page
+before provisioning is enabled. The page reports whether the key is TPM-backed or uses the Windows
+software-provider fallback. Normal operation requires no shared station credential.
+
+To uninstall startup registration without silently revoking the backend station, run:
+
+`./Install-WaterFlexFactoryHelper.ps1 -Environment staging -Uninstall`
+
+Station revocation remains a separate WaterFlex administrator action.
+
 1. Double-click the downloaded `.exe` file.
 2. Windows will likely show a blue box titled **"Windows protected your PC"** — this is expected for
    a new internal tool and does not mean anything is wrong. Click **More info**, then click

@@ -72,9 +72,13 @@ The GitHub publishing role needs only:
 - ECR authorization plus describe/create/push operations for `waterflex-api`, `waterflex-worker`, `waterflex-web`,
   and `waterflex-migrations`.
 - `s3:PutObject` for `<deployment-bucket>/releases/*` and bucket-location access.
-- `s3:PutObject` and `s3:AbortMultipartUpload` for `<deployment-bucket>/factory-bundles/*`, used by the separate
-  `factory-release` workflow to upload the approved firmware bundle (granted via the `WaterFlexFactoryBundlePublish`
-  inline policy).
+- `s3:GetObject` and `s3:PutObject` for `<deployment-bucket>/factory-bundles/*`, used by the separate
+  `factory-release` workflow to publish and verify the approved firmware bundle.
+
+Factory bundle keys are immutable. The workflow uses `PutObject` with `If-None-Match: *` for the binary
+first and the manifest last. The bucket policy denies unconditional object creation under
+`factory-bundles/*`. Matching existing objects are an idempotent success. Conflicting content, missing
+digest metadata, or an incompatible manifest requires a new firmware or configuration version.
 
 The GitHub deployment role needs only `ssm:SendCommand` restricted to the staging instance and
 `AWS-RunShellScript` document, plus `ssm:GetCommandInvocation` and command-status reads. It does not need ECR,

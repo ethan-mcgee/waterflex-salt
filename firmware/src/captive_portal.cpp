@@ -148,7 +148,7 @@ String buildPortalHtml(bool preview) {
   html += "<style>";
   html += kPortalStyle;
   html += "</style>";
-  html += "</head><body><main><h1>WaterFlex Wi-Fi Setup</h1><p>Connect this sensor to the customer 2.4 GHz Wi-Fi.</p>";
+  html += "<meta name=\"waterflex-portal\" content=\"setup-v1\"></head><body><main><h1>WaterFlex Wi-Fi Setup</h1><p>Connect this sensor to the customer 2.4 GHz Wi-Fi.</p>";
   if (preview) {
     html += "<p><small><strong>Development preview:</strong> configuration is read-only and telemetry remains connected.</small></p>";
   }

@@ -40,7 +40,7 @@ constexpr size_t kUploadBatchSize = 8;
 constexpr uint32_t kRetryBaseMs = 5UL * 1000UL;
 constexpr uint32_t kRetryMaximumMs = 15UL * 60UL * 1000UL;
 
-constexpr char kFirmwareVersion[] = "wf-uart-pilot-0.1";
+constexpr char kFirmwareVersion[] = "wf-uart-pilot-0.2";
 #ifndef WATERFLEX_TELEMETRY_URL
 #define WATERFLEX_TELEMETRY_URL "https://telemetry-staging.saltmonitor.dev/api/v1/device/telemetry"
 #endif

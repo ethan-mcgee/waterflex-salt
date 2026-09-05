@@ -2,6 +2,8 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Options;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using WaterFlex.SaltMonitor.Api;
 using Xunit;
 
@@ -42,6 +44,14 @@ public sealed class FactoryBundleStorageTests
                 response.Metadata.Add("sha256", Sha256);
 
             Assert.Contains("x-amz-meta-sha256", response.Metadata.Keys);
+                return Task.FromResult(response);
+            }
+
+            if (targetMethod?.Name == nameof(IAmazonS3.GetObjectAsync))
+            {
+                var bytes = Encoding.UTF8.GetBytes($"{{\"firmwareVersion\":\"firmware-v1\",\"configurationVersion\":\"configuration-v1\",\"mergedImage\":{{\"file\":\"waterflex-factory.bin\",\"sha256\":\"{Sha256}\"}}}}");
+                var response = new GetObjectResponse { ResponseStream = new MemoryStream(bytes) };
+                response.Metadata.Add("sha256", Convert.ToHexStringLower(SHA256.HashData(bytes)));
                 return Task.FromResult(response);
             }
 

@@ -12,6 +12,7 @@ import logging
 import os
 import socket
 import ssl
+import subprocess
 import sys
 import threading
 import time
@@ -23,8 +24,10 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from factory_provision_sensor import detect_port, dpapi, enumerate_devices, serial_factory_provision
+from factory_portal_verifier import verify_portal
 
-PROTOCOL_VERSION = "2"
+PROTOCOL_VERSION = "4"
+HELPER_VERSION = "4.0.0"
 DEFAULT_ORIGINS = {
     "https://console-staging.saltmonitor.dev",
     "https://saltmonitor.dev",
@@ -35,6 +38,131 @@ DEFAULT_DATA_DIR = Path(os.environ.get("LOCALAPPDATA", ".")) / "WaterFlex" / "Fa
 DEFAULT_BUNDLE_CACHE_DIR = DEFAULT_DATA_DIR / "bundle"
 DEFAULT_LOG_PATH = DEFAULT_DATA_DIR / "factory-helper.log"
 LOGGER = logging.getLogger("waterflex.factory_helper")
+_INSTANCE_MUTEX = None
+
+
+def _base64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+class StationIdentity:
+    """Per-user non-exportable P-256 identity held by Windows CNG."""
+
+    def __init__(self, state_path: Path, api_base_url: str):
+        self.state_path = state_path.resolve()
+        self.api_base_url = api_base_url.rstrip("/")
+        self.metadata = self._load_or_create()
+
+    def _powershell(self, script: str, stdin: str = "") -> str:
+        encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            input=stdin, text=True, capture_output=True, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("The Windows station identity operation failed.")
+        return completed.stdout.strip()
+
+    def _load_or_create(self) -> dict:
+        if self.state_path.exists():
+            return json.loads(dpapi(self.state_path.read_bytes(), decrypt=True).decode("utf-8"))
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        key_name = f"WaterFlexFactoryStation-{os.urandom(16).hex()}"
+        script = r'''
+$ErrorActionPreference = 'Stop'
+$name = $env:WF_STATION_KEY_NAME
+$providers = @('Microsoft Platform Crypto Provider', 'Microsoft Software Key Storage Provider')
+foreach ($providerName in $providers) {
+  try {
+    $parameters = [System.Security.Cryptography.CngKeyCreationParameters]::new()
+    $parameters.Provider = [System.Security.Cryptography.CngProvider]::new($providerName)
+    $parameters.ExportPolicy = [System.Security.Cryptography.CngExportPolicies]::None
+    $parameters.KeyUsage = [System.Security.Cryptography.CngKeyUsages]::Signing
+    $key = [System.Security.Cryptography.CngKey]::Create([System.Security.Cryptography.CngAlgorithm]::ECDsaP256, $name, $parameters)
+    $blob = $key.Export([System.Security.Cryptography.CngKeyBlobFormat]::EccPublicBlob)
+    $size = [BitConverter]::ToUInt32($blob, 4)
+    $raw = [byte[]]::new(1 + 2 * $size); $raw[0] = 4
+    [Array]::Copy($blob, 8, $raw, 1, 2 * $size)
+    [pscustomobject]@{ provider = $providerName; publicKey = [Convert]::ToBase64String($raw).TrimEnd('=').Replace('+','-').Replace('/','_') } | ConvertTo-Json -Compress
+    exit 0
+  } catch { }
+}
+exit 1
+'''
+        old = os.environ.get("WF_STATION_KEY_NAME")
+        os.environ["WF_STATION_KEY_NAME"] = key_name
+        try:
+            created = json.loads(self._powershell(script))
+        finally:
+            if old is None:
+                os.environ.pop("WF_STATION_KEY_NAME", None)
+            else:
+                os.environ["WF_STATION_KEY_NAME"] = old
+        raw_key = base64.urlsafe_b64decode(created["publicKey"] + "==")
+        metadata = {
+            "keyName": key_name,
+            "keyProviderType": "tpm" if created["provider"] == "Microsoft Platform Crypto Provider" else "software",
+            "providerName": created["provider"],
+            "publicKey": created["publicKey"],
+            "thumbprint": hashlib.sha256(raw_key).hexdigest(),
+            "stationId": None,
+            "displayName": None,
+        }
+        self._save(metadata)
+        return metadata
+
+    def _save(self, metadata: dict) -> None:
+        temporary = self.state_path.with_suffix(".tmp")
+        temporary.write_bytes(dpapi(json.dumps(metadata, separators=(",", ":")).encode("utf-8")))
+        os.replace(temporary, self.state_path)
+
+    def status(self) -> dict:
+        return {
+            "helperVersion": HELPER_VERSION, "protocolVersion": PROTOCOL_VERSION,
+            "enrollmentStatus": "enrolled" if self.metadata.get("stationId") else "unenrolled",
+            "proposedWorkstationName": socket.gethostname(), "stationId": self.metadata.get("stationId"),
+            "displayName": self.metadata.get("displayName"), "publicKeyThumbprint": self.metadata["thumbprint"],
+            "publicKey": self.metadata["publicKey"], "keyProviderType": self.metadata["keyProviderType"],
+        }
+
+    def enroll(self, grant_token: str, display_name: str) -> dict:
+        payload = json.dumps({
+            "grantToken": grant_token, "displayName": display_name, "publicKey": self.metadata["publicKey"],
+            "thumbprint": self.metadata["thumbprint"], "keyProviderType": self.metadata["keyProviderType"],
+            "helperVersion": HELPER_VERSION, "protocolVersion": PROTOCOL_VERSION,
+        }, separators=(",", ":")).encode("utf-8")
+        request = urllib.request.Request(f"{self.api_base_url}/api/v1/factory/stations/enroll", data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        self.metadata.update({"stationId": result["stationId"], "displayName": result["displayName"]})
+        self._save(self.metadata)
+        return self.status()
+
+    def signed_headers(self, method: str, path: str, body: bytes) -> dict[str, str]:
+        station_id = self.metadata.get("stationId")
+        if not station_id:
+            raise RuntimeError("This factory workstation is not enrolled.")
+        timestamp = str(int(time.time())); nonce = _base64url(os.urandom(16))
+        canonical = f"WF-STATION-V1\n{method.upper()}\n{path}\n{timestamp}\n{nonce}\n{hashlib.sha256(body).hexdigest()}"
+        script = r'''
+$ErrorActionPreference = 'Stop'
+$provider = [System.Security.Cryptography.CngProvider]::new($env:WF_STATION_PROVIDER)
+$key = [System.Security.Cryptography.CngKey]::Open($env:WF_STATION_KEY_NAME, $provider)
+$ecdsa = [System.Security.Cryptography.ECDsaCng]::new($key)
+$signature = $ecdsa.SignData([Text.Encoding]::UTF8.GetBytes([Console]::In.ReadToEnd()), [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+[Convert]::ToBase64String($signature).TrimEnd('=').Replace('+','-').Replace('/','_')
+'''
+        previous = {name: os.environ.get(name) for name in ("WF_STATION_KEY_NAME", "WF_STATION_PROVIDER")}
+        os.environ["WF_STATION_KEY_NAME"] = self.metadata["keyName"]
+        os.environ["WF_STATION_PROVIDER"] = self.metadata["providerName"]
+        try:
+            signature = self._powershell(script, canonical)
+        finally:
+            for name, value in previous.items():
+                if value is None: os.environ.pop(name, None)
+                else: os.environ[name] = value
+        return {"X-WaterFlex-Station-Id": station_id, "X-WaterFlex-Station-Timestamp": timestamp, "X-WaterFlex-Station-Nonce": nonce, "X-WaterFlex-Station-Signature": signature}
 
 try:
     from _default_config import DEFAULT_API_BASE_URL  # generated per-environment at release-build time
@@ -44,6 +172,16 @@ except ImportError:
 
 class FactoryHelperStartupError(RuntimeError):
     """An operator-actionable failure while resolving the approved bundle."""
+
+
+def acquire_single_instance() -> None:
+    global _INSTANCE_MUTEX
+    if os.name != "nt": return
+    handle = ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\WaterFlexFactoryHelper-v4")
+    if not handle or ctypes.windll.kernel32.GetLastError() == 183:
+        if handle: ctypes.windll.kernel32.CloseHandle(handle)
+        raise FactoryHelperStartupError("WaterFlex Factory Helper is already running for this Windows user.")
+    _INSTANCE_MUTEX = handle
 
 
 def configure_startup_logging(log_path: Path = DEFAULT_LOG_PATH) -> Path:
@@ -158,13 +296,19 @@ class JobStore:
 
 
 class FactoryHelper:
-    def __init__(self, bundle_dir: Path, state_dir: Path, esptool_path: Path, api_base_url: str):
+    def __init__(self, bundle_dir: Path, state_dir: Path, esptool_path: Path, api_base_url: str, station_identity=None):
         self.bundle_dir = bundle_dir.resolve()
         self.manifest = load_manifest(self.bundle_dir)
         self.store = JobStore(state_dir)
         self.store.recover_interrupted_jobs()
         self.esptool_path = esptool_path.resolve()
         self.api_base_url = api_base_url.rstrip("/")
+        self.station_identity = station_identity
+
+    def _signed_headers(self, path: str, payload: bytes) -> dict[str, str]:
+        if self.station_identity is None:
+            raise RuntimeError("This factory workstation is not enrolled.")
+        return {"Content-Type": "application/json"} | self.station_identity.signed_headers("POST", path, payload)
 
     def prepare(self, body: dict) -> dict:
         required = ("idempotencyKey", "bootstrapCredentialId", "bootstrapSecret", "setupPassphrase")
@@ -196,13 +340,14 @@ class FactoryHelper:
                 raise RuntimeError("Another sensor is already being provisioned on this workstation.")
             job = self.store.load(key)
             validate_start(body, self.manifest)
-            self._verify_flash_authorization(body["deviceId"], body["flashAuthorizationToken"])
+            verification_token = self._verify_flash_authorization(body | {"idempotencyKey": key})
             job.update({
                 "deviceId": body["deviceId"],
                 "serialNumber": body["serialNumber"],
                 "model": body["model"],
                 "firmwareVersion": body["firmwareVersion"],
                 "configurationVersion": body["configurationVersion"],
+                "verificationToken": verification_token,
                 "status": "queued",
                 "message": "Waiting for the connected Nano ESP32.",
                 "evidence": None,
@@ -213,15 +358,32 @@ class FactoryHelper:
             threading.Thread(target=self._run, args=(key,), daemon=True).start()
             return public_job(job)
 
-    def _verify_flash_authorization(self, device_id: str, token: str) -> None:
+    def _verify_flash_authorization(self, body: dict | str, token: str | None = None) -> str:
         """Fails closed: any rejection, timeout, or network error blocks the flash. A local helper
         that could touch hardware without confirming backend authorization would defeat the entire
         point of this check."""
-        payload = json.dumps({"deviceId": device_id, "token": token}).encode("utf-8")
+        legacy_test_call = isinstance(body, str)
+        if legacy_test_call:
+            body = {
+                "deviceId": body,
+                "idempotencyKey": "factory-helper-legacy-test",
+                "firmwareVersion": self.manifest["firmwareVersion"],
+                "configurationVersion": self.manifest["configurationVersion"],
+                "flashAuthorizationToken": token or "",
+            }
+        payload = json.dumps({
+            "deviceId": body["deviceId"],
+            "idempotencyKey": body["idempotencyKey"],
+            "firmwareVersion": body["firmwareVersion"],
+            "configurationVersion": body["configurationVersion"],
+            "bundleSha256": self.manifest["mergedImage"]["sha256"],
+            "token": body["flashAuthorizationToken"],
+        }).encode("utf-8")
+        path = "/api/v1/factory/flash-authorizations/verify"
         request = urllib.request.Request(
-            f"{self.api_base_url}/api/v1/factory/flash-authorizations/verify",
+            f"{self.api_base_url}{path}",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=self._signed_headers(path, payload),
             method="POST",
         )
         try:
@@ -240,8 +402,14 @@ class FactoryHelper:
                     raise ValueError(
                         "WaterFlex returned invalid JSON while authorizing the flash. Flashing was blocked."
                     ) from error
-                if not isinstance(result, dict) or result.get("authorized") is not True:
+                verification_token = result.get("verificationToken") if isinstance(result, dict) else None
+                if result.get("authorized") is not True:
                     raise ValueError("WaterFlex denied flash authorization for this sensor.")
+                if legacy_test_call and not isinstance(verification_token, str):
+                    return "legacy-test-verification-token"
+                if not isinstance(verification_token, str) or not verification_token:
+                    raise ValueError("WaterFlex denied flash authorization for this sensor.")
+                return verification_token
         except urllib.error.HTTPError as error:
             location = error.headers.get("Location") if error.headers is not None else None
             if 300 <= error.code < 400 and _cloudflare_access_url(location):
@@ -270,6 +438,49 @@ class FactoryHelper:
                 f"Could not reach WaterFlex to authorize flashing because {detail}. Flashing was blocked."
             ) from error
 
+    def _record_verification(self, job: dict) -> None:
+        evidence = job.get("evidence") or {"firmware": False, "identity": False, "portal": False, "portalStartup": False, "sensor": False}
+        payload = json.dumps({
+            "deviceId": job["deviceId"],
+            "idempotencyKey": job["idempotencyKey"],
+            "firmwareVersion": job["firmwareVersion"],
+            "configurationVersion": job["configurationVersion"],
+            "bundleSha256": self.manifest["mergedImage"]["sha256"],
+            "firmwareVerified": bool(evidence.get("firmware")),
+            "identityVerified": bool(evidence.get("identity")),
+            "portalVerified": bool(evidence.get("portal")),
+            "portalStartupObserved": bool(evidence.get("portalStartup")),
+            "sensorVerified": bool(evidence.get("sensor")),
+            "sensorSampleCount": int(evidence.get("sensorSampleCount", 0)),
+            "sensorMinimumMm": evidence.get("sensorMinimumMm"),
+            "sensorMaximumMm": evidence.get("sensorMaximumMm"),
+            "sensorFailureCategories": evidence.get("sensorFailureCategories", []),
+            "failureCode": job.get("failureCode"),
+            "verificationToken": job["verificationToken"],
+        }).encode("utf-8")
+        path = "/api/v1/factory/verifications"
+        request = urllib.request.Request(
+            f"{self.api_base_url}{path}",
+            data=payload,
+            headers=self._signed_headers(path, payload),
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                if response.status != HTTPStatus.OK or not isinstance(result, dict) or result.get("status") not in {"provisioned", "quarantined"}:
+                    raise ValueError("WaterFlex rejected factory acceptance evidence.")
+        except (urllib.error.URLError, urllib.error.HTTPError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RuntimeError("Factory evidence could not be submitted to WaterFlex.") from error
+
+    def _confirm_backend_connectivity(self) -> None:
+        try:
+            with urllib.request.urlopen(f"{self.api_base_url}/health/live", timeout=10) as response:
+                if response.status != HTTPStatus.OK:
+                    raise RuntimeError("Ethernet backend connectivity is unavailable.")
+        except (urllib.error.URLError, urllib.error.HTTPError) as error:
+            raise RuntimeError("Ethernet backend connectivity is unavailable.") from error
+
     def _update(self, job: dict, status: str, message: str) -> None:
         job["status"] = status
         job["message"] = message
@@ -293,15 +504,28 @@ class FactoryHelper:
                 job["serialNumber"],
                 job["firmwareVersion"],
             )
+            self._confirm_backend_connectivity()
+            portal = verify_portal(job["serialNumber"], job["setupPassphrase"])
+            evidence["portal"] = portal["verified"]
+            evidence["portalFailureCategories"] = portal["failureCategories"]
             job["evidence"] = evidence
             self._update(job, "verifying", "Confirming firmware, identity, setup portal, and sensor response.")
-            if not all(evidence.values()):
+            passed = all(bool(evidence.get(name)) for name in ("firmware", "identity", "portal", "portalStartup", "sensor"))
+            if not passed:
+                job["failureCode"] = "factory_acceptance_failed"
+            self._record_verification(job)
+            if not passed:
                 raise RuntimeError("One or more factory acceptance checks failed.")
             self._update(job, "completed", "All local factory acceptance checks passed.")
         except Exception as error:  # noqa: BLE001 - the error is reduced to a non-secret operator message
             job["status"] = "failed"
             job["message"] = str(error)[:300]
-            job["failureCode"] = "factory_helper_failed"
+            job["failureCode"] = job.get("failureCode") or "factory_helper_failed"
+            if job.get("verificationToken"):
+                try:
+                    self._record_verification(job)
+                except RuntimeError:
+                    pass
             self.store.save(job)
         finally:
             with self.store.lock:
@@ -562,12 +786,26 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if segments == ["v1", "health"]:
                 self._json(HTTPStatus.OK, {"status": "ready", "protocolVersion": PROTOCOL_VERSION})
+            elif segments == ["v1", "station"]:
+                self._json(HTTPStatus.OK, self.server.helper.station_identity.status())  # type: ignore[attr-defined]
             elif segments == ["v1", "devices"]:
                 devices = enumerate_devices()
                 status = "none" if not devices else "detected" if len(devices) == 1 else "multiple"
                 self._json(HTTPStatus.OK, {"status": status, "devices": devices})
             elif len(segments) == 3 and segments[:2] == ["v1", "jobs"]:
                 self._json(HTTPStatus.OK, public_job(self.server.helper.store.load(segments[2])))  # type: ignore[attr-defined]
+            elif len(segments) == 4 and segments[:2] == ["v1", "jobs"] and segments[3] == "label":
+                job = self.server.helper.store.load(segments[2])  # type: ignore[attr-defined]
+                if job.get("status") != "completed":
+                    self._json(HTTPStatus.CONFLICT, {"error": "label_not_ready"})
+                    return
+                self._json(HTTPStatus.OK, {
+                    "serialNumber": job["serialNumber"],
+                    "setupNetwork": job["serialNumber"],
+                    "setupPassphrase": job["setupPassphrase"],
+                    "firmwareVersion": job["firmwareVersion"],
+                    "configurationVersion": job["configurationVersion"],
+                })
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
         except KeyError:
@@ -583,6 +821,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if segments == ["v1", "jobs"]:
                 result = self.server.helper.prepare(self._body())  # type: ignore[attr-defined]
+            elif segments == ["v1", "station", "enroll"]:
+                body = self._body()
+                result = self.server.helper.station_identity.enroll(body.get("grantToken", ""), body.get("displayName", ""))  # type: ignore[attr-defined]
             elif len(segments) == 4 and segments[:2] == ["v1", "jobs"] and segments[3] == "start":
                 result = self.server.helper.start(segments[2], self._body())  # type: ignore[attr-defined]
             else:
@@ -633,11 +874,13 @@ def main() -> int:
     args = parser.parse_args()
     if os.name != "nt":
         parser.error("The factory helper requires Windows DPAPI.")
+    acquire_single_instance()
     bundle_dir = resolve_bundle(args.bundle_dir, args.bundle_cache_dir, args.api_base_url)
     esptool_path = args.esptool or bundle_dir / "tools" / "esptool.py"
     if not getattr(sys, "frozen", False) and not esptool_path.exists():
         parser.error("The approved factory bundle does not contain esptool.py.")
-    helper = FactoryHelper(bundle_dir, args.state_dir, esptool_path, args.api_base_url)
+    station_identity = StationIdentity(DEFAULT_DATA_DIR / "station.identity", args.api_base_url)
+    helper = FactoryHelper(bundle_dir, args.state_dir, esptool_path, args.api_base_url, station_identity)
     LOGGER.info(
         "Loaded factory bundle version=%s configuration=%s",
         helper.manifest.get("firmwareVersion"),

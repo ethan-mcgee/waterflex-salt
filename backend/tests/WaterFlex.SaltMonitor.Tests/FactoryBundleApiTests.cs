@@ -13,16 +13,21 @@ namespace WaterFlex.SaltMonitor.Tests;
 public sealed class FactoryBundleApiTests
 {
     [Fact]
-    public async Task DisabledFactoryProvisioning_ReturnsServiceUnavailable()
+    public async Task DisabledFactoryProvisioning_StillReturnsPublishedBundle()
     {
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
         await using var factory = new FactoryBundleApiFactory(
             factoryProvisioningEnabled: false,
-            bundleStorage: new StubFactoryBundleStorage(_ => throw new InvalidOperationException("Should not be reached.")));
+            bundleStorage: new StubFactoryBundleStorage(_ => Task.FromResult<FactoryBundleLocation?>(
+                new FactoryBundleLocation("https://example-bucket.s3.amazonaws.com/signed", "deadbeef", expiresAt))));
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/api/v1/factory/bundle");
+        var body = await response.Content.ReadFromJsonAsync<FactoryBundleDownload>();
 
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(body);
+        Assert.Equal("https://example-bucket.s3.amazonaws.com/signed", body!.DownloadUrl);
     }
 
     [Fact]
@@ -63,9 +68,9 @@ public sealed class FactoryBundleApiTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(body);
-        Assert.Equal("wf-uart-pilot-0.1", body!.FirmwareVersion);
+        Assert.Equal("wf-uart-pilot-0.2", body!.FirmwareVersion);
         Assert.Equal("factory-v2", body.ConfigurationVersion);
-        Assert.Equal("2", body.HelperProtocolVersion);
+        Assert.Equal("4", body.HelperProtocolVersion);
         Assert.Equal("https://example-bucket.s3.amazonaws.com/signed", body.DownloadUrl);
         Assert.Equal("deadbeef", body.Sha256);
     }

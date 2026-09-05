@@ -184,6 +184,20 @@ if (!app.Environment.IsDevelopment())
 	app.UseHttpsRedirection();
 }
 
+app.Use(async (context, next) =>
+{
+	if (context.Request.Method == "POST" && (context.Request.Path.Equals("/api/v1/factory/flash-authorizations/verify")
+		|| context.Request.Path.Equals("/api/v1/factory/verifications")))
+	{
+		context.Request.EnableBuffering();
+		using var buffer = new MemoryStream();
+		await context.Request.Body.CopyToAsync(buffer);
+		context.Items["FactorySignedBody"] = buffer.ToArray();
+		context.Request.Body.Position = 0;
+	}
+	await next(context);
+});
+
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
 	StatusCodeSelector = exception => exception is BadHttpRequestException badRequest
@@ -195,7 +209,10 @@ app.Use(async (context, next) =>
 	var isStaffMutation = context.Request.Method is not ("GET" or "HEAD" or "OPTIONS")
 		&& (context.Request.Path.StartsWithSegments("/api/v1/staff-admin")
 			|| context.Request.Path.StartsWithSegments("/api/v1/staff/activate")
-			|| context.Request.Path.StartsWithSegments("/api/v1/factory"));
+			|| (context.Request.Path.StartsWithSegments("/api/v1/factory")
+				&& !context.Request.Path.Equals("/api/v1/factory/flash-authorizations/verify")
+				&& !context.Request.Path.Equals("/api/v1/factory/verifications")
+				&& !context.Request.Path.Equals("/api/v1/factory/stations/enroll")));
 	if (isStaffMutation && context.Request.Headers["X-WaterFlex-Request"] != "console")
 	{
 		context.Response.StatusCode = StatusCodes.Status400BadRequest;

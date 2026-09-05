@@ -9,7 +9,12 @@ export interface FactoryConfiguration {
   helperProtocolVersion: string;
 }
 
-export type FactoryProvisioningStatus = 'registered' | 'provisioned' | 'failed' | 'quarantined';
+export type FactoryProvisioningStatus = 'registered' | 'provisioned' | 'failed' | 'quarantined' | 'abandoned';
+
+export interface FactoryStationSummary {
+  stationId: string; displayName: string; thumbprint: string; keyProviderType: 'tpm' | 'software';
+  helperVersion: string; protocolVersion: string; enrolledAtUtc: string; lastSeenAtUtc: string | null; revokedAtUtc: string | null;
+}
 
 export interface FactoryRegistration {
   deviceId: string;
@@ -74,13 +79,16 @@ export const findFactoryDevice = (idempotencyKey: string, signal?: AbortSignal) 
 export const findActiveFactoryDevice = (signal?: AbortSignal) =>
   request<FactoryRegistration>('/api/v1/factory/devices/active', { signal });
 
-export const recordFactoryVerification = (
-  deviceId: string,
-  input: { firmwareVerified: boolean; identityVerified: boolean; portalVerified: boolean; sensorVerified: boolean; firmwareVersion: string; failureCode: string | null },
-) => request<FactoryVerification>(`/api/v1/factory/devices/${deviceId}/verification`, { method: 'POST', body: JSON.stringify(input) });
+export const abandonFactoryDevice = (deviceId: string, reasonCode: 'unit_scrapped' | 'hardware_failure' | 'job_state_lost') =>
+  request<FactoryRegistration>(`/api/v1/factory/devices/${deviceId}/abandon`, { method: 'POST', body: JSON.stringify({ reasonCode }) });
 
 export const retryFactoryDevice = (deviceId: string) =>
   request<FactoryRegistration>(`/api/v1/factory/devices/${deviceId}/retry`, { method: 'POST' });
+
+export const listFactoryStations = (signal?: AbortSignal) => request<FactoryStationSummary[]>('/api/v1/factory/stations/', { signal });
+export const getFactoryStation = (stationId: string, signal?: AbortSignal) => request<FactoryStationSummary>(`/api/v1/factory/stations/${encodeURIComponent(stationId)}`, { signal });
+export const createFactoryStationGrant = (input: { displayName: string; publicKey: string; thumbprint: string }) =>
+  request<{ grantToken: string; expiresAtUtc: string }>('/api/v1/factory/stations/enrollment-grants', { method: 'POST', body: JSON.stringify(input) });
 
 export function createFactorySecrets() {
   const secret = crypto.getRandomValues(new Uint8Array(32));

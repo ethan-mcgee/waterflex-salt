@@ -66,39 +66,6 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
-      - name: Upload firmware bundle to S3
-        env:
-          BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
-          FIRMWARE_VERSION: ${{ steps.bundle-info.outputs.firmware_version }}
-          CONFIGURATION_VERSION: ${{ steps.bundle-info.outputs.configuration_version }}
-          SHA256: ${{ steps.bundle-info.outputs.sha256 }}
-        shell: bash
-        run: |
-          [[ -n "$BUCKET" ]] || { echo "Missing repository variable STAGING_DEPLOY_BUCKET." >&2; exit 1; }
-          PREFIX="s3://$BUCKET/factory-bundles/$FIRMWARE_VERSION/$CONFIGURATION_VERSION"
-          aws s3 cp firmware/factory-release/waterflex-factory.bin "$PREFIX/waterflex-factory.bin" \
-            --metadata sha256="$SHA256" --only-show-errors
-          aws s3 cp firmware/factory-release/factory-bundle.json "$PREFIX/factory-bundle.json" --only-show-errors
-      - name: Verify live staging bundle and presigned image
-        env:
-          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
-        shell: pwsh
-        run: |
-          $downloadPath = Join-Path $env:RUNNER_TEMP 'waterflex-factory-live.bin'
-          try {
-            $metadata = Invoke-RestMethod -Method Get -Uri "$($env:STAGING_URL.TrimEnd('/'))/api/v1/factory/bundle" -MaximumRedirection 0 -TimeoutSec 30
-            if ($metadata.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or [string]::IsNullOrWhiteSpace($metadata.downloadUrl)) {
-              throw 'The live staging bundle response is missing a valid SHA-256 or download URL.'
-            }
-            Invoke-WebRequest -Method Get -Uri $metadata.downloadUrl -OutFile $downloadPath -MaximumRedirection 5 -TimeoutSec 120
-            $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $downloadPath).Hash.ToLowerInvariant()
-            if ($actualSha256 -ne $metadata.sha256.ToLowerInvariant()) {
-              throw "The live staging bundle checksum did not match: expected $($metadata.sha256), got $actualSha256."
-            }
-          }
-          finally {
-            Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
-          }
       - name: Determine release identity
         id: tag
         shell: pwsh
@@ -107,7 +74,7 @@ jobs:
           FIRMWARE_TAG: fw-${{ steps.bundle-info.outputs.firmware_version }}
         run: |
           # A release already exists for this exact firmware version, so this run only rebuilt the
-          # helper (no firmware change) — tag by commit instead of reusing/colliding with that release.
+          # helper (no firmware change), so tag by commit instead of reusing/colliding with that release.
           gh release view $env:FIRMWARE_TAG --repo "${{ github.repository }}" *> $null
           if ($LASTEXITCODE -eq 0) {
             "tag=helper-${{ github.sha }}" >> $env:GITHUB_OUTPUT
@@ -117,7 +84,7 @@ jobs:
           }
 
           $releaseDate = [DateTime]::UtcNow.ToString('yyyy.MM.dd')
-          $titlePrefix = "WaterFlex Factory Helper — $releaseDate."
+          $titlePrefix = "WaterFlex Factory Helper - $releaseDate."
           $maximumSequence = 0
           $releases = gh release list --repo "${{ github.repository }}" --limit 100 --json name | ConvertFrom-Json
           foreach ($release in $releases) {
@@ -148,7 +115,7 @@ jobs:
         run: |
           $stdout = Join-Path $env:RUNNER_TEMP 'factory-helper-smoke.stdout.log'
           $stderr = Join-Path $env:RUNNER_TEMP 'factory-helper-smoke.stderr.log'
-          $helper = Start-Process -FilePath "$pwd/dist/WaterFlexFactoryHelper-staging.exe" -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $helper = Start-Process -FilePath "$pwd/dist/WaterFlexFactoryHelper-staging.exe" -ArgumentList @('--bundle-dir', "$pwd/firmware/factory-release", '--state-dir', "$env:RUNNER_TEMP/factory-helper-smoke-state") -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           try {
             $ready = $false
             for ($attempt = 1; $attempt -le 30; $attempt++) {
@@ -157,7 +124,7 @@ jobs:
               }
               try {
                 $health = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8765/v1/health' -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } -TimeoutSec 2
-                if ($health.status -eq 'ready' -and $health.protocolVersion -eq '2') {
+                if ($health.status -eq 'ready' -and $health.protocolVersion -eq '4') {
                   $devices = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8765/v1/devices' -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } -TimeoutSec 2
                   if ($devices.status -notin @('none', 'detected', 'multiple') -or $null -eq $devices.devices) {
                     throw 'The packaged helper returned an invalid device-detection response.'
@@ -167,7 +134,7 @@ jobs:
                 }
               }
               catch {
-                # PyInstaller extraction and the first approved-bundle download can take a few seconds.
+                # PyInstaller extraction and CNG station-key creation can take a few seconds.
               }
               Start-Sleep -Seconds 2
             }
@@ -183,6 +150,28 @@ jobs:
             if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout }
             if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr }
           }
+      - name: Publish immutable firmware bundle to S3
+        env:
+          BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:BUCKET)) { throw 'Missing repository variable STAGING_DEPLOY_BUCKET.' }
+          ./firmware/tools/Publish-ImmutableFactoryBundle.ps1 -Bucket $env:BUCKET -BundleDirectory firmware/factory-release -HelperCommit '${{ github.sha }}' -EvidencePath factory-release-evidence.json
+      - name: Verify live staging bundle and presigned image
+        env:
+          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+        shell: pwsh
+        run: |
+          $downloadPath = Join-Path $env:RUNNER_TEMP 'waterflex-factory-live.bin'
+          try {
+            $metadata = Invoke-RestMethod -Method Get -Uri "$($env:STAGING_URL.TrimEnd('/'))/api/v1/factory/bundle" -MaximumRedirection 0 -TimeoutSec 30
+            if ($metadata.helperProtocolVersion -ne '4' -or $metadata.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or [string]::IsNullOrWhiteSpace($metadata.downloadUrl)) { throw 'The live staging bundle response is invalid or not protocol 4.' }
+            Invoke-WebRequest -Method Get -Uri $metadata.downloadUrl -OutFile $downloadPath -MaximumRedirection 5 -TimeoutSec 120
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $downloadPath).Hash.ToLowerInvariant() -ne $metadata.sha256.ToLowerInvariant()) { throw 'The live staging bundle checksum did not match.' }
+          } finally { Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue }
+          $evidence = Get-Content -LiteralPath factory-release-evidence.json -Raw | ConvertFrom-Json
+          $evidence.verifiedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
+          $evidence | ConvertTo-Json | Set-Content -LiteralPath factory-release-evidence.json -Encoding utf8
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -193,3 +182,5 @@ jobs:
           files: |
             dist/WaterFlexFactoryHelper-staging.exe
             dist/WaterFlexFactoryHelper-production.exe
+            firmware/tools/Install-WaterFlexFactoryHelper.ps1
+            factory-release-evidence.json

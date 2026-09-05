@@ -15,21 +15,22 @@ public sealed class EfFactoryFlashAuthorizationService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider) : IFactoryFlashAuthorizationService
 {
-    public async Task<bool> VerifyAsync(
-        Guid deviceId,
-        string token,
+    public async Task<FlashAuthorizationRedemption?> RedeemAsync(
+        FlashAuthorizationVerificationRequest request,
+        Guid stationId,
         CancellationToken cancellationToken = default)
     {
-        if (!TryParseToken(token, out var credentialId, out var secret))
+        if (!TryParseToken(request.Token, out var credentialId, out var secret)
+            || !IsSha256(request.BundleSha256))
         {
-            return false;
+            return null;
         }
 
         var authorization = await dbContext.FactoryFlashAuthorizations
             .SingleOrDefaultAsync(candidate => candidate.CredentialId == credentialId, cancellationToken);
         if (authorization is null)
         {
-            return false;
+            return null;
         }
 
         var presentedHash = SHA256.HashData(secret);
@@ -37,21 +38,50 @@ public sealed class EfFactoryFlashAuthorizationService(
         {
             authorization.FailedAttemptCount += 1;
             await dbContext.SaveChangesAsync(cancellationToken);
-            return false;
+            return null;
         }
 
         var now = timeProvider.GetUtcNow();
-        if (authorization.DeviceId != deviceId
+        if (authorization.DeviceId != request.DeviceId
             || authorization.ConsumedAtUtc is not null
             || authorization.RevokedAtUtc is not null
             || authorization.ExpiresAtUtc <= now)
         {
-            return false;
+            return null;
+        }
+
+        var job = await dbContext.FactoryProvisioningJobs
+            .Include(candidate => candidate.Device)
+            .SingleOrDefaultAsync(candidate => candidate.Id == authorization.FactoryProvisioningJobId, cancellationToken);
+        if (job is null
+            || job.Status != FactoryProvisioningStatus.Registered
+            || !string.Equals(job.IdempotencyKey, request.IdempotencyKey.Trim(), StringComparison.Ordinal)
+            || !string.Equals(job.Device.FactoryFirmwareVersion, request.FirmwareVersion.Trim(), StringComparison.Ordinal)
+            || !string.Equals(job.Device.FactoryConfigurationVersion, request.ConfigurationVersion.Trim(), StringComparison.Ordinal))
+        {
+            return null;
         }
 
         authorization.ConsumedAtUtc = now;
+        authorization.RedeemedByFactoryStationId = stationId;
+        var secretForVerification = RandomNumberGenerator.GetBytes(32);
+        var verification = new FactoryVerificationAuthorization
+        {
+            Id = Guid.NewGuid(),
+            FactoryProvisioningJobId = job.Id,
+            DeviceId = job.DeviceId,
+            FactoryStationId = stationId,
+            CredentialId = $"wf_verify_{Guid.NewGuid():N}",
+            SecretHash = SHA256.HashData(secretForVerification),
+            FirmwareVersion = job.Device.FactoryFirmwareVersion!,
+            ConfigurationVersion = job.Device.FactoryConfigurationVersion!,
+            BundleSha256 = request.BundleSha256.Trim().ToLowerInvariant(),
+            IssuedAtUtc = now,
+            ExpiresAtUtc = now.AddMinutes(15)
+        };
+        dbContext.FactoryVerificationAuthorizations.Add(verification);
         await dbContext.SaveChangesAsync(cancellationToken);
-        return true;
+        return new FlashAuthorizationRedemption($"{verification.CredentialId}.{Base64Url(secretForVerification)}");
     }
 
     private static bool TryParseToken(string token, out string credentialId, out byte[] secret)
@@ -90,4 +120,10 @@ public sealed class EfFactoryFlashAuthorizationService(
             return false;
         }
     }
+
+    private static bool IsSha256(string value) => value.Trim().Length == 64
+        && value.Trim().All(character => char.IsAsciiHexDigit(character));
+
+    private static string Base64Url(byte[] value) =>
+        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
