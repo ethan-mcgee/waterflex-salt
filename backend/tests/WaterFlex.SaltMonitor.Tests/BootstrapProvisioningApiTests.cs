@@ -180,6 +180,19 @@ public sealed class BootstrapProvisioningApiTests
     }
 
     [Fact]
+    public async Task StationEnrollmentWithMissingFieldsReturnsForbidden()
+    {
+        await using var factory = new BootstrapApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync(
+            "/api/v1/factory/stations/enroll",
+            new StringContent("{}", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task AdministratorGrantCanBeRedeemedByUnauthenticatedHelperWithoutConsoleHeader()
     {
         await using var factory = new BootstrapApiFactory();
