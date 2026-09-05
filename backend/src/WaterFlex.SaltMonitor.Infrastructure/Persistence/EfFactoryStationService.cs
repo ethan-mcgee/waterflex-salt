@@ -118,16 +118,19 @@ public sealed class EfFactoryStationService(SaltMonitorDbContext dbContext, Time
 
     private static FactoryStationSummary Map(FactoryStation item) => new(item.Id, item.DisplayName, item.Thumbprint, item.KeyProviderType, item.HelperVersion, item.ProtocolVersion, item.EnrolledAtUtc, item.LastSeenAtUtc, item.RevokedAtUtc);
     private static string Normalize(string? value, int max) { var result = value?.Trim() ?? string.Empty; return result[..Math.Min(result.Length, max)]; }
-    private static bool TryValidateIdentity(string publicKeyValue, string thumbprintValue, out string publicKey, out string thumbprint)
+    private static bool TryValidateIdentity(string? publicKeyValue, string? thumbprintValue, out string publicKey, out string thumbprint)
     {
+        if (publicKeyValue is null || thumbprintValue is null) { publicKey = string.Empty; thumbprint = string.Empty; return false; }
         publicKey = publicKeyValue.Trim(); thumbprint = thumbprintValue.Trim().ToLowerInvariant();
         return TryBase64Url(publicKey, out var bytes) && bytes.Length == 65 && bytes[0] == 4
             && thumbprint.Length == 64 && thumbprint.All(char.IsAsciiHexDigit)
             && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(thumbprint), Encoding.ASCII.GetBytes(Convert.ToHexStringLower(SHA256.HashData(bytes))));
     }
-    private static bool TryParseGrant(string token, out Guid id, out byte[] secret)
+    private static bool TryParseGrant(string? token, out Guid id, out byte[] secret)
     {
-        id = Guid.Empty; secret = []; var parts = token.Split('.', 2);
+        id = Guid.Empty; secret = [];
+        if (token is null) return false;
+        var parts = token.Split('.', 2);
         return parts.Length == 2 && Guid.TryParseExact(parts[0], "N", out id) && TryBase64Url(parts[1], out secret) && secret.Length == 32;
     }
     private static bool TryBase64Url(string value, out byte[] bytes)
