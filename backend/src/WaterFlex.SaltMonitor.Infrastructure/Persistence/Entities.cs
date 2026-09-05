@@ -157,10 +157,74 @@ public sealed class FactoryFlashAuthorization
     public DateTimeOffset IssuedAtUtc { get; set; }
     public DateTimeOffset ExpiresAtUtc { get; set; }
     public DateTimeOffset? ConsumedAtUtc { get; set; }
+    public Guid? RedeemedByFactoryStationId { get; set; }
     public DateTimeOffset? RevokedAtUtc { get; set; }
     public int FailedAttemptCount { get; set; }
     public uint RowVersion { get; set; }
     public FactoryProvisioningJob Job { get; set; } = null!;
+}
+
+/// <summary>
+/// Short-lived credential issued only when the local helper redeems an approved flash token.
+/// It binds end-of-line evidence to the exact device and release that were authorized to flash.
+/// </summary>
+public sealed class FactoryVerificationAuthorization
+{
+    public Guid Id { get; set; }
+    public Guid FactoryProvisioningJobId { get; set; }
+    public Guid DeviceId { get; set; }
+    public Guid FactoryStationId { get; set; }
+    public required string CredentialId { get; set; }
+    public required byte[] SecretHash { get; set; }
+    public required string FirmwareVersion { get; set; }
+    public required string ConfigurationVersion { get; set; }
+    public required string BundleSha256 { get; set; }
+    public DateTimeOffset IssuedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+    public string? ResultJson { get; set; }
+    public uint RowVersion { get; set; }
+    public FactoryProvisioningJob Job { get; set; } = null!;
+}
+
+public sealed class FactoryStation
+{
+    public Guid Id { get; set; }
+    public required string DisplayName { get; set; }
+    public required string PublicKey { get; set; }
+    public required string Thumbprint { get; set; }
+    public required string KeyProviderType { get; set; }
+    public required string HelperVersion { get; set; }
+    public required string ProtocolVersion { get; set; }
+    public DateTimeOffset EnrolledAtUtc { get; set; }
+    public DateTimeOffset? LastSeenAtUtc { get; set; }
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+    public uint RowVersion { get; set; }
+}
+
+public sealed class FactoryStationEnrollmentGrant
+{
+    public Guid Id { get; set; }
+    public required byte[] SecretHash { get; set; }
+    public required string DisplayName { get; set; }
+    public required string PublicKey { get; set; }
+    public required string Thumbprint { get; set; }
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset IssuedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
+    public uint RowVersion { get; set; }
+}
+
+public sealed class FactoryStationReplayNonce
+{
+    public Guid Id { get; set; }
+    public Guid FactoryStationId { get; set; }
+    public required string Nonce { get; set; }
+    public DateTimeOffset UsedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public FactoryStation Station { get; set; } = null!;
 }
 
 /// <summary>The operational credential a device uses for ongoing telemetry/API calls after it has been activated or directly commissioned.</summary>

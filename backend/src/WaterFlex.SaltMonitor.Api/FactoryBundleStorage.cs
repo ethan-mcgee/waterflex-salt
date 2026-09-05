@@ -1,6 +1,8 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace WaterFlex.SaltMonitor.Api;
 
@@ -38,7 +40,28 @@ public sealed class FactoryBundleStorage(
             return null;
         }
 
-        var key = $"{options.BundleKeyPrefix.TrimEnd('/')}/{firmwareVersion}/{configurationVersion}/waterflex-factory.bin";
+        var prefix = $"{options.BundleKeyPrefix.TrimEnd('/')}/{firmwareVersion}/{configurationVersion}";
+        var key = $"{prefix}/waterflex-factory.bin";
+        var manifestKey = $"{prefix}/factory-bundle.json";
+
+        FactoryBundleManifest manifest;
+        try
+        {
+            using var response = await s3.GetObjectAsync(options.BundleBucket, manifestKey, cancellationToken);
+            using var memory = new MemoryStream();
+            await response.ResponseStream.CopyToAsync(memory, cancellationToken);
+            if (memory.Length is < 1 or > 32_768) throw new InvalidOperationException("Factory bundle manifest size is invalid.");
+            var manifestDigest = response.Metadata["sha256"];
+            if (string.IsNullOrWhiteSpace(manifestDigest)
+                || !string.Equals(manifestDigest, Convert.ToHexStringLower(SHA256.HashData(memory.ToArray())), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Factory bundle manifest digest is invalid.");
+            manifest = JsonSerializer.Deserialize<FactoryBundleManifest>(memory.ToArray(), new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidOperationException("Factory bundle manifest is invalid.");
+        }
+        catch (AmazonS3Exception exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
 
         GetObjectMetadataResponse metadata;
         try
@@ -55,6 +78,11 @@ public sealed class FactoryBundleStorage(
         {
             throw new InvalidOperationException($"Factory bundle object '{key}' is missing required sha256 metadata.");
         }
+        if (!string.Equals(manifest.FirmwareVersion, firmwareVersion, StringComparison.Ordinal)
+            || !string.Equals(manifest.ConfigurationVersion, configurationVersion, StringComparison.Ordinal)
+            || !string.Equals(manifest.MergedImage.File, "waterflex-factory.bin", StringComparison.Ordinal)
+            || !string.Equals(manifest.MergedImage.Sha256, sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Factory bundle manifest is incompatible with the approved binary.");
 
         var expiresAtUtc = DateTimeOffset.UtcNow.Add(UrlLifetime);
         var downloadUrl = await s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest
@@ -67,4 +95,7 @@ public sealed class FactoryBundleStorage(
 
         return new FactoryBundleLocation(downloadUrl, sha256, expiresAtUtc);
     }
+
+    private sealed record FactoryBundleManifest(string FirmwareVersion, string ConfigurationVersion, FactoryBundleImage MergedImage);
+    private sealed record FactoryBundleImage(string File, string Sha256);
 }

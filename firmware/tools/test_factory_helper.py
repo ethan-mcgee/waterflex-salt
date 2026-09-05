@@ -26,6 +26,19 @@ from factory_helper import (
 )
 
 
+class FakeStationIdentity:
+    def signed_headers(self, method, path, body):
+        return {
+            "X-WaterFlex-Station-Id": "11111111-1111-1111-1111-111111111111",
+            "X-WaterFlex-Station-Timestamp": "1",
+            "X-WaterFlex-Station-Nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+            "X-WaterFlex-Station-Signature": "A" * 86,
+        }
+
+    def status(self):
+        return {"enrollmentStatus": "enrolled", "protocolVersion": "4"}
+
+
 class FactoryHelperTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -37,12 +50,12 @@ class FactoryHelperTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.1",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "2",
+            "helperProtocolVersion": "4",
             "mergedImage": {"file": image.name, "sha256": hashlib.sha256(image.read_bytes()).hexdigest()},
         }), encoding="utf-8")
         self.esptool = self.root / "esptool.py"
         self.esptool.write_text("", encoding="utf-8")
-        self.helper = FactoryHelper(self.root, self.root / "jobs", self.esptool, "http://127.0.0.1:9")
+        self.helper = FactoryHelper(self.root, self.root / "jobs", self.esptool, "http://127.0.0.1:9", FakeStationIdentity())
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -80,7 +93,7 @@ class FactoryHelperTests(unittest.TestCase):
         job["status"] = "flashing"
         self.helper.store.save(job)
 
-        restarted = FactoryHelper(self.root, self.root / "jobs", self.esptool, "http://127.0.0.1:9")
+        restarted = FactoryHelper(self.root, self.root / "jobs", self.esptool, "http://127.0.0.1:9", FakeStationIdentity())
         recovered = restarted.store.load("factory-interrupted-job-0001")
 
         self.assertEqual("failed", recovered["status"])
@@ -185,7 +198,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.1",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "2",
+            "helperProtocolVersion": "4",
             "mergedImage": {"file": image.name, "sha256": sha256},
         }), encoding="utf-8")
         return sha256
@@ -202,7 +215,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.1",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "2",
+            "helperProtocolVersion": "4",
             "downloadUrl": "http://example.invalid/should-not-be-fetched",
             "sha256": sha256,
         }).encode("utf-8")
@@ -222,7 +235,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.2",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "2",
+            "helperProtocolVersion": "4",
             "downloadUrl": "http://example.invalid/waterflex-factory.bin",
             "sha256": new_sha256,
         }).encode("utf-8")
@@ -246,7 +259,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.2",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "2",
+            "helperProtocolVersion": "4",
             "downloadUrl": "http://example.invalid/waterflex-factory.bin",
             "sha256": "0" * 64,  # will never match the downloaded bytes below
         }).encode("utf-8")
@@ -324,7 +337,7 @@ class ResolveBundleTests(unittest.TestCase):
             "model": "Arduino Nano ESP32",
             "firmwareVersion": "wf-uart-pilot-0.2",
             "configurationVersion": "factory-v2",
-            "helperProtocolVersion": "2",
+            "helperProtocolVersion": "4",
             "downloadUrl": "https://example.invalid/waterflex-factory.bin",
             "sha256": "0" * 64,
         }).encode("utf-8")

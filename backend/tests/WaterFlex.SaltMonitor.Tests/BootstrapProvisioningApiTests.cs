@@ -46,7 +46,7 @@ public sealed class BootstrapProvisioningApiTests
             "Arduino Nano ESP32",
             "wf_boot_api_0001",
             Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("api-bootstrap-secret"))),
-            "wf-uart-pilot-0.1",
+            "wf-uart-pilot-0.2",
             "factory-v2");
 
         client.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
@@ -57,6 +57,7 @@ public sealed class BootstrapProvisioningApiTests
         var registration = await registered.Content.ReadFromJsonAsync<FactoryDeviceRegistration>(JsonOptions);
 
         client.DefaultRequestHeaders.Remove("X-WaterFlex-Development-User");
+        client.DefaultRequestHeaders.Remove("X-WaterFlex-Request");
         client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-jordan");
         var sessionRequest = new CreateCommissioningSessionRequest(
             "WF-C-10482",
@@ -100,7 +101,7 @@ public sealed class BootstrapProvisioningApiTests
                 "Arduino Nano ESP32",
                 "wf_boot_active_0001",
                 Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("active-bootstrap-secret"))),
-                "wf-uart-pilot-0.1",
+                "wf-uart-pilot-0.2",
                 "factory-v2"));
         var registration = await registered.Content.ReadFromJsonAsync<FactoryDeviceRegistration>(JsonOptions);
 
@@ -133,22 +134,23 @@ public sealed class BootstrapProvisioningApiTests
                 "Arduino Nano ESP32",
                 "wf_boot_flash_0001",
                 Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("flash-bootstrap-secret"))),
-                "wf-uart-pilot-0.1",
+                "wf-uart-pilot-0.2",
                 "factory-v2"));
         var registration = await registered.Content.ReadFromJsonAsync<FactoryDeviceRegistration>(JsonOptions);
         client.DefaultRequestHeaders.Remove("X-WaterFlex-Development-User");
-
-        var badToken = await client.PostAsJsonAsync(
+        client.DefaultRequestHeaders.Remove("X-WaterFlex-Request");
+        var noStationCredential = await client.PostAsJsonAsync(
             "/api/v1/factory/flash-authorizations/verify",
-            new FlashAuthorizationVerificationRequest(registration!.DeviceId, "not-a-real-token"));
-        var firstUse = await client.PostAsJsonAsync(
-            "/api/v1/factory/flash-authorizations/verify",
-            new FlashAuthorizationVerificationRequest(registration.DeviceId, registration.FlashAuthorizationToken!));
-        var replay = await client.PostAsJsonAsync(
-            "/api/v1/factory/flash-authorizations/verify",
-            new FlashAuthorizationVerificationRequest(registration.DeviceId, registration.FlashAuthorizationToken!));
+            new FlashAuthorizationVerificationRequest(registration!.DeviceId, registration.IdempotencyKey, "wf-uart-pilot-0.2", "factory-v2", new string('a', 64), registration.FlashAuthorizationToken!));
+        var badToken = await factory.PostSignedAsync(client,
+            new FlashAuthorizationVerificationRequest(registration!.DeviceId, registration.IdempotencyKey, "wf-uart-pilot-0.2", "factory-v2", new string('a', 64), "not-a-real-token"));
+        var firstUse = await factory.PostSignedAsync(client,
+            new FlashAuthorizationVerificationRequest(registration.DeviceId, registration.IdempotencyKey, "wf-uart-pilot-0.2", "factory-v2", new string('a', 64), registration.FlashAuthorizationToken!));
+        var replay = await factory.PostSignedAsync(client,
+            new FlashAuthorizationVerificationRequest(registration.DeviceId, registration.IdempotencyKey, "wf-uart-pilot-0.2", "factory-v2", new string('a', 64), registration.FlashAuthorizationToken!));
 
         Assert.NotNull(registration!.FlashAuthorizationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, noStationCredential.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, badToken.StatusCode);
         Assert.Equal(HttpStatusCode.OK, firstUse.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, replay.StatusCode);
@@ -170,11 +172,32 @@ public sealed class BootstrapProvisioningApiTests
                 "Arduino Nano ESP32",
                 "wf_boot_disabled_0001",
                 Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes("disabled-bootstrap-secret"))),
-                "wf-uart-pilot-0.1",
+                "wf-uart-pilot-0.2",
                 "factory-v2"));
 
         Assert.Equal(HttpStatusCode.OK, configuration.StatusCode);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, registration.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdministratorGrantCanBeRedeemedByUnauthenticatedHelperWithoutConsoleHeader()
+    {
+        await using var factory = new BootstrapApiFactory();
+        await factory.InitializeDatabaseAsync();
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var parameters = key.ExportParameters(false); var raw = new byte[65]; raw[0] = 4;
+        parameters.Q.X!.CopyTo(raw, 1); parameters.Q.Y!.CopyTo(raw, 33);
+        var publicKey = Convert.ToBase64String(raw).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var thumbprint = Convert.ToHexStringLower(SHA256.HashData(raw));
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-admin-avery");
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Request", "console");
+        var grantResponse = await client.PostAsJsonAsync("/api/v1/factory/stations/enrollment-grants", new FactoryStationEnrollmentGrantRequest("Test PC", publicKey, thumbprint));
+        var grant = await grantResponse.Content.ReadFromJsonAsync<WaterFlex.SaltMonitor.Provisioning.FactoryStationEnrollmentGrant>(JsonOptions);
+        client.DefaultRequestHeaders.Clear();
+        var enrollment = await client.PostAsJsonAsync("/api/v1/factory/stations/enroll", new EnrollFactoryStationRequest(grant!.GrantToken, "Test PC", publicKey, thumbprint, "software", "4.0.0", "4"));
+        Assert.Equal(HttpStatusCode.OK, grantResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, enrollment.StatusCode);
     }
 
     [Fact]
@@ -205,6 +228,8 @@ public sealed class BootstrapProvisioningApiTests
     {
         private readonly string connectionString;
         private readonly bool factoryProvisioningEnabled;
+        private readonly ECDsa stationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        private readonly Guid stationId = Guid.NewGuid();
 
         public BootstrapApiFactory(bool factoryProvisioningEnabled = true)
         {
@@ -229,7 +254,39 @@ public sealed class BootstrapProvisioningApiTests
             using var scope = Services.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
             await context.Database.MigrateAsync();
+            if (!await context.FactoryStations.AnyAsync(station => station.Id == stationId))
+            {
+                var parameters = stationKey.ExportParameters(false);
+                var raw = new byte[65]; raw[0] = 4;
+                parameters.Q.X!.CopyTo(raw, 1); parameters.Q.Y!.CopyTo(raw, 33);
+                context.FactoryStations.Add(new FactoryStation
+                {
+                    Id = stationId, DisplayName = "Test Station", PublicKey = Base64Url(raw),
+                    Thumbprint = Convert.ToHexStringLower(SHA256.HashData(raw)), KeyProviderType = "software",
+                    HelperVersion = "4.0.0", ProtocolVersion = "4", EnrolledAtUtc = DateTimeOffset.UtcNow
+                });
+                await context.SaveChangesAsync();
+            }
         }
+
+        public async Task<HttpResponseMessage> PostSignedAsync<T>(HttpClient client, T value)
+        {
+            const string path = "/api/v1/factory/flash-authorizations/verify";
+            var body = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+            var nonce = Base64Url(RandomNumberGenerator.GetBytes(16));
+            var canonical = $"WF-STATION-V1\nPOST\n{path}\n{timestamp}\n{nonce}\n{Convert.ToHexStringLower(SHA256.HashData(body))}";
+            var signature = stationKey.SignData(Encoding.UTF8.GetBytes(canonical), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+            using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new ByteArrayContent(body) };
+            request.Content.Headers.ContentType = new("application/json");
+            request.Headers.Add("X-WaterFlex-Station-Id", stationId.ToString());
+            request.Headers.Add("X-WaterFlex-Station-Timestamp", timestamp);
+            request.Headers.Add("X-WaterFlex-Station-Nonce", nonce);
+            request.Headers.Add("X-WaterFlex-Station-Signature", Base64Url(signature));
+            return await client.SendAsync(request);
+        }
+
+        private static string Base64Url(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
         public async Task<int> CountAsync<TEntity>(
             Func<SaltMonitorDbContext, DbSet<TEntity>> setSelector)

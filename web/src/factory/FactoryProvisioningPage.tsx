@@ -1,26 +1,35 @@
 import { AlertTriangle, Check, CircuitBoard, LoaderCircle, PlugZap, Printer, RotateCcw, ShieldCheck } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   createFactorySecrets,
+  abandonFactoryDevice,
   findActiveFactoryDevice,
   findFactoryDevice,
   getFactoryConfiguration,
-  recordFactoryVerification,
+  listFactoryStations,
+  getFactoryStation,
+  createFactoryStationGrant,
   registerFactoryDevice,
   retryFactoryDevice,
   type FactoryConfiguration,
   type FactoryRegistration,
   type FactoryVerification,
+  type FactoryStationSummary,
 } from './api';
 import {
   checkHelper,
   clearHelperJob,
+  getHelperLabel,
   getHelperDevices,
+  getHelperStation,
+  enrollHelperStation,
   getHelperJob,
   prepareHelperJob,
   startHelperJob,
   type HelperJob,
   type HelperDevices,
+  type HelperLabel,
+  type HelperStation,
 } from './helper';
 
 const ACTIVE_JOB_KEY = 'waterflex-factory-active-job';
@@ -30,14 +39,16 @@ export default function FactoryProvisioningPage() {
   const [helperReady, setHelperReady] = useState(false);
   const [helperDevices, setHelperDevices] = useState<HelperDevices | null>(null);
   const [helperStatusError, setHelperStatusError] = useState('');
+  const [helperStation, setHelperStation] = useState<HelperStation | null>(null);
+  const [backendStation, setBackendStation] = useState<FactoryStationSummary | null>(null);
   const [registration, setRegistration] = useState<FactoryRegistration | null>(null);
   const [helperJob, setHelperJob] = useState<HelperJob | null>(null);
   const [verification, setVerification] = useState<FactoryVerification | null>(null);
+  const [label, setLabel] = useState<HelperLabel | null>(null);
   const [activeKey, setActiveKey] = useState(() => window.localStorage.getItem(ACTIVE_JOB_KEY));
   const [activeChecked, setActiveChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const finalizing = useRef(false);
 
   const refreshHelperDevices = useCallback(async (config: FactoryConfiguration, signal?: AbortSignal) => {
     const devices = await getHelperDevices(config.helperBaseUrl, signal);
@@ -75,6 +86,11 @@ export default function FactoryProvisioningPage() {
         const health = await checkHelper(configuration.helperBaseUrl, controller.signal);
         if (health.protocolVersion !== configuration.helperProtocolVersion) {
           throw new Error(`Update the factory helper. Protocol ${health.protocolVersion} is installed; protocol ${configuration.helperProtocolVersion} is required.`);
+        }
+        const localStation = await getHelperStation(configuration.helperBaseUrl, controller.signal);
+        setHelperStation(localStation);
+        if (localStation.stationId) {
+          setBackendStation(await getFactoryStation(localStation.stationId, controller.signal));
         }
         await refreshHelperDevices(configuration, controller.signal);
         if (!controller.signal.aborted) timer = window.setInterval(refreshDevices, 1000);
@@ -167,27 +183,33 @@ export default function FactoryProvisioningPage() {
   }, [activeKey, configuration, helperJob]);
 
   useEffect(() => {
-    if (!configuration || !registration || !helperJob || verification || finalizing.current) return;
-    if (helperJob.status !== 'completed' && helperJob.status !== 'failed') return;
-    finalizing.current = true;
-    const evidence = helperJob.evidence ?? { firmware: false, identity: false, portal: false, sensor: false };
-    recordFactoryVerification(registration.deviceId, {
-      firmwareVerified: evidence.firmware,
-      identityVerified: evidence.identity,
-      portalVerified: evidence.portal,
-      sensorVerified: evidence.sensor,
-      firmwareVersion: configuration.approvedFirmwareVersion,
-      failureCode: helperJob.status === 'failed' ? helperJob.failureCode ?? 'factory_helper_failed' : null,
-    }).then(setVerification)
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Verification could not be recorded.'))
-      .finally(() => { finalizing.current = false; });
-  }, [configuration, helperJob, registration, verification]);
+    if (!activeKey || !helperJob || !['completed', 'failed'].includes(helperJob.status)) return;
+    const controller = new AbortController();
+    findFactoryDevice(activeKey, controller.signal)
+      .then((current) => {
+        if (controller.signal.aborted) return;
+        setRegistration(current);
+        if (current.status === 'provisioned' || current.status === 'quarantined') {
+          setVerification({ deviceId: current.deviceId, serialNumber: current.serialNumber, status: current.status, verifiedAtUtc: current.verifiedAtUtc ?? current.registeredAtUtc, failureCode: current.failureCode });
+        }
+      })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Factory acceptance has not been recorded by the helper.'); });
+    return () => controller.abort();
+  }, [activeKey, helperJob]);
+
+  useEffect(() => {
+    if (!configuration || !activeKey || verification?.status !== 'provisioned') return;
+    getHelperLabel(configuration.helperBaseUrl, activeKey)
+      .then(setLabel)
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'The completed label could not be retrieved from the helper.'));
+  }, [activeKey, configuration, verification]);
 
   async function startProvisioning() {
-    if (!configuration || !helperReady || helperDevices?.status !== 'detected' || helperDevices.devices.length !== 1 || !configuration.enabled) return;
+    if (!configuration || !helperReady || helperStation?.enrollmentStatus !== 'enrolled' || backendStation?.revokedAtUtc || helperDevices?.status !== 'detected' || helperDevices.devices.length !== 1 || !configuration.enabled) return;
     setBusy(true);
     setError('');
     setVerification(null);
+    setLabel(null);
     try {
       const secrets = createFactorySecrets();
       const prepared = await prepareHelperJob(configuration.helperBaseUrl, {
@@ -230,6 +252,7 @@ export default function FactoryProvisioningPage() {
     setBusy(true);
     setError('');
     setVerification(null);
+    setLabel(null);
     try {
       const retried = await retryFactoryDevice(registration.deviceId);
       if (!retried.flashAuthorizationToken) throw new Error('WaterFlex did not issue a flash authorization for this job.');
@@ -251,7 +274,7 @@ export default function FactoryProvisioningPage() {
   }
 
   async function finishJob() {
-    if (!configuration || !activeKey) return;
+    if (!configuration || !activeKey || !label) return;
     setBusy(true);
     try {
       await clearHelperJob(configuration.helperBaseUrl, activeKey);
@@ -260,9 +283,43 @@ export default function FactoryProvisioningPage() {
       setRegistration(null);
       setHelperJob(null);
       setVerification(null);
+      setLabel(null);
       setError('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Protected local job data could not be cleared.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function enrollStation() {
+    if (!configuration || !helperStation) return;
+    setBusy(true); setError('');
+    try {
+      const displayName = helperStation.proposedWorkstationName;
+      const grant = await createFactoryStationGrant({ displayName, publicKey: helperStation.publicKey, thumbprint: helperStation.publicKeyThumbprint });
+      const enrolled = await enrollHelperStation(configuration.helperBaseUrl, { grantToken: grant.grantToken, displayName });
+      setHelperStation(enrolled);
+      const stations = await listFactoryStations();
+      setBackendStation(stations.find((station) => station.stationId === enrolled.stationId) ?? null);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'This workstation could not be enrolled.'); }
+    finally { setBusy(false); }
+  }
+
+  async function abandonJob() {
+    if (!registration) return;
+    setBusy(true);
+    try {
+      await abandonFactoryDevice(registration.deviceId, 'hardware_failure');
+      if (configuration && activeKey) await clearHelperJob(configuration.helperBaseUrl, activeKey);
+      window.localStorage.removeItem(ACTIVE_JOB_KEY);
+      setActiveKey(null);
+      setRegistration(null);
+      setHelperJob(null);
+      setVerification(null);
+      setLabel(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Factory job could not be abandoned.');
     } finally {
       setBusy(false);
     }
@@ -272,6 +329,7 @@ export default function FactoryProvisioningPage() {
   const quarantined = verification?.status === 'quarantined';
   const working = helperJob && !['completed', 'failed'].includes(helperJob.status);
   const exactlyOneDevice = helperReady && helperDevices?.status === 'detected' && helperDevices.devices.length === 1;
+  const stationActive = helperStation?.enrollmentStatus === 'enrolled' && backendStation && !backendStation.revokedAtUtc;
   const detectedDevice = exactlyOneDevice ? helperDevices.devices[0] : null;
   const deviceHeading = !helperReady
     ? helperStatusError ? 'Detection unavailable' : 'Checking for sensor'
@@ -314,6 +372,11 @@ export default function FactoryProvisioningPage() {
             <p>{helperReady ? 'The workstation helper is ready to access USB hardware.' : 'Install and start the WaterFlex factory helper on this workstation.'}</p></div>
         </article>
         <article className="factory-card">
+          <div className={`factory-card-icon ${stationActive ? 'ready' : ''}`}><ShieldCheck size={22} /></div>
+          <div><span className="factory-card-kicker">Workstation identity</span><h2>{backendStation?.displayName ?? (helperStation?.enrollmentStatus === 'unenrolled' ? 'Enrollment required' : 'Checking')}</h2>
+            <p>{backendStation?.revokedAtUtc ? 'This workstation is revoked.' : helperStation ? `${helperStation.keyProviderType === 'tpm' ? 'TPM-backed' : 'Software key fallback'} · helper ${helperStation.helperVersion}${backendStation?.lastSeenAtUtc ? ` · last check-in ${new Date(backendStation.lastSeenAtUtc).toLocaleString()}` : ''}` : 'Waiting for helper identity.'}</p></div>
+        </article>
+        <article className="factory-card">
           <div className={`factory-card-icon ${exactlyOneDevice ? 'ready' : ''}`}><CircuitBoard size={22} /></div>
           <div><span className="factory-card-kicker">Connected unit</span><h2>{registration?.serialNumber ?? deviceHeading}</h2>
             <p>{helperJob?.message ?? deviceMessage}</p></div>
@@ -327,28 +390,34 @@ export default function FactoryProvisioningPage() {
 
       {helperJob?.evidence && (
         <div className="factory-checks" aria-label="Factory acceptance checks">
-          {Object.entries(helperJob.evidence).map(([name, passed]) => (
+          {(['firmware', 'identity', 'portal', 'sensor'] as const).map((name) => {
+            const passed = helperJob.evidence![name];
+            return (
             <span className={passed ? 'passed' : 'failed'} key={name}>{passed ? <Check size={15} /> : <AlertTriangle size={15} />}{name}</span>
-          ))}
+            );
+          })}
         </div>
       )}
 
       <footer className="factory-actions">
+        {helperStation?.enrollmentStatus === 'unenrolled' && <button className="button button-primary" type="button" disabled={busy} onClick={enrollStation}>Enroll this workstation</button>}
         {!registration && (
-          <button className="button button-primary" type="button" disabled={busy || !exactlyOneDevice || !activeChecked || !configuration?.enabled} onClick={startProvisioning}>
+          <button className="button button-primary" type="button" disabled={busy || !stationActive || !exactlyOneDevice || !activeChecked || !configuration?.enabled} onClick={startProvisioning}>
             {busy ? <LoaderCircle className="spin" size={17} /> : <CircuitBoard size={17} />}Provision sensor
           </button>
         )}
         {quarantined && (
           <button className="button button-primary" type="button" disabled={busy || !exactlyOneDevice} onClick={retryProvisioning}><RotateCcw size={17} />Retry this sensor</button>
         )}
-        {complete && <button className="button button-secondary" type="button" onClick={() => window.print()}><Printer size={17} />Print label</button>}
-        {complete && <button className="button button-primary" type="button" disabled={busy} onClick={finishJob}>Clear and start next</button>}
+        {complete && <button className="button button-secondary" type="button" disabled={!label} onClick={() => window.print()}><Printer size={17} />Print label</button>}
+        {complete && <button className="button button-primary" type="button" disabled={busy || !label} onClick={finishJob}>Label attached, clear and start next</button>}
+        {quarantined && <button className="button button-secondary" type="button" disabled={busy} onClick={abandonJob}>Scrap this sensor</button>}
       </footer>
 
       {complete && registration && (
         <section className="factory-label" aria-label="Sensor label">
-          <strong>WaterFlex</strong><span>{registration.serialNumber}</span><small>{configuration?.approvedFirmwareVersion}</small>
+          <strong>WaterFlex</strong><span>{label?.serialNumber ?? registration.serialNumber}</span><small>{label?.firmwareVersion ?? configuration?.approvedFirmwareVersion}</small>
+          {label && <><small>{label.setupNetwork}</small><small>{label.setupPassphrase}</small></>}
         </section>
       )}
     </section>

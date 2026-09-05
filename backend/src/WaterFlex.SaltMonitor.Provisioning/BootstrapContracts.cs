@@ -104,9 +104,9 @@ public interface IFactoryDeviceRegistrationService
         StaffActor factoryOperator,
         CancellationToken cancellationToken = default);
 
-    Task<FactoryVerificationResult> RecordVerificationAsync(
+    Task<FactoryDeviceRegistration> AbandonAsync(
         Guid deviceId,
-        FactoryVerificationRequest request,
+        FactoryAbandonRequest request,
         StaffActor factoryOperator,
         CancellationToken cancellationToken = default);
 
@@ -125,14 +125,90 @@ public interface IFactoryDeviceRegistrationService
 /// </summary>
 public interface IFactoryFlashAuthorizationService
 {
-    Task<bool> VerifyAsync(
-        Guid deviceId,
-        string token,
+    Task<FlashAuthorizationRedemption?> RedeemAsync(
+        FlashAuthorizationVerificationRequest request,
+        Guid stationId,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>Request the local factory workstation helper sends the backend to redeem a flash-authorization token before flashing a device.</summary>
-public sealed record FlashAuthorizationVerificationRequest(Guid DeviceId, string Token);
+public sealed record FlashAuthorizationVerificationRequest(
+    Guid DeviceId,
+    string IdempotencyKey,
+    string FirmwareVersion,
+    string ConfigurationVersion,
+    string BundleSha256,
+    string Token);
+
+/// <summary>Returned only to the local helper after it redeems a valid flash authorization.</summary>
+public sealed record FlashAuthorizationRedemption(string VerificationToken);
+
+/// <summary>Local helper evidence bound to a redeemed factory flash authorization.</summary>
+public sealed record FactoryHelperVerificationRequest(
+    Guid DeviceId,
+    string IdempotencyKey,
+    string FirmwareVersion,
+    string ConfigurationVersion,
+    string BundleSha256,
+    bool FirmwareVerified,
+    bool IdentityVerified,
+    bool PortalVerified,
+    bool PortalStartupObserved,
+    bool SensorVerified,
+    int SensorSampleCount,
+    int? SensorMinimumMm,
+    int? SensorMaximumMm,
+    IReadOnlyList<string>? SensorFailureCategories,
+    string? FailureCode,
+    string VerificationToken);
+
+public interface IFactoryHelperVerificationService
+{
+    Task<FactoryVerificationResult?> RecordAsync(
+        FactoryHelperVerificationRequest request,
+        Guid stationId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record FactoryStationEnrollmentGrantRequest(
+    string DisplayName,
+    string PublicKey,
+    string Thumbprint);
+
+public sealed record FactoryStationEnrollmentGrant(string GrantToken, DateTimeOffset ExpiresAtUtc);
+
+public sealed record EnrollFactoryStationRequest(
+    string GrantToken,
+    string DisplayName,
+    string PublicKey,
+    string Thumbprint,
+    string KeyProviderType,
+    string HelperVersion,
+    string ProtocolVersion);
+
+public sealed record FactoryStationSummary(
+    Guid StationId,
+    string DisplayName,
+    string Thumbprint,
+    string KeyProviderType,
+    string HelperVersion,
+    string ProtocolVersion,
+    DateTimeOffset EnrolledAtUtc,
+    DateTimeOffset? LastSeenAtUtc,
+    DateTimeOffset? RevokedAtUtc);
+
+public sealed record RenameFactoryStationRequest(string DisplayName);
+
+public interface IFactoryStationService
+{
+    Task<FactoryStationEnrollmentGrant?> CreateGrantAsync(FactoryStationEnrollmentGrantRequest request, StaffActor administrator, CancellationToken cancellationToken = default);
+    Task<FactoryStationSummary?> EnrollAsync(EnrollFactoryStationRequest request, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<FactoryStationSummary>> ListAsync(CancellationToken cancellationToken = default);
+    Task<FactoryStationSummary?> GetAsync(Guid stationId, CancellationToken cancellationToken = default);
+    Task<FactoryStationSummary?> RenameAsync(Guid stationId, RenameFactoryStationRequest request, StaffActor administrator, CancellationToken cancellationToken = default);
+    Task<FactoryStationSummary?> RevokeAsync(Guid stationId, StaffActor administrator, CancellationToken cancellationToken = default);
+    Task<Guid?> ValidateSignedRequestAsync(string stationId, string method, string path, string timestamp, string nonce, string signature, ReadOnlyMemory<byte> exactBody, CancellationToken cancellationToken = default);
+}
 
 /// <summary>End-of-line factory verification outcome for a device, gating whether it is allowed to ship.</summary>
 public enum FactoryProvisioningStatus
@@ -140,7 +216,8 @@ public enum FactoryProvisioningStatus
     Registered,
     Provisioned,
     Failed,
-    Quarantined
+    Quarantined,
+    Abandoned
 }
 
 /// <summary>
@@ -162,6 +239,9 @@ public sealed record FactoryVerificationResult(
     FactoryProvisioningStatus Status,
     DateTimeOffset VerifiedAtUtc,
     string? FailureCode);
+
+/// <summary>Reason a factory operator permanently retires an unresolved factory job.</summary>
+public sealed record FactoryAbandonRequest(string ReasonCode);
 
 /// <summary>
 /// A sensor's own request to self-activate using its factory bootstrap credential, exchanging

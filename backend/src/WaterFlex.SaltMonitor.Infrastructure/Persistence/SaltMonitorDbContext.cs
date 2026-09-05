@@ -23,6 +23,10 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<FactoryProvisioningJob> FactoryProvisioningJobs => Set<FactoryProvisioningJob>();
     public DbSet<DeviceBootstrapCredential> DeviceBootstrapCredentials => Set<DeviceBootstrapCredential>();
     public DbSet<FactoryFlashAuthorization> FactoryFlashAuthorizations => Set<FactoryFlashAuthorization>();
+    public DbSet<FactoryVerificationAuthorization> FactoryVerificationAuthorizations => Set<FactoryVerificationAuthorization>();
+    public DbSet<FactoryStation> FactoryStations => Set<FactoryStation>();
+    public DbSet<FactoryStationEnrollmentGrant> FactoryStationEnrollmentGrants => Set<FactoryStationEnrollmentGrant>();
+    public DbSet<FactoryStationReplayNonce> FactoryStationReplayNonces => Set<FactoryStationReplayNonce>();
     public DbSet<DeviceCredential> DeviceCredentials => Set<DeviceCredential>();
     public DbSet<DeviceInstallation> DeviceInstallations => Set<DeviceInstallation>();
     public DbSet<CommissioningSession> CommissioningSessions => Set<CommissioningSession>();
@@ -180,6 +184,9 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasIndex(job => job.IdempotencyKey).IsUnique();
             entity.HasIndex(job => job.SerialSequence).IsUnique();
             entity.HasIndex(job => job.SerialNumber).IsUnique();
+            entity.HasIndex(job => job.CreatedBy)
+                .HasFilter("\"Status\" IN ('Registered', 'Quarantined')")
+                .IsUnique();
             entity.HasOne(job => job.Device)
                 .WithOne(device => device.FactoryProvisioningJob)
                 .HasForeignKey<FactoryProvisioningJob>(job => job.DeviceId)
@@ -216,6 +223,63 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
                 .WithMany()
                 .HasForeignKey(authorization => authorization.FactoryProvisioningJobId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<FactoryVerificationAuthorization>(entity =>
+        {
+            entity.ToTable("FactoryVerificationAuthorizations");
+            entity.HasKey(authorization => authorization.Id);
+            entity.Property(authorization => authorization.CredentialId).HasMaxLength(64);
+            entity.Property(authorization => authorization.SecretHash).HasMaxLength(32);
+            entity.Property(authorization => authorization.FirmwareVersion).HasMaxLength(64);
+            entity.Property(authorization => authorization.ConfigurationVersion).HasMaxLength(64);
+            entity.Property(authorization => authorization.BundleSha256).HasMaxLength(64);
+            entity.Property(authorization => authorization.ResultJson).HasColumnType("jsonb");
+            entity.Property(authorization => authorization.RowVersion).IsRowVersion();
+            entity.HasIndex(authorization => authorization.CredentialId).IsUnique();
+            entity.HasIndex(authorization => authorization.FactoryProvisioningJobId);
+            entity.HasIndex(authorization => authorization.FactoryStationId);
+            entity.HasOne(authorization => authorization.Job)
+                .WithMany()
+                .HasForeignKey(authorization => authorization.FactoryProvisioningJobId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<FactoryStation>(entity =>
+        {
+            entity.ToTable("FactoryStations");
+            entity.HasKey(station => station.Id);
+            entity.Property(station => station.DisplayName).HasMaxLength(100);
+            entity.Property(station => station.PublicKey).HasMaxLength(200);
+            entity.Property(station => station.Thumbprint).HasMaxLength(64);
+            entity.Property(station => station.KeyProviderType).HasMaxLength(64);
+            entity.Property(station => station.HelperVersion).HasMaxLength(32);
+            entity.Property(station => station.ProtocolVersion).HasMaxLength(16);
+            entity.Property(station => station.RowVersion).IsRowVersion();
+            entity.HasIndex(station => station.Thumbprint).IsUnique();
+        });
+
+        modelBuilder.Entity<FactoryStationEnrollmentGrant>(entity =>
+        {
+            entity.ToTable("FactoryStationEnrollmentGrants");
+            entity.HasKey(grant => grant.Id);
+            entity.Property(grant => grant.SecretHash).HasMaxLength(32);
+            entity.Property(grant => grant.DisplayName).HasMaxLength(100);
+            entity.Property(grant => grant.PublicKey).HasMaxLength(200);
+            entity.Property(grant => grant.Thumbprint).HasMaxLength(64);
+            entity.Property(grant => grant.CreatedBy).HasMaxLength(200);
+            entity.Property(grant => grant.RowVersion).IsRowVersion();
+            entity.HasIndex(grant => grant.Thumbprint);
+        });
+
+        modelBuilder.Entity<FactoryStationReplayNonce>(entity =>
+        {
+            entity.ToTable("FactoryStationReplayNonces");
+            entity.HasKey(nonce => nonce.Id);
+            entity.Property(nonce => nonce.Nonce).HasMaxLength(22);
+            entity.HasIndex(nonce => new { nonce.FactoryStationId, nonce.Nonce }).IsUnique();
+            entity.HasIndex(nonce => nonce.ExpiresAtUtc);
+            entity.HasOne(nonce => nonce.Station).WithMany().HasForeignKey(nonce => nonce.FactoryStationId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<DeviceCredential>(entity =>

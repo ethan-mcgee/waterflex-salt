@@ -58,6 +58,19 @@ public sealed class EfFactoryDeviceRegistrationService(
                     return FactoryRegistrationResult.Success(ToRegistration(existing, existingToken));
                 }
 
+                var activeJob = await dbContext.FactoryProvisioningJobs
+                    .Include(candidate => candidate.Device)
+                    .ThenInclude(device => device.BootstrapCredentials)
+                    .SingleOrDefaultAsync(candidate => candidate.CreatedBy == factoryOperator.UserId
+                        && (candidate.Status == FactoryProvisioningStatus.Registered
+                            || candidate.Status == FactoryProvisioningStatus.Quarantined), cancellationToken);
+                if (activeJob is not null)
+                {
+                    var activeToken = await EnsureFlashAuthorizationAsync(activeJob, cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                    return FactoryRegistrationResult.Success(ToRegistration(activeJob, activeToken));
+                }
+
                 if (await dbContext.DeviceBootstrapCredentials.AnyAsync(
                     credential => credential.CredentialId == normalized.BootstrapCredentialId,
                     cancellationToken))
@@ -178,9 +191,9 @@ public sealed class EfFactoryDeviceRegistrationService(
         return FactoryRegistrationResult.Success(ToRegistration(job, token));
     }
 
-    public async Task<FactoryVerificationResult> RecordVerificationAsync(
+    public async Task<FactoryDeviceRegistration> AbandonAsync(
         Guid deviceId,
-        FactoryVerificationRequest request,
+        FactoryAbandonRequest request,
         StaffActor factoryOperator,
         CancellationToken cancellationToken = default)
     {
@@ -192,40 +205,42 @@ public sealed class EfFactoryDeviceRegistrationService(
         {
             throw new KeyNotFoundException("Factory provisioning job was not found.");
         }
-        if (job.Status == FactoryProvisioningStatus.Provisioned)
+        if (job.Status is FactoryProvisioningStatus.Provisioned or FactoryProvisioningStatus.Abandoned)
         {
-            throw new InvalidOperationException("A provisioned factory job cannot be changed.");
+            throw new InvalidOperationException("A terminal factory job cannot be abandoned.");
         }
-        if (job.Status == FactoryProvisioningStatus.Quarantined)
+        if (job.Status is not (FactoryProvisioningStatus.Registered or FactoryProvisioningStatus.Quarantined))
         {
-            throw new InvalidOperationException("Retry the quarantined job before submitting new verification evidence.");
+            throw new InvalidOperationException("Only a registered or quarantined factory job can be abandoned.");
         }
-        var passed = request.FirmwareVerified && request.IdentityVerified
-            && request.PortalVerified && request.SensorVerified
-            && string.Equals(request.FirmwareVersion.Trim(), job.Device.FactoryFirmwareVersion, StringComparison.Ordinal);
+        var reasonCode = request.ReasonCode.Trim();
+        if (reasonCode is not ("unit_scrapped" or "hardware_failure" or "job_state_lost"))
+        {
+            throw new ArgumentException("The abandonment reason is invalid.", nameof(request));
+        }
         var now = timeProvider.GetUtcNow();
-        job.Status = passed ? FactoryProvisioningStatus.Provisioned : FactoryProvisioningStatus.Quarantined;
+        job.Status = FactoryProvisioningStatus.Abandoned;
         job.VerifiedAtUtc = now;
-        job.FailureCode = passed ? null : NormalizeFailureCode(request.FailureCode);
+        job.FailureCode = reasonCode;
+        job.Device.Status = DeviceLifecycleStatus.Retired;
+        job.Device.RetiredAtUtc = now;
+        foreach (var credential in job.Device.BootstrapCredentials.Where(candidate => candidate.RevokedAtUtc is null))
+        {
+            credential.RevokedAtUtc = now;
+        }
         dbContext.ProvisioningAuditEvents.Add(new()
         {
             DeviceId = deviceId,
-            EventType = passed ? "factory_verification_passed" : "factory_verification_failed",
+            EventType = "factory_provisioning_abandoned",
             ActorType = "staff",
             ActorId = factoryOperator.UserId,
-            DetailsJson = JsonSerializer.Serialize(new
-            {
-                request.FirmwareVerified,
-                request.IdentityVerified,
-                request.PortalVerified,
-                request.SensorVerified,
-                job.FailureCode
-            }),
+            DetailsJson = JsonSerializer.Serialize(new { ReasonCode = reasonCode }),
             OccurredAtUtc = now
         });
         await RevokeLiveFlashAuthorizationsAsync(job.Id, now, cancellationToken);
+        await RevokeLiveVerificationAuthorizationsAsync(job.Id, now, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
-        return new(deviceId, job.SerialNumber, job.Status, now, job.FailureCode);
+        return ToRegistration(job, null);
     }
 
     public async Task<FactoryDeviceRegistration> RetryAsync(
@@ -314,6 +329,22 @@ public sealed class EfFactoryDeviceRegistrationService(
         CancellationToken cancellationToken)
     {
         var live = await dbContext.FactoryFlashAuthorizations
+            .Where(candidate => candidate.FactoryProvisioningJobId == factoryProvisioningJobId
+                && candidate.ConsumedAtUtc == null
+                && candidate.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var authorization in live)
+        {
+            authorization.RevokedAtUtc = now;
+        }
+    }
+
+    private async Task RevokeLiveVerificationAuthorizationsAsync(
+        Guid factoryProvisioningJobId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var live = await dbContext.FactoryVerificationAuthorizations
             .Where(candidate => candidate.FactoryProvisioningJobId == factoryProvisioningJobId
                 && candidate.ConsumedAtUtc == null
                 && candidate.RevokedAtUtc == null)
