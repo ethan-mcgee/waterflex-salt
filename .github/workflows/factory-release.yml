@@ -141,6 +141,13 @@ jobs:
             if (-not $ready) {
               throw 'The packaged staging helper did not report ready within 60 seconds.'
             }
+            $enrollmentProbe = Invoke-WebRequest -Method Post -Uri 'http://127.0.0.1:8765/v1/station/enroll' `
+              -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } `
+              -ContentType 'application/json' -Body '{"grantToken":"","displayName":"release-smoke"}' `
+              -SkipHttpErrorCheck -TimeoutSec 20
+            if ($enrollmentProbe.StatusCode -ne 409 -or $enrollmentProbe.Content -notmatch 'invalid|expired') {
+              throw "The packaged helper enrollment probe did not reach the WaterFlex API as expected (HTTP $($enrollmentProbe.StatusCode)): $($enrollmentProbe.Content)"
+            }
           }
           finally {
             if (-not $helper.HasExited) {

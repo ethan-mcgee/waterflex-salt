@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import tempfile
 import unittest
@@ -18,7 +19,9 @@ from unittest.mock import MagicMock, patch
 from factory_helper import (
     FactoryHelper,
     Handler,
+    HELPER_USER_AGENT,
     LOGGER,
+    StationIdentity,
     configure_startup_logging,
     public_job,
     resolve_bundle,
@@ -104,6 +107,35 @@ class FactoryHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "checksum"):
             FactoryHelper(self.root, self.root / "other-jobs", self.esptool, "http://127.0.0.1:9")
 
+    def test_station_enrollment_identifies_the_helper_request(self) -> None:
+        identity = StationIdentity.__new__(StationIdentity)
+        identity.api_base_url = "https://telemetry-staging.saltmonitor.dev"
+        identity.metadata = {
+            "publicKey": "public-key",
+            "thumbprint": "thumbprint",
+            "keyProviderType": "tpm",
+            "stationId": None,
+            "displayName": None,
+        }
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'{"stationId":"station-1","displayName":"TEST-PC"}'
+        with patch("factory_helper.urllib.request.urlopen", return_value=response) as urlopen, patch.object(identity, "_save"):
+            result = identity.enroll("grant-token", "TEST-PC")
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(HELPER_USER_AGENT, request.get_header("User-agent"))
+        self.assertEqual("station-1", result["stationId"])
+
+    def test_station_enrollment_explains_cloudflare_browser_integrity_block(self) -> None:
+        identity = StationIdentity.__new__(StationIdentity)
+        identity.api_base_url = "https://telemetry-staging.saltmonitor.dev"
+        identity.metadata = {"publicKey": "public-key", "thumbprint": "thumbprint", "keyProviderType": "tpm"}
+        error = urllib.error.HTTPError("url", 403, "Forbidden", {}, io.BytesIO(b"error code: 1010"))
+        with patch("factory_helper.urllib.request.urlopen", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, "error 1010"):
+                identity.enroll("grant-token", "TEST-PC")
+
     @unittest.skipUnless(os.name == "nt", "DPAPI is available only on Windows")
     def test_start_blocks_the_flash_when_backend_denies_the_authorization_token(self) -> None:
         self._prepare_job("factory-denied-job-0001")
@@ -132,6 +164,7 @@ class FactoryHelperTests(unittest.TestCase):
             self.helper._verify_flash_authorization(  # noqa: SLF001 - exercising the fail-closed check directly
                 "11111111-1111-1111-1111-111111111111", "wf_flash_test.not-a-real-secret",
             )
+        self.assertEqual(HELPER_USER_AGENT, mock_urlopen.call_args.args[0].get_header("User-agent"))
 
     def test_verify_flash_authorization_blocks_cloudflare_access_redirect(self) -> None:
         with patch("factory_helper.urllib.request.urlopen") as mock_urlopen:
@@ -225,6 +258,7 @@ class ResolveBundleTests(unittest.TestCase):
             result = resolve_bundle(None, self.cache_dir, "http://127.0.0.1:9")
 
         self.assertEqual(1, mock_urlopen.call_count)  # only the /bundle metadata call, not an image download
+        self.assertEqual(HELPER_USER_AGENT, mock_urlopen.call_args.args[0].get_header("User-agent"))
         self.assertEqual(self.cache_dir, result)
 
     def test_stale_cache_is_replaced_by_a_fresh_download(self) -> None:
