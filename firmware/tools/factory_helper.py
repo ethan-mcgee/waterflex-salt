@@ -28,6 +28,7 @@ from factory_portal_verifier import verify_portal
 
 PROTOCOL_VERSION = "4"
 HELPER_VERSION = "4.0.0"
+HELPER_USER_AGENT = f"WaterFlexFactoryHelper/{HELPER_VERSION}"
 DEFAULT_ORIGINS = {
     "https://console-staging.saltmonitor.dev",
     "https://saltmonitor.dev",
@@ -39,6 +40,42 @@ DEFAULT_BUNDLE_CACHE_DIR = DEFAULT_DATA_DIR / "bundle"
 DEFAULT_LOG_PATH = DEFAULT_DATA_DIR / "factory-helper.log"
 LOGGER = logging.getLogger("waterflex.factory_helper")
 _INSTANCE_MUTEX = None
+
+
+def _waterflex_request(url: str, *, data: bytes | None = None, method: str | None = None,
+                       headers: dict[str, str] | None = None) -> urllib.request.Request:
+    request_headers = {"User-Agent": HELPER_USER_AGENT}
+    if headers:
+        request_headers.update(headers)
+    return urllib.request.Request(url, data=data, headers=request_headers, method=method)
+
+
+def _enrollment_error(error: urllib.error.HTTPError) -> RuntimeError:
+    try:
+        body = error.read(2048).decode("utf-8", errors="replace")
+    except OSError:
+        body = ""
+    if "1010" in body:
+        return RuntimeError(
+            "Cloudflare blocked this factory helper request (error 1010). "
+            "Install the latest WaterFlex factory helper."
+        )
+    if error.code == HTTPStatus.FORBIDDEN:
+        return RuntimeError(
+            "WaterFlex rejected workstation enrollment because the grant is invalid, "
+            "expired, or does not match this workstation. Return to the factory page and try again."
+        )
+    if error.code == HTTPStatus.NOT_FOUND:
+        return RuntimeError(
+            "WaterFlex could not find the workstation enrollment endpoint. "
+            "Install the latest staging helper or contact the release owner."
+        )
+    if 500 <= error.code < 600:
+        return RuntimeError(
+            f"WaterFlex could not enroll this workstation because the service returned HTTP {error.code}. "
+            "Try again after the service recovers."
+        )
+    return RuntimeError(f"WaterFlex could not enroll this workstation (HTTP {error.code}).")
 
 
 def _base64url(value: bytes) -> str:
@@ -132,9 +169,21 @@ exit 1
             "thumbprint": self.metadata["thumbprint"], "keyProviderType": self.metadata["keyProviderType"],
             "helperVersion": HELPER_VERSION, "protocolVersion": PROTOCOL_VERSION,
         }, separators=(",", ":")).encode("utf-8")
-        request = urllib.request.Request(f"{self.api_base_url}/api/v1/factory/stations/enroll", data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(request, timeout=15) as response:
-            result = json.loads(response.read().decode("utf-8"))
+        request = _waterflex_request(
+            f"{self.api_base_url}/api/v1/factory/stations/enroll",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            raise _enrollment_error(error) from error
+        except urllib.error.URLError as error:
+            raise RuntimeError("Could not reach WaterFlex to enroll this workstation. Check the network connection and try again.") from error
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RuntimeError("WaterFlex returned an invalid workstation enrollment response.") from error
         self.metadata.update({"stationId": result["stationId"], "displayName": result["displayName"]})
         self._save(self.metadata)
         return self.status()
@@ -308,7 +357,7 @@ class FactoryHelper:
     def _signed_headers(self, path: str, payload: bytes) -> dict[str, str]:
         if self.station_identity is None:
             raise RuntimeError("This factory workstation is not enrolled.")
-        return {"Content-Type": "application/json"} | self.station_identity.signed_headers("POST", path, payload)
+        return {"Content-Type": "application/json", "User-Agent": HELPER_USER_AGENT} | self.station_identity.signed_headers("POST", path, payload)
 
     def prepare(self, body: dict) -> dict:
         required = ("idempotencyKey", "bootstrapCredentialId", "bootstrapSecret", "setupPassphrase")
@@ -380,7 +429,7 @@ class FactoryHelper:
             "token": body["flashAuthorizationToken"],
         }).encode("utf-8")
         path = "/api/v1/factory/flash-authorizations/verify"
-        request = urllib.request.Request(
+        request = _waterflex_request(
             f"{self.api_base_url}{path}",
             data=payload,
             headers=self._signed_headers(path, payload),
@@ -459,7 +508,7 @@ class FactoryHelper:
             "verificationToken": job["verificationToken"],
         }).encode("utf-8")
         path = "/api/v1/factory/verifications"
-        request = urllib.request.Request(
+        request = _waterflex_request(
             f"{self.api_base_url}{path}",
             data=payload,
             headers=self._signed_headers(path, payload),
@@ -475,7 +524,7 @@ class FactoryHelper:
 
     def _confirm_backend_connectivity(self) -> None:
         try:
-            with urllib.request.urlopen(f"{self.api_base_url}/health/live", timeout=10) as response:
+            with urllib.request.urlopen(_waterflex_request(f"{self.api_base_url}/health/live", method="GET"), timeout=10) as response:
                 if response.status != HTTPStatus.OK:
                     raise RuntimeError("Ethernet backend connectivity is unavailable.")
         except (urllib.error.URLError, urllib.error.HTTPError) as error:
@@ -588,7 +637,7 @@ def cached_bundle_is_valid(cache_dir: Path, sha256: str | None = None) -> bool:
 
 def fetch_bundle_download(api_base_url: str) -> dict:
     request_url = f"{api_base_url.rstrip('/')}/api/v1/factory/bundle"
-    request = urllib.request.Request(request_url, method="GET")
+    request = _waterflex_request(request_url, method="GET")
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             final_url = response.geturl()

@@ -76,6 +76,7 @@ just needs to stay open alongside it.
 | "Windows protected your PC" | Normal for a new internal tool | Click **More info** → **Run anyway** |
 | "Could not reach WaterFlex to fetch the approved firmware bundle..." | The helper can't reach the WaterFlex server on startup, and doesn't have a firmware copy saved from a previous run | Check your network/Wi-Fi/VPN connection, then try running the helper again |
 | "WaterFlex redirected the helper to Cloudflare Access" | This helper was built with the protected console URL instead of the public machine API | Download a newer staging helper; changing the GitHub variable does not update an EXE already on disk |
+| "Cloudflare blocked this factory helper request (error 1010)" | The installed helper is using an outdated request identity that Cloudflare rejects | Download and install the latest staging helper; do not change Cloudflare security settings |
 | "WaterFlex returned HTTP 404 for the factory bundle endpoint" | The public factory ingress is not deployed at the helper's configured hostname | Stop and ask the release owner to verify the staging deployment |
 | "WaterFlex could not provide the factory bundle (HTTP 5xx)" | The API or bundle service is temporarily unhealthy | Wait for service recovery, then reopen the helper |
 | "WaterFlex returned invalid JSON" | The configured hostname returned a page or malformed response instead of bundle metadata | Stop and give support the startup log path shown in the error dialog |

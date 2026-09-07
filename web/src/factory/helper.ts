@@ -51,7 +51,13 @@ async function helperRequest<T>(baseUrl: string, path: string, init?: RequestIni
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   });
-  if (!response.ok) throw new Error(`Factory helper request failed (${response.status}).`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: unknown; errorCode?: unknown } | null;
+    const detail = typeof body?.error === 'string'
+      ? body.error
+      : typeof body?.errorCode === 'string' ? body.errorCode : null;
+    throw new Error(detail ?? `Factory helper request failed (${response.status}).`);
+  }
   return await response.json() as T;
 }
 
