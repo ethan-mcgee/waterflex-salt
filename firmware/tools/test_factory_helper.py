@@ -22,9 +22,11 @@ from factory_helper import (
     HELPER_USER_AGENT,
     LOGGER,
     StationIdentity,
+    StationIdentityError,
     configure_startup_logging,
     public_job,
     resolve_bundle,
+    resolve_data_paths,
     run,
 )
 
@@ -407,6 +409,35 @@ class StartupDiagnosticsTests(unittest.TestCase):
 
         self.assertTrue(log_path.is_file())
 
+    def test_default_paths_are_derived_from_local_app_data(self) -> None:
+        local_app_data = self.root / "profile" / "Local"
+        with patch.dict(os.environ, {"LOCALAPPDATA": str(local_app_data)}):
+            data_dir, cache_dir, state_dir, log_path = resolve_data_paths(None, None, None)
+
+        expected = (local_app_data / "WaterFlex" / "FactoryHelper").resolve()
+        self.assertEqual(expected, data_dir)
+        self.assertEqual(expected / "bundle", cache_dir)
+        self.assertEqual(expected / "jobs", state_dir)
+        self.assertEqual(expected / "factory-helper.log", log_path)
+
+    def test_data_directory_override_controls_all_default_paths(self) -> None:
+        selected = self.root / "isolated-data"
+        data_dir, cache_dir, state_dir, log_path = resolve_data_paths(selected, None, None)
+
+        self.assertEqual(selected.resolve(), data_dir)
+        self.assertEqual(selected.resolve() / "bundle", cache_dir)
+        self.assertEqual(selected.resolve() / "jobs", state_dir)
+        self.assertEqual(selected.resolve() / "factory-helper.log", log_path)
+
+    def test_explicit_cache_and_state_overrides_are_preserved(self) -> None:
+        selected = self.root / "isolated-data"
+        cache = self.root / "cache-override"
+        state = self.root / "state-override"
+        _, cache_dir, state_dir, _ = resolve_data_paths(selected, cache, state)
+
+        self.assertEqual(cache.resolve(), cache_dir)
+        self.assertEqual(state.resolve(), state_dir)
+
     def test_frozen_exe_startup_failure_displays_windows_error(self) -> None:
         log_path = self.root / "factory-helper.log"
         with (
@@ -414,11 +445,61 @@ class StartupDiagnosticsTests(unittest.TestCase):
             patch("factory_helper.show_frozen_startup_error") as show_dialog,
             patch("factory_helper.sys.frozen", True, create=True),
         ):
-            result = run(log_path)
+            result = run(log_path, [])
 
         self.assertEqual(1, result)
-        show_dialog.assert_called_once_with("startup exploded")
+        show_dialog.assert_called_once_with("startup exploded", log_path.resolve())
         self.assertIn("startup exploded", log_path.read_text(encoding="utf-8"))
+
+    def test_noninteractive_startup_failure_never_displays_dialog(self) -> None:
+        data_dir = self.root / "noninteractive"
+        with (
+            patch("factory_helper.main", side_effect=RuntimeError("startup exploded")),
+            patch("factory_helper.show_frozen_startup_error") as show_dialog,
+            patch("factory_helper.sys.frozen", True, create=True),
+        ):
+            result = run(argv=["--data-dir", str(data_dir), "--noninteractive"])
+
+        self.assertEqual(1, result)
+        show_dialog.assert_not_called()
+        self.assertIn("startup exploded", (data_dir / "factory-helper.log").read_text(encoding="utf-8"))
+
+
+class StationIdentityStartupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.identity_path = self.root / "station.identity"
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_undecryptable_identity_is_preserved_and_actionable(self) -> None:
+        original = b"foreign-or-corrupt-dpapi-record\x00\xff"
+        self.identity_path.write_bytes(original)
+
+        with patch("factory_helper.dpapi", side_effect=RuntimeError("decrypt failed")):
+            with self.assertRaises(StationIdentityError) as raised:
+                StationIdentity(self.identity_path, "https://telemetry-staging.saltmonitor.dev")
+
+        self.assertIn(str(self.identity_path.resolve()), str(raised.exception))
+        self.assertIn("preserved", str(raised.exception))
+        self.assertIn("Operator intervention", str(raised.exception))
+        self.assertEqual(original, self.identity_path.read_bytes())
+
+    def test_malformed_identity_is_preserved_and_not_regenerated(self) -> None:
+        original = b"encrypted-placeholder"
+        self.identity_path.write_bytes(original)
+
+        with (
+            patch("factory_helper.dpapi", return_value=b'{"stationId":"incomplete"}'),
+            patch.object(StationIdentity, "_powershell") as powershell,
+        ):
+            with self.assertRaisesRegex(StationIdentityError, "identity.*incomplete"):
+                StationIdentity(self.identity_path, "https://telemetry-staging.saltmonitor.dev")
+
+        powershell.assert_not_called()
+        self.assertEqual(original, self.identity_path.read_bytes())
 
 
 class DeviceEndpointTests(unittest.TestCase):

@@ -44,6 +44,11 @@ backend station, run:
 
 Station revocation remains a separate WaterFlex administrator action.
 
+For automated diagnostics and CI, `--data-dir <path>` places the station identity, job state,
+bundle cache, and startup log under one isolated directory. `--noninteractive` disables modal error
+dialogs so startup failures are written to stderr and the persistent log before the process exits.
+These are advanced test and support options; normal factory operators should use the Start Menu shortcut.
+
 1. Open the environment-labeled WaterFlex Factory Helper shortcut from the Windows Start menu.
 2. Windows will likely show a blue box titled **"Windows protected your PC"** — this is expected for
    a new internal tool and does not mean anything is wrong. Click **More info**, then click
@@ -89,6 +94,7 @@ just needs to stay open alongside it.
 | "WaterFlex returned HTTP 404 for the factory bundle endpoint" | The public factory ingress is not deployed at the helper's configured hostname | Stop and ask the release owner to verify the staging deployment |
 | "WaterFlex could not provide the factory bundle (HTTP 5xx)" | The API or bundle service is temporarily unhealthy | Wait for service recovery, then reopen the helper |
 | "WaterFlex returned invalid JSON" | The configured hostname returned a page or malformed response instead of bundle metadata | Stop and give support the startup log path shown in the error dialog |
+| "The existing station identity ... is corrupt, incomplete, or cannot be decrypted" | The identity file exists but is not usable by the current Windows user | Stop and give support the exact identity path and startup log. Do not delete, replace, or regenerate the identity automatically |
 | "The approved firmware download is unavailable from storage" | The API responded, but its presigned S3 image could not be downloaded | Check connectivity and retry; if it persists, ask the release owner to verify the S3 object and URL |
 | "Could not reach WaterFlex to authorize flashing..." | The helper can't reach the WaterFlex server while trying to flash a sensor | Check your network/Wi-Fi/VPN connection and try that unit again from the web console |
 | "WaterFlex denied flash authorization for this sensor" | The web console hasn't cleared this specific sensor to be flashed yet, or already did | Go back to the web console and make sure you started the job for this sensor there first |
