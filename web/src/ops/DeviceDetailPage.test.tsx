@@ -144,6 +144,13 @@ describe('DeviceDetailPage', () => {
     expect(screen.getByText('Riley Chen')).toBeVisible();
     expect(screen.queryByText('Queued readings')).not.toBeInTheDocument();
     expect(screen.queryByText('Dropped readings')).not.toBeInTheDocument();
+
+    const metadataCards = document.querySelectorAll('.detail-metadata .meta-item');
+    expect(metadataCards).toHaveLength(6);
+    expect(metadataCards[2]).toHaveTextContent('Installed by');
+    expect(metadataCards[4]).toHaveTextContent('Commissioned');
+    expect(metadataCards[5]).toHaveTextContent('Factory commissioner');
+    expect(metadataCards[5].querySelector('svg')).toHaveClass('lucide-circuit-board');
   });
 
   it('shows not recorded when factory attribution is unavailable', async () => {
