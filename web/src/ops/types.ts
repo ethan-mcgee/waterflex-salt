@@ -85,6 +85,7 @@ export interface FleetDeviceDetail {
   commissionedAtUtc: string | null;
   installedAtUtc: string;
   installedBy: string | null;
+  factoryCommissionedBy: string | null;
   waterFlexWorkOrderId: string | null;
   calibrationVersion: number | null;
   tankDepthMm: number | null;

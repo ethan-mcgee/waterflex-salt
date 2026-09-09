@@ -17,7 +17,7 @@ public sealed class FleetQueryServiceTests
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedFleetAsync(database.Context);
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        var service = CreateService(database.Context);
 
         var summary = await service.GetSummaryAsync(new());
         var page = await service.SearchAsync(new(new(), PageSize: 10));
@@ -40,7 +40,7 @@ public sealed class FleetQueryServiceTests
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedFleetAsync(database.Context);
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        var service = CreateService(database.Context);
 
         var page = await service.SearchAsync(new(new(
             Search: "OFFLINE",
@@ -58,7 +58,7 @@ public sealed class FleetQueryServiceTests
         AddReading(database.Context, reporting, 3, Now.AddHours(-1), 30);
         AddReading(database.Context, reporting, 4, Now.AddHours(-25), 40);
         await database.Context.SaveChangesAsync();
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        var service = CreateService(database.Context);
 
         var readings = await service.GetReadingsAsync(reporting.Device.Id, TimeSpan.FromHours(24), 10);
         var limitedReadings = await service.GetReadingsAsync(reporting.Device.Id, TimeSpan.FromHours(24), 2);
@@ -104,7 +104,7 @@ public sealed class FleetQueryServiceTests
         AddReading(database.Context, otherInstallation, 1, Now.AddHours(-1), 50);
         await database.Context.SaveChangesAsync();
 
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        var service = CreateService(database.Context);
         const string scope = "WF-D-NORTH-STAR";
 
         var dealers = await service.GetDealersAsync(scopeDealerExternalId: scope);
@@ -130,11 +130,80 @@ public sealed class FleetQueryServiceTests
     public async Task GetReadings_ReturnsNullForMissingDevice()
     {
         await using var database = await TestDatabase.CreateAsync();
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        var service = CreateService(database.Context);
 
         var readings = await service.GetReadingsAsync(Guid.NewGuid(), TimeSpan.FromHours(24), 50);
 
         Assert.Null(readings);
+    }
+
+    [Fact]
+    public async Task GetDevice_ResolvesFactoryCommissionerFromStaffIdentity()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        var staffIdentityId = Guid.NewGuid();
+        reporting.Device.FactoryProvisionedBy = staffIdentityId.ToString("D");
+        database.Context.StaffIdentities.Add(new StaffIdentityRecord
+        {
+            Id = staffIdentityId,
+            Issuer = "https://identity.example.test",
+            Subject = "factory-worker-subject",
+            Email = "riley@example.test",
+            NormalizedEmail = "RILEY@EXAMPLE.TEST",
+            DisplayName = "Riley Chen",
+            Role = WaterFlex.SaltMonitor.Domain.Security.StaffRole.FactoryWorker,
+            IsActive = true,
+            State = WaterFlex.SaltMonitor.Domain.Security.StaffIdentityState.Active,
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now
+        });
+        await database.Context.SaveChangesAsync();
+
+        var detail = await CreateService(database.Context).GetDeviceAsync(reporting.Device.Id);
+
+        Assert.NotNull(detail);
+        Assert.Equal("Riley Chen", detail.FactoryCommissionedBy);
+    }
+
+    [Fact]
+    public async Task GetDevice_ResolvesFactoryCommissionerFromDevelopmentDirectory()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        reporting.Device.FactoryProvisionedBy = "wf-factory-riley";
+        await database.Context.SaveChangesAsync();
+
+        var detail = await CreateService(database.Context).GetDeviceAsync(reporting.Device.Id);
+
+        Assert.NotNull(detail);
+        Assert.Equal("Riley Chen", detail.FactoryCommissionedBy);
+    }
+
+    [Fact]
+    public async Task GetDevice_ReturnsNullWhenFactoryAttributionWasNotRecorded()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+
+        var detail = await CreateService(database.Context).GetDeviceAsync(reporting.Device.Id);
+
+        Assert.NotNull(detail);
+        Assert.Null(detail.FactoryCommissionedBy);
+    }
+
+    [Fact]
+    public async Task GetDevice_FallsBackToUnresolvedFactoryIdentifier()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var reporting = await SeedFleetAsync(database.Context);
+        reporting.Device.FactoryProvisionedBy = "retired-factory-worker-17";
+        await database.Context.SaveChangesAsync();
+
+        var detail = await CreateService(database.Context).GetDeviceAsync(reporting.Device.Id);
+
+        Assert.NotNull(detail);
+        Assert.Equal("retired-factory-worker-17", detail.FactoryCommissionedBy);
     }
 
     [Fact]
@@ -148,7 +217,7 @@ public sealed class FleetQueryServiceTests
         reporting.Device.LastHealthFirmwareVersion = "uart-pilot-0.1";
         reporting.Device.LastHealthWifiRssiDbm = -72;
         await database.Context.SaveChangesAsync();
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        var service = CreateService(database.Context);
 
         var page = await service.SearchAsync(new(new(), PageSize: 10));
 
@@ -170,7 +239,7 @@ public sealed class FleetQueryServiceTests
             CreateSummary(reporting.Device.Id, Now.AddHours(-3), 20),
             CreateSummary(reporting.Device.Id, Now.AddHours(-2), 30));
         await database.Context.SaveChangesAsync();
-        var service = new EfFleetQueryService(database.Context, new FixedTimeProvider(Now), Schedule);
+        var service = CreateService(database.Context);
 
         var history = await service.GetHistoryAsync(
             reporting.Device.Id,
@@ -207,6 +276,9 @@ public sealed class FleetQueryServiceTests
             LatestFirmwareVersion = "1.0.0",
             UpdatedAtUtc = Now
         };
+
+    private static EfFleetQueryService CreateService(SaltMonitorDbContext context) =>
+        new(context, new FixedTimeProvider(Now), Schedule, new DevelopmentIdentityDirectory());
 
     private static async Task<(Device Device, DeviceInstallation Installation, TankCalibrationRecord Calibration)>
         SeedFleetAsync(SaltMonitorDbContext context)

@@ -98,6 +98,7 @@ public sealed record FleetDeviceDetail(
     DateTimeOffset? CommissionedAtUtc,
     DateTimeOffset InstalledAtUtc,
     string? InstalledBy,
+    string? FactoryCommissionedBy,
     string? WaterFlexWorkOrderId,
     int? CalibrationVersion,
     int? TankDepthMm,
