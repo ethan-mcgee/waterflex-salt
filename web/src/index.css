@@ -1200,6 +1200,17 @@ button:disabled {
   white-space: nowrap;
 }
 
+.attribution-entry {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.attribution-entry + .attribution-entry {
+  margin-top: 7px;
+}
+
 .workflow-layout {
   display: grid;
   grid-template-columns: 190px minmax(500px, 1fr) 240px;

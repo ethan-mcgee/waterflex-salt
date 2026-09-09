@@ -50,6 +50,7 @@ const detail: FleetDeviceDetail = {
   commissionedAtUtc: '2026-08-01T12:00:00Z',
   installedAtUtc: '2026-08-01T12:00:00Z',
   installedBy: 'Alex Morgan',
+  factoryCommissionedBy: 'Riley Chen',
   waterFlexWorkOrderId: null,
   calibrationVersion: 1,
   tankDepthMm: 1500,
@@ -129,6 +130,30 @@ describe('DeviceDetailPage', () => {
       '24h',
       expect.any(AbortSignal),
     ));
+  });
+
+  it('shows installer and factory commissioner while hiding internal reading counters', async () => {
+    vi.mocked(getFleetDevice).mockResolvedValue(detail);
+    vi.mocked(getFleetReadings).mockResolvedValue([]);
+
+    renderPage();
+
+    expect(await screen.findByText('Installed by')).toBeVisible();
+    expect(screen.getByText('Alex Morgan')).toBeVisible();
+    expect(screen.getByText('Factory commissioner')).toBeVisible();
+    expect(screen.getByText('Riley Chen')).toBeVisible();
+    expect(screen.queryByText('Queued readings')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dropped readings')).not.toBeInTheDocument();
+  });
+
+  it('shows not recorded when factory attribution is unavailable', async () => {
+    vi.mocked(getFleetDevice).mockResolvedValue({ ...detail, factoryCommissionedBy: null });
+    vi.mocked(getFleetReadings).mockResolvedValue([]);
+
+    renderPage();
+
+    await screen.findByText('Factory commissioner');
+    expect(screen.getByText('Factory commissioner').nextElementSibling).toHaveTextContent('Not recorded');
   });
 
   it('loads hourly summaries for the 7-day range', async () => {

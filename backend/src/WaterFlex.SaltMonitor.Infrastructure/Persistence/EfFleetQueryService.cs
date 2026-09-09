@@ -18,7 +18,8 @@ namespace WaterFlex.SaltMonitor.Infrastructure.Persistence;
 public sealed class EfFleetQueryService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider,
-    MonitoringSchedule monitoringSchedule) : IFleetQueryService
+    MonitoringSchedule monitoringSchedule,
+    IDevelopmentIdentityDirectory developmentIdentityDirectory) : IFleetQueryService
 {
     public async Task<IReadOnlyList<FleetDealerOption>> GetDealersAsync(
         CancellationToken cancellationToken = default,
@@ -254,6 +255,9 @@ public sealed class EfFleetQueryService(
                 && credential.ValidFromUtc <= now
                 && (credential.ExpiresAtUtc == null || credential.ExpiresAtUtc > now))
             .ToArray();
+        var factoryCommissionedBy = await ResolveFactoryCommissionerAsync(
+            installation.Device.FactoryProvisionedBy,
+            cancellationToken);
 
         return new(
             item,
@@ -261,6 +265,7 @@ public sealed class EfFleetQueryService(
             installation.Device.CommissionedAtUtc,
             installation.InstalledAtUtc,
             installation.InstalledBy,
+            factoryCommissionedBy,
             installation.WaterFlexWorkOrderId,
             calibration?.Version,
             calibration?.TankDepthMm,
@@ -269,6 +274,32 @@ public sealed class EfFleetQueryService(
             activeCredentials.Length > 0,
             activeCredentials.Max(credential => credential.LastUsedAtUtc),
             installation.RowVersion.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private async Task<string?> ResolveFactoryCommissionerAsync(
+        string? factoryProvisionedBy,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(factoryProvisionedBy))
+        {
+            return null;
+        }
+
+        var identifier = factoryProvisionedBy.Trim();
+        if (Guid.TryParse(identifier, out var staffIdentityId))
+        {
+            var displayName = await dbContext.StaffIdentities
+                .AsNoTracking()
+                .Where(identity => identity.Id == staffIdentityId)
+                .Select(identity => identity.DisplayName)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (displayName is not null)
+            {
+                return displayName;
+            }
+        }
+
+        return developmentIdentityDirectory.Resolve(identifier)?.DisplayName ?? identifier;
     }
 
     public async Task<IReadOnlyList<FleetReadingPoint>?> GetReadingsAsync(

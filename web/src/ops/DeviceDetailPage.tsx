@@ -131,8 +131,6 @@ export default function DeviceDetailPage() {
           <DetailRow label="Sensor" value={device.sensorStatus === 'faulted' ? `Faulted: ${formatSensorFault(device.sensorFault)}` : device.sensorStatus} />
           <DetailRow label="Health heartbeat" value={device.lastHealthReportedAtUtc ? formatDateTime(device.lastHealthReportedAtUtc) : 'Never'} />
           <DetailRow label="Clock" value={device.clockSynchronized ? 'Synchronized' : 'Not synchronized'} />
-          <DetailRow label="Queued readings" value={device.queuedReadingCount.toString()} />
-          <DetailRow label="Dropped readings" value={device.droppedReadingCount.toString()} />
           <DetailRow label="Quality" value={device.quality === null ? 'No reading' : `${device.quality}%`} />
           <DetailRow label="Wi-Fi" value={device.wifiRssiDbm === null ? 'No reading' : `${device.wifiRssiDbm} dBm`} />
           <DetailRow label="Firmware" value={device.firmwareVersion ?? 'No reading'} />
@@ -195,7 +193,10 @@ export default function DeviceDetailPage() {
       <div className="detail-metadata">
         <MetaItem icon={<Gauge size={16} />} label="Calibration" value={detail.calibrationVersion ? `Version ${detail.calibrationVersion} · ${(detail.tankDepthMm ?? 0) / 10} cm depth` : 'Not available'} />
         <MetaItem icon={<KeyRound size={16} />} label="Credential" value={detail.hasActiveCredential ? 'Active' : 'Unavailable'} />
-        <MetaItem icon={<UserRound size={16} />} label="Installed by" value={detail.installedBy ?? 'Not recorded'} />
+        <AttributionMetaItem
+          installedBy={detail.installedBy}
+          factoryCommissionedBy={detail.factoryCommissionedBy}
+        />
         <MetaItem icon={<Box size={16} />} label="Model" value={device.model} />
         <MetaItem icon={<CalendarClock size={16} />} label="Commissioned" value={detail.commissionedAtUtc ? formatDateTime(detail.commissionedAtUtc) : 'Not recorded'} />
       </div>
@@ -209,6 +210,24 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return <div className="meta-item"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong></div></div>;
+}
+
+function AttributionMetaItem({
+  installedBy,
+  factoryCommissionedBy,
+}: {
+  installedBy: string | null;
+  factoryCommissionedBy: string | null;
+}) {
+  return (
+    <div className="meta-item">
+      <span><UserRound size={16} /></span>
+      <div className="attribution-list">
+        <span className="attribution-entry"><small>Installed by</small><strong>{installedBy ?? 'Not recorded'}</strong></span>
+        <span className="attribution-entry"><small>Factory commissioner</small><strong>{factoryCommissionedBy ?? 'Not recorded'}</strong></span>
+      </div>
+    </div>
+  );
 }
 
 function formatSensorFault(value: FleetDevice['sensorFault']): string {
