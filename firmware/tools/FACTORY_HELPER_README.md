@@ -26,18 +26,25 @@ Install the helper for the current Windows user with the release's installation 
 `./Install-WaterFlexFactoryHelper.ps1 -Environment staging`
 
 The installer copies the environment-specific executable to `%LOCALAPPDATA%\WaterFlex\FactoryHelper\bin`
-and registers it as a hidden startup application at sign-in. The first launch creates a non-exportable
-Windows CNG station key. A WaterFlex administrator must enroll the workstation from the factory page
-before provisioning is enabled. The page reports whether the key is TPM-backed or uses the Windows
-software-provider fallback. Normal operation requires no shared station credential.
+and adds an environment-labeled shortcut to the Windows Start menu. It does not start the helper or
+register it to run at sign-in. Open **WaterFlex Factory Helper (staging)** or **WaterFlex Factory Helper
+(production)** from the Start menu when you are ready to provision sensors, then leave its console
+window open. The first launch creates a non-exportable Windows CNG station key. A WaterFlex administrator
+must enroll the workstation from the factory page before provisioning is enabled. The page reports
+whether the key is TPM-backed or uses the Windows software-provider fallback. Normal operation requires
+no shared station credential.
 
-To uninstall startup registration without silently revoking the backend station, run:
+Existing workstations must run this updated installer once. It removes legacy WaterFlex shortcuts from
+the Windows Startup folder so the helper no longer opens automatically at sign-in.
+
+To remove the Start Menu shortcut and any legacy startup registration without silently revoking the
+backend station, run:
 
 `./Install-WaterFlexFactoryHelper.ps1 -Environment staging -Uninstall`
 
 Station revocation remains a separate WaterFlex administrator action.
 
-1. Double-click the downloaded `.exe` file.
+1. Open the environment-labeled WaterFlex Factory Helper shortcut from the Windows Start menu.
 2. Windows will likely show a blue box titled **"Windows protected your PC"** — this is expected for
    a new internal tool and does not mean anything is wrong. Click **More info**, then click
    **Run anyway**.
@@ -48,9 +55,10 @@ Station revocation remains a separate WaterFlex administrator action.
 5. Once you see a line that says the helper is ready, plug in the WaterFlex sensor over USB and
    switch to the WaterFlex web console in your browser to start provisioning that unit.
 
-The web console checks once per second for matching USB serial devices. It will show **No Nano
-detected**, the COM port for one detected Nano, or **Multiple Nanos detected**. Provisioning and
-retry remain disabled until exactly one Nano is present.
+If the helper is not running, the web console tells you to open it from the Start menu and checks again
+once per second. No page refresh is needed. Once connected, the web console checks once per second for
+matching USB serial devices. It will show **No Nano detected**, the COM port for one detected Nano, or
+**Multiple Nanos detected**. Provisioning and retry remain disabled until exactly one Nano is present.
 
 This check confirms USB presence only. It does not open the serial port, reset the Nano, read its
 identity, create a factory job, or determine whether the attached unit was previously provisioned.
@@ -74,6 +82,7 @@ just needs to stay open alongside it.
 | What you see | What it means | What to do |
 | --- | --- | --- |
 | "Windows protected your PC" | Normal for a new internal tool | Click **More info** → **Run anyway** |
+| "WaterFlex Factory Helper is not running" | The helper has not been opened, was closed, or is temporarily unavailable | Open the environment-labeled WaterFlex Factory Helper from the Windows Start menu and leave its console open; the page reconnects automatically |
 | "Could not reach WaterFlex to fetch the approved firmware bundle..." | The helper can't reach the WaterFlex server on startup, and doesn't have a firmware copy saved from a previous run | Check your network/Wi-Fi/VPN connection, then try running the helper again |
 | "WaterFlex redirected the helper to Cloudflare Access" | This helper was built with the protected console URL instead of the public machine API | Download a newer staging helper; changing the GitHub variable does not update an EXE already on disk |
 | "Cloudflare blocked this factory helper request (error 1010)" | The installed helper is using an outdated request identity that Cloudflare rejects | Download and install the latest staging helper; do not change Cloudflare security settings |

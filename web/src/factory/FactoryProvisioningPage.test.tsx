@@ -18,6 +18,7 @@ const detected = {
 };
 const helperStation = { helperVersion: '4.0.0', protocolVersion: '4', enrollmentStatus: 'enrolled', proposedWorkstationName: 'TEST-PC', stationId: '22222222-2222-2222-2222-222222222222', displayName: 'Test Station', publicKeyThumbprint: 'a'.repeat(64), publicKey: 'test', keyProviderType: 'software' };
 const backendStation = { stationId: helperStation.stationId, displayName: 'Test Station', thumbprint: helperStation.publicKeyThumbprint, keyProviderType: 'software', helperVersion: '4.0.0', protocolVersion: '4', enrolledAtUtc: '2026-09-01T00:00:00Z', lastSeenAtUtc: '2026-09-01T00:00:00Z', revokedAtUtc: null };
+const helperNotRunning = 'WaterFlex Factory Helper is not running. Open WaterFlex Factory Helper from the Windows Start menu, then leave it running while you provision sensors. This page will connect automatically.';
 
 function stationResponse(url: string) {
   if (url.endsWith('/v1/station')) return json(helperStation);
@@ -177,6 +178,110 @@ describe('FactoryProvisioningPage', () => {
     expect((await screen.findAllByText('Factory helper request failed (503).')).length).toBeGreaterThan(0);
     expect(screen.getByText('Detection unavailable')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /provision sensor/i })).toBeDisabled();
+  });
+
+  it('explains a local connection failure without exposing the browser fetch error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      if (url.endsWith('/v1/health')) throw new TypeError('Failed to fetch');
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect((await screen.findAllByText(helperNotRunning)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Failed to fetch/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /provision sensor/i })).toBeDisabled();
+  });
+
+  it('treats a health endpoint 404 as a helper that is not running', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      if (url.endsWith('/v1/health')) return notFound();
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect((await screen.findAllByText(helperNotRunning)).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Factory helper request failed (404).')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /provision sensor/i })).toBeDisabled();
+  });
+
+  it('connects automatically when the helper starts after the page loads', async () => {
+    let healthCalls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url.endsWith('/v1/health')) {
+        healthCalls += 1;
+        if (healthCalls === 1) throw new TypeError('Failed to fetch');
+        return json({ status: 'ready', protocolVersion: '4' });
+      }
+      if (url.endsWith('/v1/devices')) return json(detected);
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect((await screen.findAllByText(helperNotRunning)).length).toBeGreaterThan(0);
+    expect(await screen.findByText('Connected', {}, { timeout: 1800 })).toBeInTheDocument();
+    expect(screen.getByText('Nano detected')).toBeInTheDocument();
+    expect(screen.getByText('Test Station')).toBeInTheDocument();
+    expect(healthCalls).toBe(2);
+  });
+
+  it('detects a stopped helper and reconnects after it returns', async () => {
+    let healthCalls = 0;
+    let deviceCalls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      if (stationResponse(url)) return stationResponse(url)!;
+      if (url.endsWith('/v1/health')) {
+        healthCalls += 1;
+        return json({ status: 'ready', protocolVersion: '4' });
+      }
+      if (url.endsWith('/v1/devices')) {
+        deviceCalls += 1;
+        if (deviceCalls === 2) throw new TypeError('Failed to fetch');
+        return json(detected);
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect(await screen.findByText('Nano detected')).toBeInTheDocument();
+    expect((await screen.findAllByText(helperNotRunning, {}, { timeout: 1800 })).length).toBeGreaterThan(0);
+    expect(await screen.findByText('Connected', {}, { timeout: 1800 })).toBeInTheDocument();
+    expect(screen.getByText('Nano detected')).toBeInTheDocument();
+    expect(healthCalls).toBe(2);
+  });
+
+  it('does not resume an active local job until the helper is available', async () => {
+    window.localStorage.setItem('waterflex-factory-active-job', 'factory-paused-job-0001');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === '/api/v1/factory/configuration') return json(configuration);
+      if (url === '/api/v1/factory/devices/active') return notFound();
+      if (url.endsWith('/v1/health')) throw new TypeError('Failed to fetch');
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<FactoryProvisioningPage />);
+
+    expect((await screen.findAllByText(helperNotRunning)).length).toBeGreaterThan(0);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/jobs/'))).toBe(false);
+    expect(screen.queryByText(/active factory job could not be resumed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Factory helper request failed/i)).not.toBeInTheDocument();
   });
 
   it('shows an environment-level disable without contacting the helper', async () => {

@@ -24,6 +24,7 @@ import {
   getHelperStation,
   enrollHelperStation,
   getHelperJob,
+  isHelperUnavailableError,
   prepareHelperJob,
   startHelperJob,
   type HelperJob,
@@ -57,6 +58,14 @@ export default function FactoryProvisioningPage() {
     setHelperStatusError('');
   }, []);
 
+  const markHelperDisconnected = useCallback((reason: unknown) => {
+    setHelperReady(false);
+    setHelperDevices(null);
+    setHelperStation(null);
+    setBackendStation(null);
+    setHelperStatusError(reason instanceof Error ? reason.message : 'Factory helper detection is unavailable.');
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     getFactoryConfiguration(controller.signal)
@@ -73,39 +82,47 @@ export default function FactoryProvisioningPage() {
     if (!configuration?.enabled) return;
     const controller = new AbortController();
     let timer: number | undefined;
-    const refreshDevices = () => {
-      refreshHelperDevices(configuration, controller.signal).catch((reason: unknown) => {
-        if (controller.signal.aborted) return;
-        setHelperReady(false);
-        setHelperDevices(null);
-        setHelperStatusError(reason instanceof Error ? reason.message : 'Factory helper detection is unavailable.');
-      });
-    };
-    (async () => {
+    let connected = false;
+
+    const pollHelper = async () => {
       try {
-        const health = await checkHelper(configuration.helperBaseUrl, controller.signal);
-        if (health.protocolVersion !== configuration.helperProtocolVersion) {
-          throw new Error(`Update the factory helper. Protocol ${health.protocolVersion} is installed; protocol ${configuration.helperProtocolVersion} is required.`);
-        }
-        const localStation = await getHelperStation(configuration.helperBaseUrl, controller.signal);
-        setHelperStation(localStation);
-        if (localStation.stationId) {
-          setBackendStation(await getFactoryStation(localStation.stationId, controller.signal));
+        if (!connected) {
+          const health = await checkHelper(configuration.helperBaseUrl, controller.signal);
+          if (health.protocolVersion !== configuration.helperProtocolVersion) {
+            throw new Error(`Update the factory helper. Protocol ${health.protocolVersion} is installed; protocol ${configuration.helperProtocolVersion} is required.`);
+          }
+          const localStation = await getHelperStation(configuration.helperBaseUrl, controller.signal);
+          setHelperStation(localStation);
+          if (localStation.stationId) {
+            try {
+              setBackendStation(await getFactoryStation(localStation.stationId, controller.signal));
+            } catch (reason) {
+              if (!controller.signal.aborted) {
+                setBackendStation(null);
+                setError(reason instanceof Error ? reason.message : 'The workstation identity could not be loaded from WaterFlex.');
+              }
+            }
+          } else {
+            setBackendStation(null);
+          }
         }
         await refreshHelperDevices(configuration, controller.signal);
-        if (!controller.signal.aborted) timer = window.setInterval(refreshDevices, 1000);
+        connected = true;
       } catch (reason) {
         if (controller.signal.aborted) return;
-        setHelperReady(false);
-        setHelperDevices(null);
-        setHelperStatusError(reason instanceof Error ? reason.message : 'Factory helper detection is unavailable.');
+        connected = false;
+        markHelperDisconnected(reason);
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(pollHelper, 1000);
       }
-    })();
+    };
+
+    void pollHelper();
     return () => {
-      if (timer !== undefined) window.clearInterval(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
       controller.abort();
     };
-  }, [configuration, refreshHelperDevices]);
+  }, [configuration, markHelperDisconnected, refreshHelperDevices]);
 
   useEffect(() => {
     if (!configuration || !configuration.enabled) return;
@@ -126,7 +143,7 @@ export default function FactoryProvisioningPage() {
   }, [configuration]);
 
   useEffect(() => {
-    if (!configuration || !activeKey) return;
+    if (!configuration || !activeKey || !helperReady) return;
     const controller = new AbortController();
     (async () => {
       let localJob = await getHelperJob(configuration.helperBaseUrl, activeKey, controller.signal);
@@ -167,20 +184,25 @@ export default function FactoryProvisioningPage() {
         });
       }
     })().catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'The active factory job could not be resumed.');
+      if (controller.signal.aborted) return;
+      if (isHelperUnavailableError(reason)) markHelperDisconnected(reason);
+      else setError(reason instanceof Error ? reason.message : 'The active factory job could not be resumed.');
     });
     return () => controller.abort();
-  }, [activeKey, configuration]);
+  }, [activeKey, configuration, helperReady, markHelperDisconnected]);
 
   useEffect(() => {
-    if (!configuration || !activeKey || !helperJob || helperJob.status === 'completed' || helperJob.status === 'failed') return;
+    if (!configuration || !activeKey || !helperReady || !helperJob || helperJob.status === 'completed' || helperJob.status === 'failed') return;
     const timer = window.setInterval(() => {
       getHelperJob(configuration.helperBaseUrl, activeKey)
         .then(setHelperJob)
-        .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Factory helper stopped responding.'));
+        .catch((reason: unknown) => {
+          if (isHelperUnavailableError(reason)) markHelperDisconnected(reason);
+          else setError(reason instanceof Error ? reason.message : 'Factory helper stopped responding.');
+        });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [activeKey, configuration, helperJob]);
+  }, [activeKey, configuration, helperJob, helperReady, markHelperDisconnected]);
 
   useEffect(() => {
     if (!activeKey || !helperJob || !['completed', 'failed'].includes(helperJob.status)) return;
@@ -198,11 +220,14 @@ export default function FactoryProvisioningPage() {
   }, [activeKey, helperJob]);
 
   useEffect(() => {
-    if (!configuration || !activeKey || verification?.status !== 'provisioned') return;
+    if (!configuration || !activeKey || !helperReady || verification?.status !== 'provisioned') return;
     getHelperLabel(configuration.helperBaseUrl, activeKey)
       .then(setLabel)
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'The completed label could not be retrieved from the helper.'));
-  }, [activeKey, configuration, verification]);
+      .catch((reason: unknown) => {
+        if (isHelperUnavailableError(reason)) markHelperDisconnected(reason);
+        else setError(reason instanceof Error ? reason.message : 'The completed label could not be retrieved from the helper.');
+      });
+  }, [activeKey, configuration, helperReady, markHelperDisconnected, verification]);
 
   async function startProvisioning() {
     if (!configuration || !helperReady || helperStation?.enrollmentStatus !== 'enrolled' || backendStation?.revokedAtUtc || helperDevices?.status !== 'detected' || helperDevices.devices.length !== 1 || !configuration.enabled) return;
@@ -369,7 +394,7 @@ export default function FactoryProvisioningPage() {
         <article className="factory-card">
           <div className={`factory-card-icon ${helperReady ? 'ready' : ''}`}><PlugZap size={22} /></div>
           <div><span className="factory-card-kicker">Local helper</span><h2>{helperReady ? 'Connected' : 'Not connected'}</h2>
-            <p>{helperReady ? 'The workstation helper is ready to access USB hardware.' : 'Install and start the WaterFlex factory helper on this workstation.'}</p></div>
+            <p>{helperReady ? 'The workstation helper is ready to access USB hardware.' : 'Open WaterFlex Factory Helper from the Windows Start menu. This page will connect automatically.'}</p></div>
         </article>
         <article className="factory-card">
           <div className={`factory-card-icon ${stationActive ? 'ready' : ''}`}><ShieldCheck size={22} /></div>

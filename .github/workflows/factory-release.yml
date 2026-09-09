@@ -110,6 +110,34 @@ jobs:
         run: |
           "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
           pyinstaller --onefile --name WaterFlexFactoryHelper-production --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+      - name: Validate Windows installer behavior
+        shell: pwsh
+        run: |
+          Copy-Item -LiteralPath firmware/tools/Install-WaterFlexFactoryHelper.ps1 -Destination dist/Install-WaterFlexFactoryHelper.ps1
+          $programsDirectory = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+          $startupDirectory = Join-Path $programsDirectory 'Startup'
+          $stagingShortcut = Join-Path $programsDirectory 'WaterFlex Factory Helper (staging).lnk'
+          $legacyStagingShortcut = Join-Path $startupDirectory 'WaterFlex Factory Helper (staging).lnk'
+          $legacyProductionShortcut = Join-Path $startupDirectory 'WaterFlex Factory Helper (production).lnk'
+          $identityPath = Join-Path $env:LOCALAPPDATA 'WaterFlex\FactoryHelper\station.identity'
+          New-Item -ItemType Directory -Path $startupDirectory -Force | Out-Null
+          New-Item -ItemType Directory -Path (Split-Path $identityPath) -Force | Out-Null
+          Set-Content -LiteralPath $legacyStagingShortcut -Value 'simulated legacy staging shortcut'
+          Set-Content -LiteralPath $legacyProductionShortcut -Value 'simulated legacy production shortcut'
+          Set-Content -LiteralPath $identityPath -Value '{"stationId":"preserve-me"}'
+
+          & ./dist/Install-WaterFlexFactoryHelper.ps1 -Environment staging
+          if (-not (Test-Path -LiteralPath $stagingShortcut)) { throw 'The staging Start Menu shortcut was not created.' }
+          if (Test-Path -LiteralPath $legacyStagingShortcut) { throw 'The legacy staging Startup shortcut was not removed.' }
+          if (Test-Path -LiteralPath $legacyProductionShortcut) { throw 'The legacy production Startup shortcut was not removed.' }
+          $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($stagingShortcut)
+          $expectedTarget = Join-Path $env:LOCALAPPDATA 'WaterFlex\FactoryHelper\bin\WaterFlexFactoryHelper.exe'
+          if ($shortcut.TargetPath -ne $expectedTarget) { throw "The Start Menu shortcut target is '$($shortcut.TargetPath)', expected '$expectedTarget'." }
+          if ($shortcut.WindowStyle -ne 1) { throw 'The Start Menu shortcut does not open the helper console normally.' }
+
+          & ./dist/Install-WaterFlexFactoryHelper.ps1 -Environment staging -Uninstall
+          if (Test-Path -LiteralPath $stagingShortcut) { throw 'Uninstall did not remove the staging Start Menu shortcut.' }
+          if (-not (Test-Path -LiteralPath $identityPath)) { throw 'Uninstall removed the station identity.' }
       - name: Smoke test packaged staging helper
         shell: pwsh
         run: |

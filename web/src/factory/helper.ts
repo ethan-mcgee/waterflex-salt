@@ -46,12 +46,31 @@ export interface HelperStation {
   stationId: string | null; displayName: string | null; publicKeyThumbprint: string; publicKey: string; keyProviderType: 'tpm' | 'software';
 }
 
+export const HELPER_NOT_RUNNING_MESSAGE = 'WaterFlex Factory Helper is not running. Open WaterFlex Factory Helper from the Windows Start menu, then leave it running while you provision sensors. This page will connect automatically.';
+
+export class HelperUnavailableError extends Error {
+  constructor() {
+    super(HELPER_NOT_RUNNING_MESSAGE);
+    this.name = 'HelperUnavailableError';
+  }
+}
+
+export const isHelperUnavailableError = (reason: unknown): reason is HelperUnavailableError =>
+  reason instanceof HelperUnavailableError;
+
 async function helperRequest<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+  } catch (reason) {
+    if (reason instanceof DOMException && reason.name === 'AbortError') throw reason;
+    throw new HelperUnavailableError();
+  }
   if (!response.ok) {
+    if (path === '/v1/health' && response.status === 404) throw new HelperUnavailableError();
     const body = await response.json().catch(() => null) as { error?: unknown; errorCode?: unknown } | null;
     const detail = typeof body?.error === 'string'
       ? body.error
