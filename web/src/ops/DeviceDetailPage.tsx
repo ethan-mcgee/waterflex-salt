@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Box,
   CalendarClock,
+  CircuitBoard,
   Cpu,
   Gauge,
   KeyRound,
@@ -193,12 +194,10 @@ export default function DeviceDetailPage() {
       <div className="detail-metadata">
         <MetaItem icon={<Gauge size={16} />} label="Calibration" value={detail.calibrationVersion ? `Version ${detail.calibrationVersion} · ${(detail.tankDepthMm ?? 0) / 10} cm depth` : 'Not available'} />
         <MetaItem icon={<KeyRound size={16} />} label="Credential" value={detail.hasActiveCredential ? 'Active' : 'Unavailable'} />
-        <AttributionMetaItem
-          installedBy={detail.installedBy}
-          factoryCommissionedBy={detail.factoryCommissionedBy}
-        />
+        <MetaItem icon={<UserRound size={16} />} label="Installed by" value={detail.installedBy ?? 'Not recorded'} />
         <MetaItem icon={<Box size={16} />} label="Model" value={device.model} />
         <MetaItem icon={<CalendarClock size={16} />} label="Commissioned" value={detail.commissionedAtUtc ? formatDateTime(detail.commissionedAtUtc) : 'Not recorded'} />
+        <MetaItem icon={<CircuitBoard size={16} />} label="Factory commissioner" value={detail.factoryCommissionedBy ?? 'Not recorded'} />
       </div>
     </section>
   );
@@ -210,24 +209,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function MetaItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return <div className="meta-item"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong></div></div>;
-}
-
-function AttributionMetaItem({
-  installedBy,
-  factoryCommissionedBy,
-}: {
-  installedBy: string | null;
-  factoryCommissionedBy: string | null;
-}) {
-  return (
-    <div className="meta-item">
-      <span><UserRound size={16} /></span>
-      <div className="attribution-list">
-        <span className="attribution-entry"><small>Installed by</small><strong>{installedBy ?? 'Not recorded'}</strong></span>
-        <span className="attribution-entry"><small>Factory commissioner</small><strong>{factoryCommissionedBy ?? 'Not recorded'}</strong></span>
-      </div>
-    </div>
-  );
 }
 
 function formatSensorFault(value: FleetDevice['sensorFault']): string {
