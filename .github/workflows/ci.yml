@@ -26,6 +26,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       web: ${{ steps.filter.outputs.web }}
       firmware: ${{ steps.filter.outputs.firmware }}
+      helper_packaging: ${{ steps.filter.outputs.helper_packaging }}
       containers: ${{ steps.filter.outputs.containers }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -42,6 +43,10 @@ jobs:
               - 'web/**'
             firmware:
               - 'firmware/**'
+            helper_packaging:
+              - 'firmware/**'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/factory-release.yml'
             containers:
               - 'backend/**'
               - 'web/**'
@@ -128,7 +133,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.10"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.platformio
@@ -156,6 +161,60 @@ jobs:
             firmware/.pio/build/arduino_nano_esp32/firmware.elf
             firmware/factory-release/
           if-no-files-found: error
+
+  helper-packaging:
+    name: Windows helper packaging
+    needs: changes
+    if: needs.changes.outputs.helper_packaging == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.10'
+          cache: pip
+          cache-dependency-path: firmware/tools/requirements-windows.lock
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-6.1.19-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-6.1.19-
+      - name: Install hash-locked Windows toolchain
+        run: python -m pip install --require-hashes -r firmware/tools/requirements-windows.lock
+      - name: Run helper tests with Windows DPAPI coverage
+        working-directory: firmware
+        run: python -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Build factory production firmware and bundle
+        working-directory: firmware
+        run: |
+          pio run -e arduino_nano_esp32_factory_production
+          python tools/build_factory_bundle.py --output-dir factory-release
+      - name: Build both Windows helpers
+        shell: pwsh
+        run: |
+          "DEFAULT_API_BASE_URL = `"https://telemetry-staging.saltmonitor.dev`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
+          pyinstaller --onefile --name WaterFlexFactoryHelper-staging --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+          "DEFAULT_API_BASE_URL = `"https://telemetry.saltmonitor.dev`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
+          pyinstaller --onefile --name WaterFlexFactoryHelper-production --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+          Copy-Item -LiteralPath firmware/tools/Install-WaterFlexFactoryHelper.ps1 -Destination dist/Install-WaterFlexFactoryHelper.ps1
+      - name: Validate Windows installer behavior
+        shell: pwsh
+        run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode Installer -DiagnosticsDirectory "$env:RUNNER_TEMP/installer-diagnostics"
+      - name: Smoke test packaged staging helper locally
+        shell: pwsh
+        run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode PackagedSmoke -DiagnosticsDirectory "$env:RUNNER_TEMP/local-smoke-diagnostics"
+      - name: Reject and preserve a corrupt packaged station identity
+        shell: pwsh
+        run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode CorruptIdentity -DiagnosticsDirectory "$env:RUNNER_TEMP/corrupt-identity-diagnostics"
+      - name: Upload helper diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-helper-diagnostics-${{ github.sha }}
+          path: ${{ runner.temp }}/*-diagnostics/*.log
+          if-no-files-found: warn
 
   containers:
     name: Deployment scripts and containers

@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$BundleDirectory,
     [Parameter(Mandatory = $true)][string]$HelperCommit,
     [string]$EvidencePath = 'factory-release-evidence.json',
+    [string]$ToolchainEvidencePath,
     [scriptblock]$AwsInvoker
 )
 
@@ -75,14 +76,19 @@ $manifestKey = "$prefix/factory-bundle.json"
 Publish-Object $binaryKey $binaryPath $binarySha
 Publish-Object $manifestKey $manifestPath $manifestSha -IsManifest
 
+$toolchain = if ([string]::IsNullOrWhiteSpace($ToolchainEvidencePath)) { $null } else {
+    Get-Content -LiteralPath $ToolchainEvidencePath -Raw | ConvertFrom-Json
+}
 [ordered]@{
     firmwareVersion = $manifest.firmwareVersion
     configurationVersion = $manifest.configurationVersion
+    helperProtocolVersion = $manifest.helperProtocolVersion
     binarySha256 = $binarySha
     manifestSha256 = $manifestSha
     s3Bucket = $Bucket
     binaryKey = $binaryKey
     manifestKey = $manifestKey
     helperCommit = $HelperCommit
+    toolchain = $toolchain
     verifiedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
 } | ConvertTo-Json | Set-Content -LiteralPath $EvidencePath -Encoding utf8

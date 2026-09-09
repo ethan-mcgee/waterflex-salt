@@ -4,85 +4,259 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: factory-helper-release
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: windows-latest
-    timeout-minutes: 30
+  preflight:
+    name: Verify current main commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
-      tag: ${{ steps.tag.outputs.tag }}
+      release_sha: ${{ steps.verify.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+      - name: Require the current remote main commit
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Factory releases are allowed only from refs/heads/main; selected ${GITHUB_REF}." >&2
+            exit 1
+          fi
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [[ -z "${remote_main}" ]]; then
+            echo 'Could not resolve the remote main tip.' >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_SHA}" != "${remote_main}" ]]; then
+            echo "Selected main commit ${GITHUB_SHA} is stale; current remote main is ${remote_main}." >&2
+            exit 1
+          fi
+          echo "release_sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+  build-and-test:
+    name: Build and test release artifacts
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 35
+    outputs:
       firmware_version: ${{ steps.bundle-info.outputs.firmware_version }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-      - name: Install pinned build tools
-        run: pip install platformio==6.1.19 pyinstaller==6.16.0 esptool==4.11.0 pyserial==3.5
-      - name: Build production firmware
-        working-directory: firmware
-        run: pio run -e arduino_nano_esp32_factory_production
-      - name: Create firmware bundle
-        working-directory: firmware
-        run: python tools/build_factory_bundle.py --output-dir factory-release
-      - name: Read bundle info
-        id: bundle-info
+      - name: Validate release configuration
         shell: pwsh
-        run: |
-          $manifest = Get-Content firmware/factory-release/factory-bundle.json | ConvertFrom-Json
-          "firmware_version=$($manifest.firmwareVersion)" >> $env:GITHUB_OUTPUT
-          "configuration_version=$($manifest.configurationVersion)" >> $env:GITHUB_OUTPUT
-          "sha256=$($manifest.mergedImage.sha256)" >> $env:GITHUB_OUTPUT
-      - name: Validate helper API base URLs
         env:
           STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
           PRODUCTION_URL: ${{ vars.FACTORY_HELPER_PRODUCTION_API_URL }}
-        shell: pwsh
+          PUBLISH_ROLE: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
+          BUNDLE_BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
         run: |
           foreach ($entry in @(
             @{ Name = 'FACTORY_HELPER_STAGING_API_URL'; Value = $env:STAGING_URL },
             @{ Name = 'FACTORY_HELPER_PRODUCTION_API_URL'; Value = $env:PRODUCTION_URL }
           )) {
-            if ([string]::IsNullOrWhiteSpace($entry.Value)) {
-              throw "Missing repository variable $($entry.Name)."
-            }
+            if ([string]::IsNullOrWhiteSpace($entry.Value)) { throw "Missing repository variable $($entry.Name)." }
             $uri = $null
             if (-not [Uri]::TryCreate($entry.Value, [UriKind]::Absolute, [ref]$uri) -or
                 $uri.Scheme -ne 'https' -or -not [string]::IsNullOrEmpty($uri.UserInfo)) {
               throw "$($entry.Name) must be an absolute HTTPS URL without embedded credentials."
             }
           }
+          if ([string]::IsNullOrWhiteSpace($env:PUBLISH_ROLE)) { throw 'Missing repository variable AWS_STAGING_PUBLISH_ROLE_ARN.' }
+          if ([string]::IsNullOrWhiteSpace($env:BUNDLE_BUCKET)) { throw 'Missing repository variable STAGING_DEPLOY_BUCKET.' }
           $stagingHost = ([Uri]$env:STAGING_URL).DnsSafeHost.ToLowerInvariant()
           if ($stagingHost -in @('console-staging.saltmonitor.dev', 'saltmonitor.dev')) {
-            throw 'FACTORY_HELPER_STAGING_API_URL points to a Cloudflare Access-protected console hostname. Use the public telemetry hostname.'
+            throw 'FACTORY_HELPER_STAGING_API_URL must use the public staging telemetry hostname.'
+          }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.10'
+          cache: pip
+          cache-dependency-path: firmware/tools/requirements-windows.lock
+      - name: Install hash-locked Windows toolchain
+        run: python -m pip install --require-hashes -r firmware/tools/requirements-windows.lock
+      - name: Run helper tests with Windows DPAPI coverage
+        working-directory: firmware
+        run: python -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Build production firmware
+        working-directory: firmware
+        run: pio run -e arduino_nano_esp32_factory_production
+      - name: Create firmware bundle
+        working-directory: firmware
+        run: python tools/build_factory_bundle.py --output-dir factory-release
+      - name: Read and validate bundle info
+        id: bundle-info
+        shell: pwsh
+        run: |
+          $manifest = Get-Content firmware/factory-release/factory-bundle.json -Raw | ConvertFrom-Json
+          if ($manifest.configurationVersion -cne 'factory-v2') { throw 'Release bundle configuration version is not factory-v2.' }
+          if ($manifest.helperProtocolVersion -cne '4') { throw 'Release bundle helper protocol version is not 4.' }
+          $actualSha = (Get-FileHash -LiteralPath "firmware/factory-release/$($manifest.mergedImage.file)" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha -cne $manifest.mergedImage.sha256) { throw 'Release bundle image hash does not match its manifest.' }
+          "firmware_version=$($manifest.firmwareVersion)" >> $env:GITHUB_OUTPUT
+      - name: Record resolved release toolchain
+        shell: pwsh
+        run: |
+          $platformIoCore = if ([string]::IsNullOrWhiteSpace($env:PLATFORMIO_CORE_DIR)) { Join-Path $env:USERPROFILE '.platformio' } else { $env:PLATFORMIO_CORE_DIR }
+          $platform = Get-Content (Join-Path $platformIoCore 'platforms/espressif32/platform.json') -Raw | ConvertFrom-Json
+          $library = Get-Content firmware/.pio/libdeps/arduino_nano_esp32_factory_production/ArduinoJson/library.json -Raw | ConvertFrom-Json
+          $versions = [ordered]@{
+            python = python -c "import platform; print(platform.python_version())"
+            platformio = python -c "import importlib.metadata; print(importlib.metadata.version('platformio'))"
+            espressif32 = $platform.version
+            arduinoJson = $library.version
+            pyinstaller = python -c "import importlib.metadata; print(importlib.metadata.version('pyinstaller'))"
+            esptool = python -c "import importlib.metadata; print(importlib.metadata.version('esptool'))"
+            pyserial = python -c "import importlib.metadata; print(importlib.metadata.version('pyserial'))"
+          }
+          $expected = [ordered]@{ python='3.12.10'; platformio='6.1.19'; espressif32='7.0.1'; arduinoJson='7.4.3'; pyinstaller='6.16.0'; esptool='4.11.0'; pyserial='3.5' }
+          foreach ($name in $expected.Keys) {
+            if ([string]$versions[$name] -cne $expected[$name]) { throw "Resolved $name version '$($versions[$name])' does not equal '$($expected[$name])'." }
+          }
+          $versions | ConvertTo-Json | Set-Content -LiteralPath factory-release-toolchain.json -Encoding utf8
+      - name: Build staging Windows helper
+        shell: pwsh
+        env:
+          API_BASE_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+        run: |
+          "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
+          pyinstaller --onefile --name WaterFlexFactoryHelper-staging --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+      - name: Build production Windows helper
+        shell: pwsh
+        env:
+          API_BASE_URL: ${{ vars.FACTORY_HELPER_PRODUCTION_API_URL }}
+        run: |
+          "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
+          pyinstaller --onefile --name WaterFlexFactoryHelper-production --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
+          Copy-Item -LiteralPath firmware/tools/Install-WaterFlexFactoryHelper.ps1 -Destination dist/Install-WaterFlexFactoryHelper.ps1
+      - name: Validate Windows installer behavior
+        shell: pwsh
+        run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode Installer -DiagnosticsDirectory "$env:RUNNER_TEMP/installer-diagnostics"
+      - name: Smoke test packaged staging helper locally
+        shell: pwsh
+        run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode PackagedSmoke -DiagnosticsDirectory "$env:RUNNER_TEMP/local-smoke-diagnostics"
+      - name: Reject and preserve a corrupt packaged station identity
+        shell: pwsh
+        run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode CorruptIdentity -DiagnosticsDirectory "$env:RUNNER_TEMP/corrupt-identity-diagnostics"
+      - name: Probe the live staging enrollment contract
+        shell: pwsh
+        env:
+          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+        run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode LiveStagingProbe -ApiBaseUrl $env:STAGING_URL -DiagnosticsDirectory "$env:RUNNER_TEMP/live-probe-diagnostics"
+      - name: Upload helper diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: factory-helper-diagnostics-${{ github.sha }}
+          path: ${{ runner.temp }}/*-diagnostics/*.log
+          if-no-files-found: warn
+      - name: Upload validated release build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: factory-helper-build-${{ github.sha }}
+          path: |
+            dist/WaterFlexFactoryHelper-staging.exe
+            dist/WaterFlexFactoryHelper-production.exe
+            dist/Install-WaterFlexFactoryHelper.ps1
+            firmware/factory-release/
+            factory-release-toolchain.json
+          if-no-files-found: error
+
+  publish-bundle:
+    name: Publish and verify staging firmware bundle
+    needs: [preflight, build-and-test]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    environment: factory-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: factory-helper-build-${{ github.sha }}
+          path: .
+      - name: Recheck the remote main tip before AWS credentials
+        shell: pwsh
+        run: |
+          $remoteMain = (git ls-remote origin refs/heads/main).Split("`t")[0]
+          if ($remoteMain -cne '${{ needs.preflight.outputs.release_sha }}') {
+            throw "Release commit is no longer the current remote main tip. Current tip: $remoteMain"
           }
       - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
         with:
           role-to-assume: ${{ vars.AWS_STAGING_PUBLISH_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
+      - name: Publish immutable firmware bundle to S3
+        shell: pwsh
+        env:
+          BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
+        run: >-
+          ./firmware/tools/Publish-ImmutableFactoryBundle.ps1
+          -Bucket $env:BUCKET
+          -BundleDirectory firmware/factory-release
+          -HelperCommit '${{ needs.preflight.outputs.release_sha }}'
+          -ToolchainEvidencePath factory-release-toolchain.json
+          -EvidencePath factory-release-evidence.json
+      - name: Verify exact live staging bundle and presigned image
+        shell: pwsh
+        env:
+          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
+        run: >-
+          ./firmware/tools/Test-LiveFactoryBundle.ps1
+          -ApiBaseUrl $env:STAGING_URL
+          -BundleDirectory firmware/factory-release
+          -EvidencePath factory-release-evidence.json
+      - name: Upload publication evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: factory-helper-publication-${{ github.sha }}
+          path: factory-release-evidence.json
+          if-no-files-found: error
+
+  publish-github-release:
+    name: Publish GitHub release
+    needs: [preflight, build-and-test, publish-bundle]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: factory-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: factory-helper-build-${{ github.sha }}
+          path: .
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: factory-helper-publication-${{ github.sha }}
+          path: .
+      - name: Recheck the remote main tip before GitHub publication
+        shell: pwsh
+        run: |
+          $remoteMain = (git ls-remote origin refs/heads/main).Split("`t")[0]
+          if ($remoteMain -cne '${{ needs.preflight.outputs.release_sha }}') {
+            throw "Release commit is no longer the current remote main tip. Current tip: $remoteMain"
+          }
       - name: Determine release identity
         id: tag
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          FIRMWARE_TAG: fw-${{ steps.bundle-info.outputs.firmware_version }}
+          FIRMWARE_TAG: fw-${{ needs.build-and-test.outputs.firmware_version }}
         run: |
-          # A release already exists for this exact firmware version, so this run only rebuilt the
-          # helper (no firmware change), so tag by commit instead of reusing/colliding with that release.
           gh release view $env:FIRMWARE_TAG --repo "${{ github.repository }}" *> $null
-          if ($LASTEXITCODE -eq 0) {
-            "tag=helper-${{ github.sha }}" >> $env:GITHUB_OUTPUT
-          }
-          else {
-            "tag=$env:FIRMWARE_TAG" >> $env:GITHUB_OUTPUT
-          }
-
+          if ($LASTEXITCODE -eq 0) { "tag=helper-${{ github.sha }}" >> $env:GITHUB_OUTPUT }
+          else { "tag=$env:FIRMWARE_TAG" >> $env:GITHUB_OUTPUT }
           $releaseDate = [DateTime]::UtcNow.ToString('yyyy.MM.dd')
           $titlePrefix = "WaterFlex Factory Helper - $releaseDate."
           $maximumSequence = 0
@@ -90,123 +264,11 @@ jobs:
           foreach ($release in $releases) {
             if (-not $release.name.StartsWith($titlePrefix, [StringComparison]::Ordinal)) { continue }
             $sequence = 0
-            if ([int]::TryParse($release.name.Substring($titlePrefix.Length), [ref]$sequence) -and
-                $sequence -gt $maximumSequence) {
+            if ([int]::TryParse($release.name.Substring($titlePrefix.Length), [ref]$sequence) -and $sequence -gt $maximumSequence) {
               $maximumSequence = $sequence
             }
           }
           "release_name=$titlePrefix$($maximumSequence + 1)" >> $env:GITHUB_OUTPUT
-      - name: Build staging Windows helper
-        env:
-          API_BASE_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
-        shell: pwsh
-        run: |
-          "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
-          pyinstaller --onefile --name WaterFlexFactoryHelper-staging --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
-      - name: Build production Windows helper
-        env:
-          API_BASE_URL: ${{ vars.FACTORY_HELPER_PRODUCTION_API_URL }}
-        shell: pwsh
-        run: |
-          "DEFAULT_API_BASE_URL = `"$env:API_BASE_URL`"" | Out-File -Encoding utf8 firmware/tools/_default_config.py
-          pyinstaller --onefile --name WaterFlexFactoryHelper-production --paths firmware/tools --collect-all esptool --collect-all serial firmware/tools/factory_helper.py
-      - name: Validate Windows installer behavior
-        shell: pwsh
-        run: |
-          Copy-Item -LiteralPath firmware/tools/Install-WaterFlexFactoryHelper.ps1 -Destination dist/Install-WaterFlexFactoryHelper.ps1
-          $programsDirectory = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-          $startupDirectory = Join-Path $programsDirectory 'Startup'
-          $stagingShortcut = Join-Path $programsDirectory 'WaterFlex Factory Helper (staging).lnk'
-          $legacyStagingShortcut = Join-Path $startupDirectory 'WaterFlex Factory Helper (staging).lnk'
-          $legacyProductionShortcut = Join-Path $startupDirectory 'WaterFlex Factory Helper (production).lnk'
-          $identityPath = Join-Path $env:LOCALAPPDATA 'WaterFlex\FactoryHelper\station.identity'
-          New-Item -ItemType Directory -Path $startupDirectory -Force | Out-Null
-          New-Item -ItemType Directory -Path (Split-Path $identityPath) -Force | Out-Null
-          Set-Content -LiteralPath $legacyStagingShortcut -Value 'simulated legacy staging shortcut'
-          Set-Content -LiteralPath $legacyProductionShortcut -Value 'simulated legacy production shortcut'
-          Set-Content -LiteralPath $identityPath -Value '{"stationId":"preserve-me"}'
-
-          & ./dist/Install-WaterFlexFactoryHelper.ps1 -Environment staging
-          if (-not (Test-Path -LiteralPath $stagingShortcut)) { throw 'The staging Start Menu shortcut was not created.' }
-          if (Test-Path -LiteralPath $legacyStagingShortcut) { throw 'The legacy staging Startup shortcut was not removed.' }
-          if (Test-Path -LiteralPath $legacyProductionShortcut) { throw 'The legacy production Startup shortcut was not removed.' }
-          $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($stagingShortcut)
-          $expectedTarget = Join-Path $env:LOCALAPPDATA 'WaterFlex\FactoryHelper\bin\WaterFlexFactoryHelper.exe'
-          if ($shortcut.TargetPath -ne $expectedTarget) { throw "The Start Menu shortcut target is '$($shortcut.TargetPath)', expected '$expectedTarget'." }
-          if ($shortcut.WindowStyle -ne 1) { throw 'The Start Menu shortcut does not open the helper console normally.' }
-
-          & ./dist/Install-WaterFlexFactoryHelper.ps1 -Environment staging -Uninstall
-          if (Test-Path -LiteralPath $stagingShortcut) { throw 'Uninstall did not remove the staging Start Menu shortcut.' }
-          if (-not (Test-Path -LiteralPath $identityPath)) { throw 'Uninstall removed the station identity.' }
-      - name: Smoke test packaged staging helper
-        shell: pwsh
-        run: |
-          $stdout = Join-Path $env:RUNNER_TEMP 'factory-helper-smoke.stdout.log'
-          $stderr = Join-Path $env:RUNNER_TEMP 'factory-helper-smoke.stderr.log'
-          $helper = Start-Process -FilePath "$pwd/dist/WaterFlexFactoryHelper-staging.exe" -ArgumentList @('--bundle-dir', "$pwd/firmware/factory-release", '--state-dir', "$env:RUNNER_TEMP/factory-helper-smoke-state") -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          try {
-            $ready = $false
-            for ($attempt = 1; $attempt -le 30; $attempt++) {
-              if ($helper.HasExited) {
-                throw "The packaged staging helper exited before becoming ready (exit code $($helper.ExitCode))."
-              }
-              try {
-                $health = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8765/v1/health' -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } -TimeoutSec 2
-                if ($health.status -eq 'ready' -and $health.protocolVersion -eq '4') {
-                  $devices = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8765/v1/devices' -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } -TimeoutSec 2
-                  if ($devices.status -notin @('none', 'detected', 'multiple') -or $null -eq $devices.devices) {
-                    throw 'The packaged helper returned an invalid device-detection response.'
-                  }
-                  $ready = $true
-                  break
-                }
-              }
-              catch {
-                # PyInstaller extraction and CNG station-key creation can take a few seconds.
-              }
-              Start-Sleep -Seconds 2
-            }
-            if (-not $ready) {
-              throw 'The packaged staging helper did not report ready within 60 seconds.'
-            }
-            $enrollmentProbe = Invoke-WebRequest -Method Post -Uri 'http://127.0.0.1:8765/v1/station/enroll' `
-              -Headers @{ Origin = 'https://console-staging.saltmonitor.dev' } `
-              -ContentType 'application/json' -Body '{"grantToken":"","displayName":"release-smoke"}' `
-              -SkipHttpErrorCheck -TimeoutSec 20
-            if ($enrollmentProbe.StatusCode -ne 409 -or $enrollmentProbe.Content -notmatch 'invalid|expired') {
-              throw "The packaged helper enrollment probe did not reach the WaterFlex API as expected (HTTP $($enrollmentProbe.StatusCode)): $($enrollmentProbe.Content)"
-            }
-          }
-          finally {
-            if (-not $helper.HasExited) {
-              Stop-Process -Id $helper.Id -Force
-              $helper.WaitForExit()
-            }
-            if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout }
-            if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr }
-          }
-      - name: Publish immutable firmware bundle to S3
-        env:
-          BUCKET: ${{ vars.STAGING_DEPLOY_BUCKET }}
-        shell: pwsh
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:BUCKET)) { throw 'Missing repository variable STAGING_DEPLOY_BUCKET.' }
-          ./firmware/tools/Publish-ImmutableFactoryBundle.ps1 -Bucket $env:BUCKET -BundleDirectory firmware/factory-release -HelperCommit '${{ github.sha }}' -EvidencePath factory-release-evidence.json
-      - name: Verify live staging bundle and presigned image
-        env:
-          STAGING_URL: ${{ vars.FACTORY_HELPER_STAGING_API_URL }}
-        shell: pwsh
-        run: |
-          $downloadPath = Join-Path $env:RUNNER_TEMP 'waterflex-factory-live.bin'
-          try {
-            $metadata = Invoke-RestMethod -Method Get -Uri "$($env:STAGING_URL.TrimEnd('/'))/api/v1/factory/bundle" -MaximumRedirection 0 -TimeoutSec 30
-            if ($metadata.helperProtocolVersion -ne '4' -or $metadata.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or [string]::IsNullOrWhiteSpace($metadata.downloadUrl)) { throw 'The live staging bundle response is invalid or not protocol 4.' }
-            Invoke-WebRequest -Method Get -Uri $metadata.downloadUrl -OutFile $downloadPath -MaximumRedirection 5 -TimeoutSec 120
-            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $downloadPath).Hash.ToLowerInvariant() -ne $metadata.sha256.ToLowerInvariant()) { throw 'The live staging bundle checksum did not match.' }
-          } finally { Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue }
-          $evidence = Get-Content -LiteralPath factory-release-evidence.json -Raw | ConvertFrom-Json
-          $evidence.verifiedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
-          $evidence | ConvertTo-Json | Set-Content -LiteralPath factory-release-evidence.json -Encoding utf8
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -217,5 +279,5 @@ jobs:
           files: |
             dist/WaterFlexFactoryHelper-staging.exe
             dist/WaterFlexFactoryHelper-production.exe
-            firmware/tools/Install-WaterFlexFactoryHelper.ps1
+            dist/Install-WaterFlexFactoryHelper.ps1
             factory-release-evidence.json

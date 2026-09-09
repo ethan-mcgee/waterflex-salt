@@ -82,6 +82,14 @@ def _base64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
 
+class FactoryHelperStartupError(RuntimeError):
+    """An operator-actionable failure while starting the helper."""
+
+
+class StationIdentityError(FactoryHelperStartupError):
+    """An existing station identity cannot be used and must be repaired manually."""
+
+
 class StationIdentity:
     """Per-user non-exportable P-256 identity held by Windows CNG."""
 
@@ -103,7 +111,21 @@ class StationIdentity:
 
     def _load_or_create(self) -> dict:
         if self.state_path.exists():
-            return json.loads(dpapi(self.state_path.read_bytes(), decrypt=True).decode("utf-8"))
+            try:
+                metadata = json.loads(dpapi(self.state_path.read_bytes(), decrypt=True).decode("utf-8"))
+                required = ("keyName", "keyProviderType", "providerName", "publicKey", "thumbprint")
+                if not isinstance(metadata, dict) or any(
+                    not isinstance(metadata.get(name), str) or not metadata[name]
+                    for name in required
+                ):
+                    raise ValueError("required identity fields are missing")
+                return metadata
+            except Exception as error:  # noqa: BLE001 - preserve all unreadable identity files
+                raise StationIdentityError(
+                    f"The existing station identity at '{self.state_path}' is corrupt, incomplete, "
+                    "or cannot be decrypted for this Windows user. The file was preserved. "
+                    "Operator intervention is required; do not delete or replace it automatically."
+                ) from error
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         key_name = f"WaterFlexFactoryStation-{os.urandom(16).hex()}"
         script = r'''
@@ -217,10 +239,6 @@ try:
     from _default_config import DEFAULT_API_BASE_URL  # generated per-environment at release-build time
 except ImportError:
     DEFAULT_API_BASE_URL = "http://127.0.0.1:5188"
-
-
-class FactoryHelperStartupError(RuntimeError):
-    """An operator-actionable failure while resolving the approved bundle."""
 
 
 def acquire_single_instance() -> None:
@@ -906,30 +924,61 @@ class Handler(BaseHTTPRequestHandler):
         print(f"factory-helper {self.address_string()} {format_ % args}")
 
 
-def main() -> int:
+def _default_data_dir() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", ".")) / "WaterFlex" / "FactoryHelper"
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="WaterFlex factory workstation helper")
+    parser.add_argument(
+        "--data-dir", type=Path, default=None,
+        help="Store the station identity, job state, bundle cache, and startup log under this directory.")
     parser.add_argument(
         "--bundle-dir", type=Path, default=None,
         help="Use a local bundle directory instead of fetching the WaterFlex-approved bundle "
              "(advanced/engineer override; the default fetches and caches it automatically).")
-    parser.add_argument("--bundle-cache-dir", type=Path, default=DEFAULT_BUNDLE_CACHE_DIR)
-    parser.add_argument("--state-dir", type=Path, default=DEFAULT_DATA_DIR / "jobs")
+    parser.add_argument("--bundle-cache-dir", type=Path, default=None)
+    parser.add_argument("--state-dir", type=Path, default=None)
     parser.add_argument("--allowed-origin", action="append", default=[])
     parser.add_argument("--esptool", type=Path)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
+        "--noninteractive", action="store_true",
+        help="Never display a modal startup error dialog; write diagnostics and exit instead.")
+    parser.add_argument(
         "--api-base-url", default=DEFAULT_API_BASE_URL,
         help="WaterFlex backend base URL used to fetch the approved firmware bundle and verify flash authorization.")
-    args = parser.parse_args()
+    return parser
+
+
+def resolve_data_paths(
+    data_dir: Path | None,
+    bundle_cache_dir: Path | None,
+    state_dir: Path | None,
+) -> tuple[Path, Path, Path, Path]:
+    selected_data_dir = (data_dir or _default_data_dir()).resolve()
+    return (
+        selected_data_dir,
+        (bundle_cache_dir or selected_data_dir / "bundle").resolve(),
+        (state_dir or selected_data_dir / "jobs").resolve(),
+        selected_data_dir / "factory-helper.log",
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_argument_parser()
+    args = parser.parse_args(argv)
     if os.name != "nt":
         parser.error("The factory helper requires Windows DPAPI.")
+    data_dir, bundle_cache_dir, state_dir, _ = resolve_data_paths(
+        args.data_dir, args.bundle_cache_dir, args.state_dir)
     acquire_single_instance()
-    bundle_dir = resolve_bundle(args.bundle_dir, args.bundle_cache_dir, args.api_base_url)
+    bundle_dir = resolve_bundle(args.bundle_dir, bundle_cache_dir, args.api_base_url)
     esptool_path = args.esptool or bundle_dir / "tools" / "esptool.py"
     if not getattr(sys, "frozen", False) and not esptool_path.exists():
         parser.error("The approved factory bundle does not contain esptool.py.")
-    station_identity = StationIdentity(DEFAULT_DATA_DIR / "station.identity", args.api_base_url)
-    helper = FactoryHelper(bundle_dir, args.state_dir, esptool_path, args.api_base_url, station_identity)
+    station_identity = StationIdentity(data_dir / "station.identity", args.api_base_url)
+    helper = FactoryHelper(bundle_dir, state_dir, esptool_path, args.api_base_url, station_identity)
     LOGGER.info(
         "Loaded factory bundle version=%s configuration=%s",
         helper.manifest.get("firmwareVersion"),
@@ -944,22 +993,28 @@ def main() -> int:
     return 0
 
 
-def show_frozen_startup_error(message: str) -> None:
+def show_frozen_startup_error(message: str, log_path: Path = DEFAULT_LOG_PATH) -> None:
     """Keep double-click startup failures visible for a packaged Windows executable."""
     ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
         None,
-        f"{message}\n\nDiagnostics were written to:\n{DEFAULT_LOG_PATH}",
+        f"{message}\n\nDiagnostics were written to:\n{log_path}",
         "WaterFlex Factory Helper could not start",
         0x10,
     )
 
 
-def run(log_path: Path = DEFAULT_LOG_PATH) -> int:
+def run(log_path: Path | None = None, argv: list[str] | None = None) -> int:
     """Configure durable diagnostics and convert startup failures into operator-visible errors."""
+    startup_parser = argparse.ArgumentParser(add_help=False)
+    startup_parser.add_argument("--data-dir", type=Path, default=None)
+    startup_parser.add_argument("--noninteractive", action="store_true")
+    startup_args, _ = startup_parser.parse_known_args(argv)
+    _, _, _, selected_log_path = resolve_data_paths(startup_args.data_dir, None, None)
+    selected_log_path = (log_path or selected_log_path).resolve()
     try:
-        actual_log_path = configure_startup_logging(log_path)
+        actual_log_path = configure_startup_logging(selected_log_path)
     except OSError as error:
-        actual_log_path = log_path
+        actual_log_path = selected_log_path
         print(f"factory-helper: could not create startup log: {error}", file=sys.stderr)
     LOGGER.info(
         "Starting WaterFlex Factory Helper (frozen=%s, api_base_url=%s)",
@@ -967,14 +1022,14 @@ def run(log_path: Path = DEFAULT_LOG_PATH) -> int:
         DEFAULT_API_BASE_URL,
     )
     try:
-        return main()
+        return main(argv)
     except Exception as error:  # noqa: BLE001 - top-level startup boundary
         message = str(error) or error.__class__.__name__
         LOGGER.error("Factory helper startup failed: %s", message)
         print(f"factory-helper: {message}", file=sys.stderr)
-        if getattr(sys, "frozen", False):
+        if getattr(sys, "frozen", False) and not startup_args.noninteractive:
             try:
-                show_frozen_startup_error(message)
+                show_frozen_startup_error(message, actual_log_path)
             except Exception as dialog_error:  # noqa: BLE001 - logging is the final fallback
                 LOGGER.error("Could not display the Windows startup error dialog: %s", dialog_error)
         LOGGER.info("Startup diagnostics path: %s", actual_log_path)
