@@ -55,7 +55,7 @@ public sealed class InstallationWorkOrderServiceTests
 
         Assert.True(orders.IsSuccess);
         Assert.Equal(2, orders.WorkOrders.Count);
-        Assert.Equal(["Newer", "Older"], orders.WorkOrders.Select(order => order.CustomerName));
+        Assert.Equal(["Newer Customer", "Older Customer"], orders.WorkOrders.Select(order => order.CustomerName));
     }
 
     [Fact]
@@ -158,8 +158,103 @@ public sealed class InstallationWorkOrderServiceTests
         Assert.Equal(WorkOrderStatus.Open, (await database.Context.InstallationWorkOrders.SingleAsync()).Status);
     }
 
+    [Fact]
+    public async Task Create_NormalizesStructuredFieldsAndLeavesTankUnset()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedDealersAsync(database.Context);
+        var service = new EfInstallationWorkOrderService(database.Context, new FixedTimeProvider(Now));
+
+        var result = await service.CreateAsync(
+            new("  Ada ", " Lovelace  ", " 100 Main St ", " Madison ", " wi ", " 53703-1234 ", "  ", " Apt 2 "),
+            Administrator);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Ada Lovelace", result.WorkOrder!.CustomerName);
+        Assert.Equal("Ada", result.WorkOrder.FirstName);
+        Assert.Equal("Lovelace", result.WorkOrder.LastName);
+        Assert.Null(result.WorkOrder.LocationName);
+        Assert.Equal("100 Main St, Apt 2, Madison, WI 53703-1234", result.WorkOrder.Address);
+        Assert.Equal("WI", result.WorkOrder.State);
+        Assert.Null(result.WorkOrder.TankLocation);
+        Assert.Null((await database.Context.Tanks.SingleAsync()).Label);
+    }
+
+    [Theory]
+    [InlineData("XX", "53703", "State")]
+    [InlineData("WI", "5370", "ZipCode")]
+    [InlineData("WI", "53703 1234", "ZipCode")]
+    public async Task Create_RejectsInvalidStateAndZip(string state, string zipCode, string field)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedDealersAsync(database.Context);
+        var service = new EfInstallationWorkOrderService(database.Context, new FixedTimeProvider(Now));
+
+        var result = await service.CreateAsync(
+            new("Ada", "Lovelace", "100 Main St", "Madison", state, zipCode, null, null), Administrator);
+
+        Assert.Equal(InstallationWorkOrderFailure.InvalidRequest, result.Failure);
+        Assert.Contains(result.ValidationErrors, error => error.Field == field);
+    }
+
+    [Fact]
+    public async Task Create_RejectsTrimmedValuesOverTheirMaximumLength()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedDealersAsync(database.Context);
+        var service = new EfInstallationWorkOrderService(database.Context, new FixedTimeProvider(Now));
+
+        var result = await service.CreateAsync(
+            new($"  {new string('A', 101)}  ", "Lovelace", "100 Main St", "Madison", "WI", "53703", null, null),
+            Administrator);
+
+        Assert.Equal(InstallationWorkOrderFailure.InvalidRequest, result.Failure);
+        Assert.Contains(result.ValidationErrors, error => error.Field == "FirstName" && error.Message.Contains("100"));
+    }
+
+    [Fact]
+    public async Task List_ReturnsLegacySummariesWhenStructuredFieldsAreMissing()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedDealersAsync(database.Context);
+        var dealer = await database.Context.Dealers.SingleAsync(candidate => candidate.ExternalId == Administrator.DealerExternalId);
+        var customer = new CustomerAccount
+        {
+            Id = Guid.NewGuid(), WaterFlexCustomerId = "LEGACY-CUSTOMER", DisplayName = "Legacy Customer",
+            IsActive = true, LastSyncedAtUtc = Now
+        };
+        var location = new ServiceLocation
+        {
+            Id = Guid.NewGuid(), CustomerAccountId = customer.Id, WaterFlexLocationId = "LEGACY-LOCATION",
+            DisplayName = null, AddressSummary = "Old address summary", IsActive = true, LastSyncedAtUtc = Now,
+            CustomerAccount = customer
+        };
+        var tank = new Tank
+        {
+            Id = Guid.NewGuid(), ServiceLocationId = location.Id, WaterFlexAssetId = "LEGACY-TANK",
+            Label = null, IsActive = true, ServiceLocation = location
+        };
+        database.Context.InstallationWorkOrders.Add(new InstallationWorkOrderRecord
+        {
+            Id = Guid.NewGuid(), WorkOrderNumber = "WO-900001", DealerId = dealer.Id,
+            CustomerAccountId = customer.Id, ServiceLocationId = location.Id, TankId = tank.Id,
+            Status = WorkOrderStatus.Open, CreatedByActorId = "legacy", CreatedByDisplayName = "Legacy Import",
+            CreatedAtUtc = Now, Dealer = dealer, CustomerAccount = customer, ServiceLocation = location, Tank = tank
+        });
+        await database.Context.SaveChangesAsync();
+
+        var result = await new EfInstallationWorkOrderService(database.Context, new FixedTimeProvider(Now)).ListAsync(Administrator);
+
+        var order = Assert.Single(result.WorkOrders);
+        Assert.Equal("Legacy Customer", order.CustomerName);
+        Assert.Equal("Old address summary", order.Address);
+        Assert.Null(order.FirstName);
+        Assert.Null(order.LocationName);
+        Assert.Null(order.TankLocation);
+    }
+
     private static CreateInstallationWorkOrderRequest Request(string customer) =>
-        new(customer, "Mechanical room", "100 Main St, Madison, WI", "Primary softener");
+        new(customer, "Customer", "100 Main St", "Madison", "WI", "53703", "Mechanical room", null);
 
     private static async Task SeedDealersAsync(SaltMonitorDbContext context)
     {

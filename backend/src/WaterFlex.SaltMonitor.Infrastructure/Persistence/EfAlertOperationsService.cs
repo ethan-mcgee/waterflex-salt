@@ -201,8 +201,10 @@ public sealed class EfAlertOperationsService(
             alert.DeviceInstallation.Dealer != null ? alert.DeviceInstallation.Dealer.ExternalId : null,
             alert.DeviceInstallation.Dealer != null ? alert.DeviceInstallation.Dealer.DisplayName : "Unassigned",
             alert.DeviceInstallation.Tank.ServiceLocation.CustomerAccount.DisplayName,
-            alert.DeviceInstallation.Tank.ServiceLocation.DisplayName,
-            alert.DeviceInstallation.Tank.Label,
+            alert.DeviceInstallation.Tank.ServiceLocation.DisplayName
+                ?? alert.DeviceInstallation.Tank.ServiceLocation.AddressSummary
+                ?? "Unnamed location",
+            alert.DeviceInstallation.Tank.Label ?? "Unlabeled tank",
             alert.Status,
             alert.OpenedAtUtc,
             alert.LastEvidenceAtUtc,

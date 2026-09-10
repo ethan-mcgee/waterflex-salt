@@ -222,17 +222,24 @@ public sealed class BootstrapProvisioningApiTests
         client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-admin-taylor");
         var created = await client.PostAsJsonAsync("/api/v1/work-orders", new
         {
-            CustomerName = "Baker Family Residence",
+            FirstName = "Baker Family",
+            LastName = "Residence",
             LocationName = "Main residence",
-            Address = "7416 Meadow Run, Verona, WI 53593",
-            TankLocation = "Primary softener"
+            StreetAddress = "7416 Meadow Run",
+            City = "Verona",
+            State = "WI",
+            ZipCode = "53593"
         });
         var order = await created.Content.ReadFromJsonAsync<InstallationWorkOrderManagementView>(JsonOptions);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Equal("Baker Family", order!.FirstName);
+        Assert.Equal("Residence", order.LastName);
+        Assert.Equal("7416 Meadow Run, Verona, WI 53593", order.Address);
+        Assert.Null(order.TankLocation);
         client.DefaultRequestHeaders.Clear();
         client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-jordan");
 
-        var response = await client.GetAsync($"/api/v1/technician/installation-work-orders/{order!.WorkOrderNumber}");
+        var response = await client.GetAsync($"/api/v1/technician/installation-work-orders/{order.WorkOrderNumber}");
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -281,7 +288,11 @@ public sealed class BootstrapProvisioningApiTests
         var inactive = await client.GetAsync("/api/v1/work-orders?dealerExternalId=WF-D-INACTIVE");
         var createdResponse = await client.PostAsJsonAsync(
             "/api/v1/work-orders?dealerExternalId=WF-D-LAKES-WATER",
-            new { CustomerName = "Lake customer", LocationName = "Home", Address = "10 Lake St", TankLocation = "Softener" });
+            new
+            {
+                FirstName = "Lake", LastName = "Customer", LocationName = "Home",
+                StreetAddress = "10 Lake St", City = "Madison", State = "WI", ZipCode = "53703"
+            });
         var created = await createdResponse.Content.ReadFromJsonAsync<InstallationWorkOrderManagementView>(JsonOptions);
         var isolatedList = await client.GetFromJsonAsync<InstallationWorkOrderManagementView[]>(
             "/api/v1/work-orders?dealerExternalId=WF-D-NORTH-STAR", JsonOptions);

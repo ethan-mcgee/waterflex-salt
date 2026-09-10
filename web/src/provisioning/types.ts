@@ -2,7 +2,7 @@
 export interface InstallationWorkOrderView {
   workOrderNumber: string;
   customerDisplayName: string;
-  locationDisplayName: string;
+  locationDisplayName: string | null;
   addressSummary: string;
   tankLocation: string | null;
 }
@@ -44,6 +44,6 @@ export interface CommissioningSessionView {
 export interface CreateWorkOrderCommissioningSessionRequest {
   workOrderNumber: string;
   serialNumber: string;
-  tankLocation: string | null;
+  tankLocation: string;
   tankDepthCm: number;
 }

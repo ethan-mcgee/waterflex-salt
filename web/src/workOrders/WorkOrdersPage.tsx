@@ -5,7 +5,15 @@ import { cancelWorkOrder, createWorkOrder, listWorkOrderDealers, listWorkOrders,
 
 const STATUS_LABELS: Record<WorkOrderStatus, string> = { open: 'Open', completed: 'Completed', cancelled: 'Cancelled' };
 
-const EMPTY_FORM = { customerName: '', locationName: '', address: '', tankLocation: '' };
+const EMPTY_FORM = {
+  firstName: '', lastName: '', locationName: '', streetAddress: '', addressLine2: '', city: '', state: '', zipCode: '',
+};
+
+const US_STATES = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA',
+  'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK',
+  'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC',
+];
 
 export default function WorkOrdersPage({ administratorPreview = false }: { administratorPreview?: boolean }) {
   const [orders, setOrders] = useState<WorkOrder[]>([]);
@@ -88,10 +96,14 @@ export default function WorkOrdersPage({ administratorPreview = false }: { admin
       <div className="detail-panel">
         <h2><ClipboardPlus size={14} /> New installation work order</h2>
         <form className="form-grid two-column" onSubmit={submit}>
-          <label className="form-field"><span>Customer name</span><input required value={form.customerName} onChange={event => update('customerName', event.target.value)} /></label>
-          <label className="form-field"><span>Location name</span><input required value={form.locationName} onChange={event => update('locationName', event.target.value)} /></label>
-          <label className="form-field span-two"><span>Address</span><input required value={form.address} onChange={event => update('address', event.target.value)} /></label>
-          <label className="form-field span-two"><span>Tank location</span><input required value={form.tankLocation} onChange={event => update('tankLocation', event.target.value)} /><small>The technician measures tank depth during provisioning.</small></label>
+          <label className="form-field"><span>First name</span><input required maxLength={100} autoComplete="given-name" value={form.firstName} onChange={event => update('firstName', event.target.value)} /></label>
+          <label className="form-field"><span>Last name</span><input required maxLength={100} autoComplete="family-name" value={form.lastName} onChange={event => update('lastName', event.target.value)} /></label>
+          <label className="form-field span-two"><span>Location name <small>(optional)</small></span><input maxLength={200} value={form.locationName} onChange={event => update('locationName', event.target.value)} placeholder="Main residence" /></label>
+          <label className="form-field span-two"><span>Street address</span><input required maxLength={200} autoComplete="address-line1" value={form.streetAddress} onChange={event => update('streetAddress', event.target.value)} /></label>
+          <label className="form-field span-two"><span>Apartment or unit <small>(optional)</small></span><input maxLength={100} autoComplete="address-line2" value={form.addressLine2} onChange={event => update('addressLine2', event.target.value)} /></label>
+          <label className="form-field"><span>City</span><input required maxLength={100} autoComplete="address-level2" value={form.city} onChange={event => update('city', event.target.value)} /></label>
+          <label className="form-field"><span>State</span><select required aria-label="State" autoComplete="address-level1" value={form.state} onChange={event => update('state', event.target.value)}><option value="">Select state</option>{US_STATES.map(state => <option key={state} value={state}>{state}</option>)}</select></label>
+          <label className="form-field"><span>ZIP code</span><input required maxLength={10} inputMode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" autoComplete="postal-code" value={form.zipCode} onChange={event => update('zipCode', event.target.value)} placeholder="53703" /></label>
           <div className="form-actions span-two"><button className="button button-primary" type="submit" disabled={busy || (administratorPreview && !dealerExternalId)}><ClipboardPlus size={15} /> Create work order</button></div>
         </form>
       </div>
@@ -103,8 +115,8 @@ export default function WorkOrdersPage({ administratorPreview = false }: { admin
             {orders.length === 0 && <tr><td className="staff-empty" colSpan={6}>{administratorPreview && !dealerExternalId ? 'Select a dealer to view work orders.' : 'No work orders yet.'}</td></tr>}
             {orders.map(order => <tr key={order.id}>
               <td><span className="table-primary mono">{order.workOrderNumber}</span></td>
-              <td><span className="table-primary">{order.customerName}</span><span className="table-secondary">{order.locationName} · {order.address}</span></td>
-              <td>{order.tankLocation}</td>
+              <td><span className="table-primary">{order.customerName}</span><span className="table-secondary">{[order.locationName, order.address].filter(Boolean).join(' · ')}</span></td>
+              <td>{order.tankLocation || 'Set by technician'}</td>
               <td><span className="table-primary">{new Date(order.createdAtUtc).toLocaleDateString()}</span><span className="table-secondary">{order.createdBy}</span></td>
               <td><span className={`reporting-badge work-order-${order.status}`}>{STATUS_LABELS[order.status]}</span></td>
               <td>{order.status === 'open' && (pendingId === order.id ?

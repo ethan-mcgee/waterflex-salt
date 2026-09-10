@@ -101,7 +101,7 @@ export default function DeviceDetailPage() {
         <div>
           <span className="eyebrow">{device.dealerName} · {device.lifecycleStatus}</span>
           <h1 id="device-heading">{device.serialNumber}</h1>
-          <p>{device.customerDisplayName} · {device.locationDisplayName}</p>
+          <p>{[device.customerDisplayName, device.locationDisplayName].filter(Boolean).join(' · ')}</p>
         </div>
         <ReportingBadge status={device.reportingStatus} />
       </header>

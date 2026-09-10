@@ -7,7 +7,7 @@ export default function ConfirmationStep({ session }: { session: CommissioningSe
       <div className="section-intro">
         <h2>First trustworthy reading received</h2>
         <p>
-          {session.customerDisplayName} · {session.locationDisplayName} · {session.tankLabel}. No token, credential,
+          {[session.customerDisplayName, session.locationDisplayName, session.tankLabel].filter(Boolean).join(' · ')}. No token, credential,
           or Wi-Fi field ever reached this screen.
         </p>
       </div>

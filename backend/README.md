@@ -159,8 +159,10 @@ Run from this folder:
     GET  /api/v1/work-orders
     POST /api/v1/work-orders/{id}/cancel
 
-  Creation requires customer name, location name, address, and tank location. It creates dedicated customer,
-  service-location, and tank rows and returns a server-generated `WO-######` number. Cancellation requires a
+  Creation requires customer first and last name plus a US street address, city, state code, and ZIP code.
+  Location name and address line 2 are optional. The tank location is intentionally left unset for the installing
+  technician to record during commissioning. Creation produces dedicated customer, service-location, and tank rows
+  and returns a server-generated `WO-######` number. Cancellation requires a
   reason and the current optimistic row version. Completed, cancelled, stale, and actively commissioning orders
   return `409 Conflict`. Records and installation history are retained.
 
@@ -176,7 +178,8 @@ Run from this folder:
 
   Lookup returns only open orders owned by the technician's dealer and uses one generic `404` for all ineligible
   cases. Creating a session locks and revalidates the order, links the session to it, and rejects another live
-  session. Terminal failed, expired, or cancelled sessions do not close the order, so a technician can retry.
+  session. The technician must enter the tank location along with sensor serial and tank depth; that value updates
+  the tank within the reservation transaction. Terminal failed, expired, or cancelled sessions do not close the order, so a technician can retry.
   First accepted telemetry completes the session and order in the same database save.
 
   ## Internal operations API

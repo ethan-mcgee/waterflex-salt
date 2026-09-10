@@ -288,7 +288,7 @@ public sealed class BootstrapProvisioningServiceTests
     }
 
     [Fact]
-    public async Task WorkOrderSession_UsesPersistedTankLocation()
+    public async Task WorkOrderSession_RequiresTechnicianTankLocationAndReplacesPersistedValue()
     {
         await using var database = await TestDatabase.CreateAsync();
         var timeProvider = new MutableTimeProvider(Now);
@@ -296,12 +296,17 @@ public sealed class BootstrapProvisioningServiceTests
         await SeedWorkOrderAsync(database.Context, timeProvider, "Baker Family Residence", "Primary softener");
         var service = CreateSessionService(database.Context, timeProvider);
 
+        var missing = await service.CreateFromWorkOrderAsync(
+            new("WO-000001", "WF-NANO-0001", "  ", 150m),
+            NorthStarTechnician);
         var result = await service.CreateFromWorkOrderAsync(
-            new("WO-000001", "WF-NANO-0001", null, 150m),
+            new("WO-000001", "WF-NANO-0001", " Basement utility room ", 150m),
             NorthStarTechnician);
 
+        Assert.Equal(CommissioningSessionFailure.TankLocationRequired, missing.Failure);
         Assert.True(result.IsSuccess);
-        Assert.Equal("Primary softener", result.Session!.TankLabel);
+        Assert.Equal("Basement utility room", result.Session!.TankLabel);
+        Assert.Equal("Basement utility room", (await database.Context.Tanks.SingleAsync()).Label);
     }
 
     [Fact]
@@ -401,8 +406,13 @@ public sealed class BootstrapProvisioningServiceTests
         }
         var service = new EfInstallationWorkOrderService(context, timeProvider);
         var admin = NorthStarTechnician with { Role = StaffRole.DealerAdministrator };
-        var created = await service.CreateAsync(new(customerName, "Main residence", "7416 Meadow Run, Verona, WI 53593", tankLocation), admin);
+        var nameBoundary = customerName.LastIndexOf(' ');
+        var created = await service.CreateAsync(
+            new(customerName[..nameBoundary], customerName[(nameBoundary + 1)..], "7416 Meadow Run", "Verona", "WI", "53593", "Main residence", null),
+            admin);
         Assert.True(created.IsSuccess);
+        (await context.Tanks.SingleAsync()).Label = tankLocation;
+        await context.SaveChangesAsync();
     }
 
     private static async Task RegisterFactoryDeviceAsync(

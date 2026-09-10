@@ -6,6 +6,8 @@ export default function SerialEntryStep({
   workOrder,
   serialNumber,
   onSerialNumberChange,
+  tankLocation,
+  onTankLocationChange,
   tankDepth,
   onTankDepthChange,
   error,
@@ -13,6 +15,8 @@ export default function SerialEntryStep({
   workOrder: InstallationWorkOrderView;
   serialNumber: string;
   onSerialNumberChange: (value: string) => void;
+  tankLocation: string;
+  onTankLocationChange: (value: string) => void;
   tankDepth: string;
   onTankDepthChange: (value: string) => void;
   error: string;
@@ -37,6 +41,18 @@ export default function SerialEntryStep({
           <small>Printed on the sensor label</small>
         </label>
         <label className="form-field">
+          <span>Tank location</span>
+          <input
+            type="text"
+            required
+            maxLength={100}
+            value={tankLocation}
+            onChange={(event) => onTankLocationChange(event.target.value)}
+            placeholder="Primary softener"
+          />
+          <small>Where the tank is located at this site</small>
+        </label>
+        <label className="form-field">
           <span>Usable tank depth</span>
           <input
             type="number"
@@ -54,7 +70,7 @@ export default function SerialEntryStep({
       <div className="inline-alert info">
         <Info size={15} />
         <span>
-          Reserves this exact serial to {workOrder.customerDisplayName} · {workOrder.locationDisplayName} for 30
+          Reserves this exact serial to {[workOrder.customerDisplayName, workOrder.locationDisplayName].filter(Boolean).join(' · ')} for 30
           minutes. Already reserved elsewhere or the tank already has a sensor? You&rsquo;ll see that here before
           anything is created.
         </span>

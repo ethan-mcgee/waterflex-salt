@@ -84,6 +84,7 @@ export default function ProvisioningWorkflow() {
   const [workOrderError, setWorkOrderError] = useState('');
 
   const [serialNumber, setSerialNumber] = useState('');
+  const [tankLocation, setTankLocation] = useState('');
   const [tankDepth, setTankDepth] = useState('150');
   const [creatingSession, setCreatingSession] = useState(false);
   const [sensorError, setSensorError] = useState('');
@@ -124,8 +125,11 @@ export default function ProvisioningWorkflow() {
     setWorkOrderLoading(true);
     setWorkOrderError('');
     setWorkOrder(null);
+    setTankLocation('');
     try {
-      setWorkOrder(await getInstallationWorkOrder(number));
+      const found = await getInstallationWorkOrder(number);
+      setWorkOrder(found);
+      setTankLocation(found.tankLocation ?? '');
     } catch (error) {
       setWorkOrderError(error instanceof ApiError ? error.message : 'Unable to look up that work order.');
     } finally {
@@ -149,7 +153,7 @@ export default function ProvisioningWorkflow() {
       setSession(await createWorkOrderCommissioningSession({
         workOrderNumber: workOrder.workOrderNumber,
         serialNumber: serialNumber.trim(),
-        tankLocation: workOrder.tankLocation,
+        tankLocation: tankLocation.trim(),
         tankDepthCm: depth,
       }));
     } catch (error) {
@@ -182,6 +186,7 @@ export default function ProvisioningWorkflow() {
     setWorkOrder(null);
     setWorkOrderError('');
     setSerialNumber('');
+    setTankLocation('');
     setTankDepth('150');
     setSensorError('');
     setSession(null);
@@ -190,12 +195,13 @@ export default function ProvisioningWorkflow() {
   const railIndex = computeRailIndex(step, session);
   const isTerminalFailure = session !== null && TERMINAL_FAILURE_STATUSES.includes(session.status);
   const serialValid = serialNumber.trim().length >= 4;
+  const tankLocationValid = tankLocation.trim().length > 0;
   const depthCm = Number(tankDepth);
   const depthValid = Number.isFinite(depthCm) && depthCm >= 10 && depthCm <= 450;
 
   const accountLabel = session?.customerDisplayName ?? workOrder?.customerDisplayName ?? 'Not selected';
-  const locationLabel = session?.locationDisplayName ?? workOrder?.locationDisplayName ?? 'Not confirmed';
-  const tankLabel = session?.tankLabel ?? workOrder?.tankLocation ?? 'Not selected';
+  const locationLabel = session?.locationDisplayName ?? workOrder?.locationDisplayName ?? workOrder?.addressSummary ?? 'Not confirmed';
+  const tankLabel = session?.tankLabel ?? (tankLocation.trim() || 'Not selected');
   const sensorLabel = session?.serialNumber ?? (serialNumber.trim() || 'Not entered');
 
   return (
@@ -255,7 +261,11 @@ export default function ProvisioningWorkflow() {
           ) : step === 'workOrder' ? (
             <WorkOrderStep
               workOrderNumber={workOrderNumber}
-              onWorkOrderNumberChange={setWorkOrderNumber}
+              onWorkOrderNumberChange={value => {
+                setWorkOrderNumber(value);
+                setWorkOrder(null);
+                setTankLocation('');
+              }}
               onLookup={lookupWorkOrder}
               loading={workOrderLoading}
               error={workOrderError}
@@ -266,6 +276,8 @@ export default function ProvisioningWorkflow() {
               workOrder={workOrder}
               serialNumber={serialNumber}
               onSerialNumberChange={setSerialNumber}
+              tankLocation={tankLocation}
+              onTankLocationChange={setTankLocation}
               tankDepth={tankDepth}
               onTankDepthChange={setTankDepth}
               error={sensorError}
@@ -319,7 +331,7 @@ export default function ProvisioningWorkflow() {
               <button
                 type="button"
                 className="button button-primary"
-                disabled={!serialValid || !depthValid || creatingSession}
+                disabled={!serialValid || !tankLocationValid || !depthValid || creatingSession}
                 onClick={reserveSensor}
               >
                 {creatingSession

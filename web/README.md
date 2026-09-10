@@ -9,7 +9,7 @@ The default screen is the internal sensor fleet. The technician provisioning wor
 1. Look up the installation work order by number. This is a single lookup, not a separate
     customer/location/tank search-and-select UI — one work order number resolves the customer,
     service location, and salt tank together. Technician and dealer come from identity.
-2. Enter the sensor's serial number and the tank's usable depth (cm), then reserve the sensor.
+2. Enter the sensor's serial number, tank location, and usable depth (cm), then reserve the sensor.
     This creates a time-limited commissioning session for that exact serial and tank.
 3. Join the sensor's own Wi-Fi access point (named for its serial number) and enter the site's
     2.4 GHz Wi-Fi credentials on the sensor's own captive portal page. This is the only step done
@@ -19,11 +19,12 @@ The default screen is the internal sensor fleet. The technician provisioning wor
     enter here.
 5. Confirmation, once the sensor's first trustworthy telemetry reading arrives.
 
-There is no USB or Web Serial step anywhere in this flow — serial number and tank depth are plain
+There is no USB or Web Serial step anywhere in this flow. Serial number, tank location, and tank depth are plain
 text/number fields, and no token or credential is ever shown to or handled by the technician.
 
-Dealer-administrator identities receive a **Work Orders** navigation item at `/work-orders`. The screen creates a
-dedicated installation target, displays the generated number for technician handoff, lists the current dealer's
+Dealer-administrator identities receive a **Work Orders** navigation item at `/work-orders`. The screen collects
+structured customer and US address fields, creates a dedicated installation target, displays the generated number
+for technician handoff, and lists the current dealer's
 orders newest first, and supports reason-required cancellation with optimistic concurrency. A signed-in WaterFlex
 administrator previewing the dealer-administrator role also receives the route, but must select an active dealer
 each time the page opens before orders load or creation is enabled. The selection stays local to that page and is

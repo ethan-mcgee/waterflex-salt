@@ -323,7 +323,7 @@ function FleetRow({ device, now }: { device: FleetDevice; now: string }) {
       </td>
       <td>
         <strong className="table-primary">{device.customerDisplayName}</strong>
-        <span className="table-secondary">{device.locationDisplayName} · {device.tankLabel}</span>
+        <span className="table-secondary">{[device.locationDisplayName, device.tankLabel].filter(Boolean).join(' · ')}</span>
       </td>
       <td>
         {device.sensorStatus === 'faulted' ? (

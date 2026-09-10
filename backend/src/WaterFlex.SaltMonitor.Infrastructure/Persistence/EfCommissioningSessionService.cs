@@ -73,14 +73,18 @@ public sealed class EfCommissioningSessionService(
             return CommissioningSessionResult.Failed(CommissioningSessionFailure.WorkOrderNotFound);
         }
 
-        var tankLocation = string.IsNullOrWhiteSpace(workOrder.TankLocation)
-            ? request.TankLocation?.Trim()
-            : workOrder.TankLocation;
+        var tankLocation = request.TankLocation?.Trim();
         if (string.IsNullOrWhiteSpace(tankLocation))
         {
             return CommissioningSessionResult.Failed(
                 CommissioningSessionFailure.TankLocationRequired,
-                [new(nameof(request.TankLocation), "Tank location is required because it is missing from the work order.")]);
+                [new(nameof(request.TankLocation), "Tank location is required.")]);
+        }
+        if (tankLocation.Length > 100)
+        {
+            return CommissioningSessionResult.Failed(
+                CommissioningSessionFailure.InvalidRequest,
+                [new(nameof(request.TankLocation), "Tank location cannot exceed 100 characters.")]);
         }
 
         var normalized = new CreateCommissioningSessionRequest(
@@ -98,7 +102,7 @@ public sealed class EfCommissioningSessionService(
                 string.Empty,
                 workOrder.CustomerDisplayName,
                 workOrder.WaterFlexLocationId,
-                workOrder.LocationDisplayName,
+                workOrder.LocationDisplayName ?? string.Empty,
                 workOrder.AddressSummary,
                 workOrder.WaterFlexAssetId,
                 tankLocation,
@@ -379,9 +383,9 @@ public sealed class EfCommissioningSessionService(
             session.ExpiresAtUtc,
             dealer.DisplayName,
             selection.CustomerDisplayName,
-            selection.LocationDisplayName,
+            location.DisplayName ?? location.AddressSummary ?? "Unnamed location",
             selection.AddressSummary,
-            selection.TankLabel,
+            tank.Label!,
             MillimetersToCentimeters(session.TankDepthMm),
             null,
             null,
@@ -522,6 +526,9 @@ public sealed class EfCommissioningSessionService(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        var displayName = string.IsNullOrWhiteSpace(selection.LocationDisplayName)
+            ? null
+            : selection.LocationDisplayName;
         var location = await dbContext.ServiceLocations.SingleOrDefaultAsync(
             candidate => candidate.CustomerAccountId == customer.Id
                 && candidate.WaterFlexLocationId == selection.WaterFlexLocationId,
@@ -533,7 +540,7 @@ public sealed class EfCommissioningSessionService(
                 Id = Guid.NewGuid(),
                 CustomerAccountId = customer.Id,
                 WaterFlexLocationId = selection.WaterFlexLocationId,
-                DisplayName = selection.LocationDisplayName,
+                DisplayName = displayName,
                 AddressSummary = selection.AddressSummary,
                 IsActive = true,
                 LastSyncedAtUtc = now
@@ -542,7 +549,7 @@ public sealed class EfCommissioningSessionService(
         }
         else
         {
-            location.DisplayName = selection.LocationDisplayName;
+            location.DisplayName = displayName;
             location.AddressSummary = selection.AddressSummary;
             location.IsActive = true;
             location.LastSyncedAtUtc = now;
@@ -594,9 +601,9 @@ public sealed class EfCommissioningSessionService(
             session.ExpiresAtUtc,
             session.Dealer.DisplayName,
             location.CustomerAccount.DisplayName,
-            location.DisplayName,
+            location.DisplayName ?? location.AddressSummary ?? "Unnamed location",
             location.AddressSummary ?? string.Empty,
-            session.Tank.Label,
+            session.Tank.Label ?? "Unlabeled tank",
             MillimetersToCentimeters(session.TankDepthMm),
             session.ActivatedAtUtc,
             session.CompletedAtUtc,
