@@ -260,6 +260,67 @@ public sealed class BootstrapProvisioningApiTests
         Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
     }
 
+    [Fact]
+    public async Task WaterFlexAdministratorManagesSelectedDealerWithRealAuditIdentity()
+    {
+        await using var factory = new BootstrapApiFactory();
+        await factory.InitializeDatabaseAsync();
+        await factory.SeedDealerAsync("WF-D-LAKES-WATER", "Lakes Water Conditioning");
+        await factory.SeedDealerAsync("WF-D-INACTIVE", "Inactive Dealer", isActive: false);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-admin-avery");
+
+        var missing = await client.GetAsync("/api/v1/work-orders");
+        var missingCreate = await client.PostAsJsonAsync(
+            "/api/v1/work-orders",
+            new { CustomerName = "No scope", LocationName = "Home", Address = "1 Main St", TankLocation = "Softener" });
+        var missingCancel = await client.PostAsJsonAsync(
+            $"/api/v1/work-orders/{Guid.NewGuid()}/cancel",
+            new { Reason = "No scope", RowVersion = 1 });
+        var unknown = await client.GetAsync("/api/v1/work-orders?dealerExternalId=WF-D-UNKNOWN");
+        var inactive = await client.GetAsync("/api/v1/work-orders?dealerExternalId=WF-D-INACTIVE");
+        var createdResponse = await client.PostAsJsonAsync(
+            "/api/v1/work-orders?dealerExternalId=WF-D-LAKES-WATER",
+            new { CustomerName = "Lake customer", LocationName = "Home", Address = "10 Lake St", TankLocation = "Softener" });
+        var created = await createdResponse.Content.ReadFromJsonAsync<InstallationWorkOrderManagementView>(JsonOptions);
+        var isolatedList = await client.GetFromJsonAsync<InstallationWorkOrderManagementView[]>(
+            "/api/v1/work-orders?dealerExternalId=WF-D-NORTH-STAR", JsonOptions);
+        var crossDealerCancel = await client.PostAsJsonAsync(
+            $"/api/v1/work-orders/{created!.Id}/cancel?dealerExternalId=WF-D-NORTH-STAR",
+            new { Reason = "Wrong dealer", created.RowVersion });
+        var cancelledResponse = await client.PostAsJsonAsync(
+            $"/api/v1/work-orders/{created.Id}/cancel?dealerExternalId=WF-D-LAKES-WATER",
+            new { Reason = "Customer postponed", created.RowVersion });
+        var cancelled = await cancelledResponse.Content.ReadFromJsonAsync<InstallationWorkOrderManagementView>(JsonOptions);
+
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, missingCreate.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, missingCancel.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, inactive.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
+        Assert.Equal("wf-admin-avery", created.CreatedByActorId);
+        Assert.Equal("Avery Patel", created.CreatedBy);
+        Assert.Empty(isolatedList!);
+        Assert.Equal(HttpStatusCode.NotFound, crossDealerCancel.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, cancelledResponse.StatusCode);
+        Assert.Equal("wf-admin-avery", cancelled!.CancelledByActorId);
+        Assert.Equal("Avery Patel", cancelled.CancelledBy);
+    }
+
+    [Fact]
+    public async Task WaterFlexEmployeeCannotUseWorkOrderManagementEndpoints()
+    {
+        await using var factory = new BootstrapApiFactory();
+        await factory.InitializeDatabaseAsync();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "wf-ops-alex");
+
+        var response = await client.GetAsync("/api/v1/work-orders?dealerExternalId=WF-D-NORTH-STAR");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     private static JsonSerializerOptions CreateJsonOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -319,6 +380,18 @@ public sealed class BootstrapProvisioningApiTests
                 });
                 await context.SaveChangesAsync();
             }
+        }
+
+        public async Task SeedDealerAsync(string externalId, string displayName, bool isActive = true)
+        {
+            using var scope = Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SaltMonitorDbContext>();
+            if (await context.Dealers.AnyAsync(dealer => dealer.ExternalId == externalId)) return;
+            context.Dealers.Add(new Dealer
+            {
+                Id = Guid.NewGuid(), ExternalId = externalId, DisplayName = displayName, IsActive = isActive
+            });
+            await context.SaveChangesAsync();
         }
 
         public async Task<HttpResponseMessage> PostSignedAsync<T>(HttpClient client, T value)

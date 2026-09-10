@@ -56,12 +56,11 @@ public sealed class EfInstallationWorkOrderService(
     public async Task<InstallationWorkOrderResult> CreateAsync(
         CreateInstallationWorkOrderRequest request,
         StaffActor administrator,
+        string? requestedDealerExternalId = null,
         CancellationToken cancellationToken = default)
     {
-        if (!IsDealerAdministrator(administrator))
-        {
-            return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.InvalidAdministrator);
-        }
+        var scope = await ResolveDealerAsync(administrator, requestedDealerExternalId, cancellationToken);
+        if (!scope.IsSuccess) return InstallationWorkOrderResult.Failed(scope.Failure, scope.ValidationErrors);
 
         var customerName = request.CustomerName?.Trim() ?? string.Empty;
         var locationName = request.LocationName?.Trim() ?? string.Empty;
@@ -78,13 +77,7 @@ public sealed class EfInstallationWorkOrderService(
         }
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        var dealer = await dbContext.Dealers.SingleOrDefaultAsync(
-            candidate => candidate.ExternalId == administrator.DealerExternalId && candidate.IsActive,
-            cancellationToken);
-        if (dealer is null)
-        {
-            return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.InvalidAdministrator);
-        }
+        var dealer = scope.Dealer!;
 
         var sequence = await dbContext.Database
             .SqlQuery<long>($"SELECT nextval('\"InstallationWorkOrderNumberSequence\"') AS \"Value\"")
@@ -121,46 +114,45 @@ public sealed class EfInstallationWorkOrderService(
         return InstallationWorkOrderResult.Success(ToView(order));
     }
 
-    public async Task<IReadOnlyList<InstallationWorkOrderManagementView>> ListAsync(
+    public async Task<InstallationWorkOrderListResult> ListAsync(
         StaffActor administrator,
+        string? requestedDealerExternalId = null,
         CancellationToken cancellationToken = default)
     {
-        if (!IsDealerAdministrator(administrator)) return [];
+        var scope = await ResolveDealerAsync(administrator, requestedDealerExternalId, cancellationToken);
+        if (!scope.IsSuccess) return InstallationWorkOrderListResult.Failed(scope.Failure, scope.ValidationErrors);
         var orders = await dbContext.InstallationWorkOrders
             .AsNoTracking()
             .Include(order => order.CustomerAccount)
             .Include(order => order.ServiceLocation)
             .Include(order => order.Tank)
-            .Where(order => order.Dealer.ExternalId == administrator.DealerExternalId)
+            .Where(order => order.DealerId == scope.Dealer!.Id)
             .OrderByDescending(order => order.CreatedAtUtc)
             .ToArrayAsync(cancellationToken);
-        return orders.Select(ToView).ToArray();
+        return InstallationWorkOrderListResult.Success(orders.Select(ToView).ToArray());
     }
 
     public async Task<InstallationWorkOrderResult> CancelAsync(
         Guid id,
         CancelInstallationWorkOrderRequest request,
         StaffActor administrator,
+        string? requestedDealerExternalId = null,
         CancellationToken cancellationToken = default)
     {
-        if (!IsDealerAdministrator(administrator))
-            return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.InvalidAdministrator);
+        var scope = await ResolveDealerAsync(administrator, requestedDealerExternalId, cancellationToken);
+        if (!scope.IsSuccess) return InstallationWorkOrderResult.Failed(scope.Failure, scope.ValidationErrors);
+
         var reason = request.Reason?.Trim() ?? string.Empty;
         if (reason.Length == 0)
             return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.InvalidRequest,
                 [new(nameof(request.Reason), "Cancellation reason is required.")]);
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        var dealerId = await dbContext.Dealers
-            .Where(dealer => dealer.ExternalId == administrator.DealerExternalId)
-            .Select(dealer => (Guid?)dealer.Id)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (dealerId is null) return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.NotFound);
         var lockedOrders = await dbContext.InstallationWorkOrders
             .FromSqlInterpolated($"SELECT *, xmin AS \"xmin\" FROM \"InstallationWorkOrders\" WHERE \"Id\" = {id} FOR UPDATE")
             .ToListAsync(cancellationToken);
         var order = lockedOrders.SingleOrDefault();
-        if (order is null || order.DealerId != dealerId) return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.NotFound);
+        if (order is null || order.DealerId != scope.Dealer!.Id) return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.NotFound);
         await dbContext.Entry(order).Reference(candidate => candidate.CustomerAccount).LoadAsync(cancellationToken);
         await dbContext.Entry(order).Reference(candidate => candidate.ServiceLocation).LoadAsync(cancellationToken);
         await dbContext.Entry(order).Reference(candidate => candidate.Tank).LoadAsync(cancellationToken);
@@ -191,8 +183,51 @@ public sealed class EfInstallationWorkOrderService(
         return InstallationWorkOrderResult.Success(ToView(order));
     }
 
-    private static bool IsDealerAdministrator(StaffActor actor) =>
-        actor.Role == StaffRole.DealerAdministrator && !string.IsNullOrWhiteSpace(actor.DealerExternalId);
+    private async Task<DealerScopeResolution> ResolveDealerAsync(
+        StaffActor actor,
+        string? requestedDealerExternalId,
+        CancellationToken cancellationToken)
+    {
+        string dealerExternalId;
+        if (actor.Role == StaffRole.DealerAdministrator && !string.IsNullOrWhiteSpace(actor.DealerExternalId))
+        {
+            dealerExternalId = actor.DealerExternalId;
+        }
+        else if (actor.Role == StaffRole.WaterFlexAdministrator)
+        {
+            dealerExternalId = requestedDealerExternalId?.Trim() ?? string.Empty;
+            if (dealerExternalId.Length == 0)
+            {
+                return DealerScopeResolution.Failed(
+                    InstallationWorkOrderFailure.InvalidRequest,
+                    [new("dealerExternalId", "An active dealer must be selected.")]);
+            }
+        }
+        else
+        {
+            return DealerScopeResolution.Failed(InstallationWorkOrderFailure.InvalidAdministrator);
+        }
+
+        var dealer = await dbContext.Dealers.SingleOrDefaultAsync(
+            candidate => candidate.ExternalId == dealerExternalId && candidate.IsActive,
+            cancellationToken);
+        return dealer is null
+            ? DealerScopeResolution.Failed(InstallationWorkOrderFailure.NotFound)
+            : DealerScopeResolution.Success(dealer);
+    }
+
+    private sealed record DealerScopeResolution(
+        Dealer? Dealer,
+        InstallationWorkOrderFailure Failure,
+        IReadOnlyList<ProvisioningValidationError> ValidationErrors)
+    {
+        public bool IsSuccess => Failure == InstallationWorkOrderFailure.None;
+        public static DealerScopeResolution Success(Dealer dealer) =>
+            new(dealer, InstallationWorkOrderFailure.None, []);
+        public static DealerScopeResolution Failed(
+            InstallationWorkOrderFailure failure,
+            IReadOnlyList<ProvisioningValidationError>? errors = null) => new(null, failure, errors ?? []);
+    }
 
     private static void AddRequiredError(List<ProvisioningValidationError> errors, string field, string value)
     {

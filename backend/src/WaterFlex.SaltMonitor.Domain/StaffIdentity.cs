@@ -17,6 +17,7 @@ public enum StaffCapability
     TechnicianOperations,
     DealerStaffAdministration,
     FleetOperations,
+    WorkOrderManagement,
     FactoryProvisioning,
     WaterFlexStaffAdministration
 }
@@ -66,6 +67,8 @@ public static class StaffRoleCapabilities
             (StaffRole.DealerAdministrator, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexEmployee, StaffCapability.FleetOperations) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.FleetOperations) => true,
+            (StaffRole.DealerAdministrator, StaffCapability.WorkOrderManagement) => true,
+            (StaffRole.WaterFlexAdministrator, StaffCapability.WorkOrderManagement) => true,
             (StaffRole.FactoryWorker, StaffCapability.FactoryProvisioning) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.FactoryProvisioning) => true,
             (StaffRole.WaterFlexAdministrator, StaffCapability.WaterFlexStaffAdministration) => true,

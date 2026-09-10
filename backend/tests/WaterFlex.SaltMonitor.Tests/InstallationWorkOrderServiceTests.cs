@@ -15,6 +15,8 @@ public sealed class InstallationWorkOrderServiceTests
     private static readonly StaffActor OtherAdministrator = new(
         "lakes-admin", "Sam Rivera", StaffRole.DealerAdministrator,
         "WF-D-LAKES-WATER", "Lakes Water Conditioning");
+    private static readonly StaffActor WaterFlexAdministrator = new(
+        "wf-admin-avery", "Avery Patel", StaffRole.WaterFlexAdministrator, null, null);
 
     [Fact]
     public async Task Create_GeneratesUniqueNumbersAndDedicatedTargets()
@@ -51,8 +53,59 @@ public sealed class InstallationWorkOrderServiceTests
 
         var orders = await service.ListAsync(Administrator);
 
-        Assert.Equal(2, orders.Count);
-        Assert.Equal(["Newer", "Older"], orders.Select(order => order.CustomerName));
+        Assert.True(orders.IsSuccess);
+        Assert.Equal(2, orders.WorkOrders.Count);
+        Assert.Equal(["Newer", "Older"], orders.WorkOrders.Select(order => order.CustomerName));
+    }
+
+    [Fact]
+    public async Task WaterFlexAdministrator_RequiresActiveScopeAndRetainsActorAuditIdentity()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedDealersAsync(database.Context);
+        database.Context.Dealers.Add(new Dealer
+        {
+            Id = Guid.NewGuid(), ExternalId = "WF-D-INACTIVE", DisplayName = "Inactive Dealer", IsActive = false
+        });
+        await database.Context.SaveChangesAsync();
+        var service = new EfInstallationWorkOrderService(database.Context, new FixedTimeProvider(Now));
+
+        var missing = await service.CreateAsync(Request("Missing scope"), WaterFlexAdministrator);
+        var inactive = await service.ListAsync(WaterFlexAdministrator, "WF-D-INACTIVE");
+        var created = await service.CreateAsync(Request("Administrator-created"), WaterFlexAdministrator, Administrator.DealerExternalId);
+        var listed = await service.ListAsync(WaterFlexAdministrator, Administrator.DealerExternalId);
+        var cancelled = await service.CancelAsync(
+            created.WorkOrder!.Id,
+            new("Customer postponed", created.WorkOrder.RowVersion),
+            WaterFlexAdministrator,
+            Administrator.DealerExternalId);
+
+        Assert.Equal(InstallationWorkOrderFailure.InvalidRequest, missing.Failure);
+        Assert.Contains(missing.ValidationErrors, error => error.Field == "dealerExternalId");
+        Assert.Equal(InstallationWorkOrderFailure.NotFound, inactive.Failure);
+        Assert.True(listed.IsSuccess);
+        Assert.Single(listed.WorkOrders);
+        Assert.Equal(WaterFlexAdministrator.UserId, created.WorkOrder.CreatedByActorId);
+        Assert.Equal(WaterFlexAdministrator.DisplayName, created.WorkOrder.CreatedBy);
+        Assert.Equal(WaterFlexAdministrator.UserId, cancelled.WorkOrder!.CancelledByActorId);
+        Assert.Equal(WaterFlexAdministrator.DisplayName, cancelled.WorkOrder.CancelledBy);
+    }
+
+    [Fact]
+    public async Task WaterFlexAdministrator_CannotCancelOrderOutsideSelectedDealer()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedDealersAsync(database.Context);
+        var service = new EfInstallationWorkOrderService(database.Context, new FixedTimeProvider(Now));
+        var created = await service.CreateAsync(Request("Other dealer"), OtherAdministrator);
+
+        var result = await service.CancelAsync(
+            created.WorkOrder!.Id,
+            new("Wrong dealer", created.WorkOrder.RowVersion),
+            WaterFlexAdministrator,
+            Administrator.DealerExternalId);
+
+        Assert.Equal(InstallationWorkOrderFailure.NotFound, result.Failure);
     }
 
     [Fact]

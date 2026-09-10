@@ -22,11 +22,14 @@ The default screen is the internal sensor fleet. The technician provisioning wor
 There is no USB or Web Serial step anywhere in this flow — serial number and tank depth are plain
 text/number fields, and no token or credential is ever shown to or handled by the technician.
 
-Actual dealer-administrator identities also receive a **Work Orders** navigation item at `/work-orders`. The
-screen creates a dedicated installation target, displays the generated number for technician handoff, lists the
-current dealer's orders newest first, and supports reason-required cancellation with optimistic concurrency.
-Technicians do not receive the management route or an open-order queue. Administrator role preview does not
-grant work-order management because API authorization always uses the signed-in identity.
+Dealer-administrator identities receive a **Work Orders** navigation item at `/work-orders`. The screen creates a
+dedicated installation target, displays the generated number for technician handoff, lists the current dealer's
+orders newest first, and supports reason-required cancellation with optimistic concurrency. A signed-in WaterFlex
+administrator previewing the dealer-administrator role also receives the route, but must select an active dealer
+each time the page opens before orders load or creation is enabled. The selection stays local to that page and is
+cleared with its dealer-specific state when changed. Preview actions modify real dealer data while the backend
+records the signed-in WaterFlex administrator in audit fields. Technicians and other roles do not receive the
+management route or an open-order queue.
 
 ## Setup
 
