@@ -28,6 +28,11 @@ export interface CreateWorkOrderInput {
   tankLocation: string;
 }
 
+export interface WorkOrderDealerOption {
+  externalId: string;
+  displayName: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -40,10 +45,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return await response.json() as T;
 }
 
-export const listWorkOrders = (signal?: AbortSignal) => request<WorkOrder[]>('/api/v1/work-orders', { signal });
-export const createWorkOrder = (input: CreateWorkOrderInput) =>
-  request<WorkOrder>('/api/v1/work-orders', { method: 'POST', body: JSON.stringify(input) });
-export const cancelWorkOrder = (order: WorkOrder, reason: string) =>
-  request<WorkOrder>(`/api/v1/work-orders/${order.id}/cancel`, {
+const scopedPath = (path: string, dealerExternalId?: string) => {
+  if (!dealerExternalId) return path;
+  return `${path}?${new URLSearchParams({ dealerExternalId })}`;
+};
+
+export const listWorkOrderDealers = (signal?: AbortSignal) =>
+  request<WorkOrderDealerOption[]>('/api/v1/ops/dealers', { signal });
+export const listWorkOrders = (dealerExternalId?: string, signal?: AbortSignal) =>
+  request<WorkOrder[]>(scopedPath('/api/v1/work-orders', dealerExternalId), { signal });
+export const createWorkOrder = (input: CreateWorkOrderInput, dealerExternalId?: string) =>
+  request<WorkOrder>(scopedPath('/api/v1/work-orders', dealerExternalId), { method: 'POST', body: JSON.stringify(input) });
+export const cancelWorkOrder = (order: WorkOrder, reason: string, dealerExternalId?: string) =>
+  request<WorkOrder>(scopedPath(`/api/v1/work-orders/${order.id}/cancel`, dealerExternalId), {
     method: 'POST', body: JSON.stringify({ reason, rowVersion: order.rowVersion }),
   });

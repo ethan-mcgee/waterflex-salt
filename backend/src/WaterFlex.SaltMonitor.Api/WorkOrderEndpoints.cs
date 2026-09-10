@@ -10,15 +10,16 @@ public static class WorkOrderEndpoints
         var group = endpoints.MapGroup("/api/v1/work-orders")
             .WithTags("Installation work orders")
             .RequireRateLimiting(RateLimitPolicies.Staff)
-            .RequireStaffRole(StaffRole.DealerAdministrator);
+            .RequireStaffCapability(StaffCapability.WorkOrderManagement);
 
         group.MapPost("/", async (
                 CreateInstallationWorkOrderRequest request,
+                string? dealerExternalId,
                 HttpContext context,
                 IInstallationWorkOrderService service,
                 CancellationToken cancellationToken) =>
             {
-                var result = await service.CreateAsync(request, context.GetStaffActor(), cancellationToken);
+                var result = await service.CreateAsync(request, context.GetStaffActor(), dealerExternalId, cancellationToken);
                 return result.IsSuccess
                     ? Results.Created($"/api/v1/work-orders/{result.WorkOrder!.Id}", result.WorkOrder)
                     : ToFailure(result);
@@ -28,21 +29,28 @@ public static class WorkOrderEndpoints
             .ProducesValidationProblem();
 
         group.MapGet("/", async (
-                HttpContext context,
-                IInstallationWorkOrderService service,
-                CancellationToken cancellationToken) =>
-            Results.Ok(await service.ListAsync(context.GetStaffActor(), cancellationToken)))
-            .WithName("ListInstallationWorkOrders")
-            .Produces<IReadOnlyList<InstallationWorkOrderManagementView>>();
-
-        group.MapPost("/{id:guid}/cancel", async (
-                Guid id,
-                CancelInstallationWorkOrderRequest request,
+                string? dealerExternalId,
                 HttpContext context,
                 IInstallationWorkOrderService service,
                 CancellationToken cancellationToken) =>
             {
-                var result = await service.CancelAsync(id, request, context.GetStaffActor(), cancellationToken);
+                var result = await service.ListAsync(context.GetStaffActor(), dealerExternalId, cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.WorkOrders) : ToFailure(result.Failure, result.ValidationErrors);
+            })
+            .WithName("ListInstallationWorkOrders")
+            .Produces<IReadOnlyList<InstallationWorkOrderManagementView>>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/cancel", async (
+                Guid id,
+                CancelInstallationWorkOrderRequest request,
+                string? dealerExternalId,
+                HttpContext context,
+                IInstallationWorkOrderService service,
+                CancellationToken cancellationToken) =>
+            {
+                var result = await service.CancelAsync(id, request, context.GetStaffActor(), dealerExternalId, cancellationToken);
                 return result.IsSuccess ? Results.Ok(result.WorkOrder) : ToFailure(result);
             })
             .WithName("CancelInstallationWorkOrder")
@@ -54,10 +62,15 @@ public static class WorkOrderEndpoints
         return endpoints;
     }
 
-    private static IResult ToFailure(InstallationWorkOrderResult result) => result.Failure switch
+    private static IResult ToFailure(InstallationWorkOrderResult result) =>
+        ToFailure(result.Failure, result.ValidationErrors);
+
+    private static IResult ToFailure(
+        InstallationWorkOrderFailure failure,
+        IReadOnlyList<ProvisioningValidationError> validationErrors) => failure switch
     {
         InstallationWorkOrderFailure.InvalidRequest => Results.ValidationProblem(
-            result.ValidationErrors.GroupBy(error => error.Field)
+            validationErrors.GroupBy(error => error.Field)
                 .ToDictionary(group => group.Key, group => group.Select(error => error.Message).ToArray())),
         InstallationWorkOrderFailure.NotFound => Results.Problem(
             statusCode: StatusCodes.Status404NotFound, title: "Installation work order not found"),

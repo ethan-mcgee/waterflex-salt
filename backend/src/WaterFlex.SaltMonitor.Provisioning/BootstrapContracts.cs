@@ -389,11 +389,24 @@ public sealed record InstallationWorkOrderResult(
         IReadOnlyList<ProvisioningValidationError>? errors = null) => new(null, failure, errors ?? []);
 }
 
+public sealed record InstallationWorkOrderListResult(
+    IReadOnlyList<InstallationWorkOrderManagementView> WorkOrders,
+    InstallationWorkOrderFailure Failure,
+    IReadOnlyList<ProvisioningValidationError> ValidationErrors)
+{
+    public bool IsSuccess => Failure == InstallationWorkOrderFailure.None;
+    public static InstallationWorkOrderListResult Success(IReadOnlyList<InstallationWorkOrderManagementView> workOrders) =>
+        new(workOrders, InstallationWorkOrderFailure.None, []);
+    public static InstallationWorkOrderListResult Failed(
+        InstallationWorkOrderFailure failure,
+        IReadOnlyList<ProvisioningValidationError>? errors = null) => new([], failure, errors ?? []);
+}
+
 public interface IInstallationWorkOrderService
 {
-    Task<InstallationWorkOrderResult> CreateAsync(CreateInstallationWorkOrderRequest request, StaffActor administrator, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<InstallationWorkOrderManagementView>> ListAsync(StaffActor administrator, CancellationToken cancellationToken = default);
-    Task<InstallationWorkOrderResult> CancelAsync(Guid id, CancelInstallationWorkOrderRequest request, StaffActor administrator, CancellationToken cancellationToken = default);
+    Task<InstallationWorkOrderResult> CreateAsync(CreateInstallationWorkOrderRequest request, StaffActor administrator, string? requestedDealerExternalId = null, CancellationToken cancellationToken = default);
+    Task<InstallationWorkOrderListResult> ListAsync(StaffActor administrator, string? requestedDealerExternalId = null, CancellationToken cancellationToken = default);
+    Task<InstallationWorkOrderResult> CancelAsync(Guid id, CancelInstallationWorkOrderRequest request, StaffActor administrator, string? requestedDealerExternalId = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Looks up dealer-sourced work orders eligible to be commissioned, scoped to the requesting dealer.</summary>

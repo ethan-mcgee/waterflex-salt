@@ -80,10 +80,12 @@ XML doc comments on public backend types are surfaced in the generated OpenAPI d
 
   A derived `RailStepId` renders the 5-item visual step rail from `(step, session)` — it is computed, not stored,
   so the rail always reflects whichever of the two tiers is currently driving the UI.
-- **Installation work orders** (`web/src/workOrders/WorkOrdersPage.tsx`): actual dealer-administrator identities
-  can create, list, and cancel orders owned by their dealer. Each order owns a dedicated customer, service
-  location, and tank target. The generated number is the only value shared with technicians. The preview-role
-  control does not grant this navigation item or its backend authorization.
+- **Installation work orders** (`web/src/workOrders/WorkOrdersPage.tsx`): dealer administrators can create, list,
+  and cancel orders owned by their assigned dealer. A WaterFlex administrator previewing the dealer-administrator
+  role can perform the same operations after explicitly selecting an active dealer on the page. The selection is
+  not persisted, the operations affect real dealer data, and audit fields retain the signed-in WaterFlex
+  administrator's identity. Each order owns a dedicated customer, service location, and tank target. The generated
+  number is the only value shared with technicians.
 
 ## Installation work-order lifecycle
 
@@ -93,7 +95,11 @@ commissioning session after first accepted telemetry, or become `Cancelled` afte
 reason and current row version. Customers, locations, tanks, sessions, and audit fields are retained after
 cancellation.
 
-The management API requires the exact `DealerAdministrator` role and scopes every query to the actor's dealer.
+The management API requires `WorkOrderManagement`, a capability granted only to dealer administrators and
+WaterFlex administrators. Dealer administrators are always scoped to their assigned dealer. WaterFlex
+administrators must supply an active `dealerExternalId` query scope for every list, create, and cancel request;
+the API never substitutes a dealer employee identity. A missing scope is a validation failure, an unknown or
+inactive dealer is not found, and an order outside the selected dealer uses the same generic not-found response.
 Technician lookup remains behind `TechnicianOperations` and returns the same generic not-found response for an
 unknown number, another dealer's number, or an order that is not open. Session reservation locks and revalidates
 the order, permits retry after a terminal session, and prevents a second live session. Administrator cancellation

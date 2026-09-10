@@ -152,7 +152,8 @@ Run from this folder:
 
   ## Work-order commissioning
 
-  Dealer administrators manage persistent installation work orders through:
+  Dealer administrators and WaterFlex administrators with the `WorkOrderManagement` capability manage persistent
+  installation work orders through:
 
     POST /api/v1/work-orders
     GET  /api/v1/work-orders
@@ -162,6 +163,11 @@ Run from this folder:
   service-location, and tank rows and returns a server-generated `WO-######` number. Cancellation requires a
   reason and the current optimistic row version. Completed, cancelled, stale, and actively commissioning orders
   return `409 Conflict`. Records and installation history are retained.
+
+  Dealer administrators omit `dealerExternalId` and are always scoped to their assigned dealer. WaterFlex
+  administrators must add `?dealerExternalId=<active-dealer-id>` to all three routes. Missing scope returns a
+  validation failure; unknown, inactive, and cross-dealer targets return not found. Creation and cancellation audit
+  fields always record the signed-in actor, so operational role preview never impersonates a dealer employee.
 
   A technician starts commissioning with the generated number:
 

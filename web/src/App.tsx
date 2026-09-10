@@ -46,7 +46,8 @@ export default function App() {
   const canProvision = effectiveRole === 'dealerTechnician' || effectiveRole === 'dealerAdministrator';
   const canManageStaff = effectiveRole === 'dealerAdministrator' || effectiveRole === 'waterFlexAdministrator';
   const canFactoryProvision = effectiveRole === 'factoryWorker' || effectiveRole === 'waterFlexAdministrator';
-  const canManageWorkOrders = currentUser?.role === 'dealerAdministrator';
+  const canManageWorkOrders = effectiveRole === 'dealerAdministrator';
+  const isWorkOrderAdministratorPreview = isAdmin && effectiveRole === 'dealerAdministrator';
   const home = canOperateFleet ? '/fleet' : canFactoryProvision ? '/factory/provision' : canProvision ? '/provision' : '/fleet';
   const section = location.pathname.startsWith('/factory') ? 'Factory provisioning' : location.pathname.startsWith('/provision') ? 'Sensor provisioning' : location.pathname.startsWith('/work-orders') ? 'Work orders' : location.pathname.startsWith('/staff') ? 'Staff administration' : 'Fleet operations';
 
@@ -103,7 +104,7 @@ export default function App() {
           <Route path="fleet/:deviceId" element={canOperateFleet ? <DeviceDetailPage /> : <Navigate to={home} replace />} />
           <Route path="alerts" element={canOperateFleet ? <AlertsPage /> : <Navigate to={home} replace />} />
           <Route path="provision" element={canProvision ? <ProvisioningWorkflow /> : <Navigate to={home} replace />} />
-          <Route path="work-orders" element={canManageWorkOrders ? <WorkOrdersPage /> : <Navigate to={home} replace />} />
+          <Route path="work-orders" element={canManageWorkOrders ? <WorkOrdersPage administratorPreview={isWorkOrderAdministratorPreview} /> : <Navigate to={home} replace />} />
           <Route path="factory/provision" element={canFactoryProvision ? <FactoryProvisioningPage /> : <Navigate to={home} replace />} />
           <Route path="staff" element={canManageStaff ? <StaffPage /> : <Navigate to={home} replace />} />
           <Route path="*" element={<Navigate to={home} replace />} />
