@@ -288,29 +288,31 @@ public sealed class BootstrapProvisioningServiceTests
     }
 
     [Fact]
-    public async Task WorkOrderSession_RequiresTankLocationWhenOrderDoesNotProvideOne()
+    public async Task WorkOrderSession_UsesPersistedTankLocation()
     {
         await using var database = await TestDatabase.CreateAsync();
         var timeProvider = new MutableTimeProvider(Now);
         await RegisterFactoryDeviceAsync(database.Context, timeProvider);
+        await SeedWorkOrderAsync(database.Context, timeProvider, "Baker Family Residence", "Primary softener");
         var service = CreateSessionService(database.Context, timeProvider);
 
         var result = await service.CreateFromWorkOrderAsync(
-            new("WO-82418", "WF-NANO-0001", null, 150m),
+            new("WO-000001", "WF-NANO-0001", null, 150m),
             NorthStarTechnician);
 
-        Assert.Equal(CommissioningSessionFailure.TankLocationRequired, result.Failure);
-        Assert.Contains(result.ValidationErrors, error => error.Field == nameof(CreateWorkOrderCommissioningSessionRequest.TankLocation));
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Primary softener", result.Session!.TankLabel);
     }
 
     [Fact]
     public async Task WorkOrderLookup_IsDealerScoped()
     {
         await using var database = await TestDatabase.CreateAsync();
+        await SeedWorkOrderAsync(database.Context, new MutableTimeProvider(Now), "North Ridge Apartments", "Primary softener");
         var service = CreateSessionService(database.Context, new MutableTimeProvider(Now));
 
-        var visible = await service.FindWorkOrderAsync("WO-82417", NorthStarTechnician);
-        var hidden = await service.FindWorkOrderAsync("WO-82417", LakesTechnician);
+        var visible = await service.FindWorkOrderAsync("WO-000001", NorthStarTechnician);
+        var hidden = await service.FindWorkOrderAsync("WO-000001", LakesTechnician);
 
         Assert.NotNull(visible);
         Assert.Equal("North Ridge Apartments", visible!.CustomerDisplayName);
@@ -379,8 +381,29 @@ public sealed class BootstrapProvisioningServiceTests
         new(
             context,
             new DevelopmentWaterFlexCustomerDirectory(),
-            new DevelopmentInstallationWorkOrderDirectory(),
+            new EfInstallationWorkOrderDirectory(context),
             timeProvider);
+
+    private static async Task SeedWorkOrderAsync(
+        SaltMonitorDbContext context,
+        TimeProvider timeProvider,
+        string customerName,
+        string tankLocation)
+    {
+        if (!await context.Dealers.AnyAsync(dealer => dealer.ExternalId == NorthStarTechnician.DealerExternalId))
+        {
+            context.Dealers.Add(new Dealer
+            {
+                Id = Guid.NewGuid(), ExternalId = NorthStarTechnician.DealerExternalId!,
+                DisplayName = NorthStarTechnician.DealerName!, IsActive = true
+            });
+            await context.SaveChangesAsync();
+        }
+        var service = new EfInstallationWorkOrderService(context, timeProvider);
+        var admin = NorthStarTechnician with { Role = StaffRole.DealerAdministrator };
+        var created = await service.CreateAsync(new(customerName, "Main residence", "7416 Meadow Run, Verona, WI 53593", tankLocation), admin);
+        Assert.True(created.IsSuccess);
+    }
 
     private static async Task RegisterFactoryDeviceAsync(
         SaltMonitorDbContext context,

@@ -219,15 +219,45 @@ public sealed class BootstrapProvisioningApiTests
         await using var factory = new BootstrapApiFactory();
         await factory.InitializeDatabaseAsync();
         using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-admin-taylor");
+        var created = await client.PostAsJsonAsync("/api/v1/work-orders", new
+        {
+            CustomerName = "Baker Family Residence",
+            LocationName = "Main residence",
+            Address = "7416 Meadow Run, Verona, WI 53593",
+            TankLocation = "Primary softener"
+        });
+        var order = await created.Content.ReadFromJsonAsync<InstallationWorkOrderManagementView>(JsonOptions);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        client.DefaultRequestHeaders.Clear();
         client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-jordan");
 
-        var response = await client.GetAsync("/api/v1/technician/installation-work-orders/WO-82418");
+        var response = await client.GetAsync($"/api/v1/technician/installation-work-orders/{order!.WorkOrderNumber}");
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("Baker Family Residence", body, StringComparison.Ordinal);
         Assert.DoesNotContain("waterFlexCustomerId", body, StringComparison.Ordinal);
         Assert.DoesNotContain("waterFlexAssetId", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TechnicianCannotUseWorkOrderManagementEndpoints()
+    {
+        await using var factory = new BootstrapApiFactory();
+        await factory.InitializeDatabaseAsync();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-WaterFlex-Development-User", "north-star-jordan");
+
+        var list = await client.GetAsync("/api/v1/work-orders");
+        var create = await client.PostAsJsonAsync("/api/v1/work-orders", new
+        {
+            CustomerName = "Customer", LocationName = "Home",
+            Address = "100 Main St", TankLocation = "Primary softener"
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, list.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, create.StatusCode);
     }
 
     private static JsonSerializerOptions CreateJsonOptions()
@@ -277,6 +307,15 @@ public sealed class BootstrapProvisioningApiTests
                     Id = stationId, DisplayName = "Test Station", PublicKey = Base64Url(raw),
                     Thumbprint = Convert.ToHexStringLower(SHA256.HashData(raw)), KeyProviderType = "software",
                     HelperVersion = "4.0.0", ProtocolVersion = "4", EnrolledAtUtc = DateTimeOffset.UtcNow
+                });
+                await context.SaveChangesAsync();
+            }
+            if (!await context.Dealers.AnyAsync(dealer => dealer.ExternalId == "WF-D-NORTH-STAR"))
+            {
+                context.Dealers.Add(new Dealer
+                {
+                    Id = Guid.NewGuid(), ExternalId = "WF-D-NORTH-STAR",
+                    DisplayName = "North Star Water Systems", IsActive = true
                 });
                 await context.SaveChangesAsync();
             }

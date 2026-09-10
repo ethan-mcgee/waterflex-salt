@@ -152,15 +152,26 @@ Run from this folder:
 
   ## Work-order commissioning
 
-  A technician can also start commissioning from a WaterFlex work order instead of hand-picking a customer,
-  location, and tank:
+  Dealer administrators manage persistent installation work orders through:
+
+    POST /api/v1/work-orders
+    GET  /api/v1/work-orders
+    POST /api/v1/work-orders/{id}/cancel
+
+  Creation requires customer name, location name, address, and tank location. It creates dedicated customer,
+  service-location, and tank rows and returns a server-generated `WO-######` number. Cancellation requires a
+  reason and the current optimistic row version. Completed, cancelled, stale, and actively commissioning orders
+  return `409 Conflict`. Records and installation history are retained.
+
+  A technician starts commissioning with the generated number:
 
     GET  /api/v1/technician/installation-work-orders/{workOrderNumber}
     POST /api/v1/technician/work-order-commissioning-sessions
 
-  Looking up a work order resolves its customer, location, and tank together; creating the session reserves a
-  factory-registered sensor against that resolved tank the same way `/api/v1/technician/commissioning-sessions`
-  does.
+  Lookup returns only open orders owned by the technician's dealer and uses one generic `404` for all ineligible
+  cases. Creating a session locks and revalidates the order, links the session to it, and rejects another live
+  session. Terminal failed, expired, or cancelled sessions do not close the order, so a technician can retry.
+  First accepted telemetry completes the session and order in the same database save.
 
   ## Internal operations API
 

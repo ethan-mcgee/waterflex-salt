@@ -363,6 +363,7 @@ app.MapPost("/api/v1/staff/activate", async (
 
 app.MapStaffAccessEndpoints();
 app.MapFactoryEndpoints();
+app.MapInstallationWorkOrderEndpoints();
 
 var technicianApi = app.MapGroup("/api/v1/technician")
 	.WithTags("Technician provisioning")

@@ -64,7 +64,7 @@ XML doc comments on public backend types are surfaced in the generated OpenAPI d
   current staff identity (Cloudflare Access in Development/Staging today; see `CloudflareAccessAuthentication.cs`
   on the backend) and exposes it via the `useDevelopmentIdentity` hook. `developmentIdentityHeaders()` is called
   by every API client below to attach the identity to outgoing requests.
-- **API client pattern**: `ops/api.ts`, `staff/api.ts`, and `provisioning/bootstrapApi.ts` each independently
+- **API client pattern**: `ops/api.ts`, `staff/api.ts`, `workOrders/api.ts`, and `provisioning/bootstrapApi.ts` each independently
   implement the same shape — a private `fetch` wrapper that injects `developmentIdentityHeaders()`, parses
   failures as RFC 7807 problem-details JSON (`title`/`detail`/`errors`) into a module-specific `Error` subclass,
   and returns typed JSON. `ops/api.ts` additionally retries once on a 5xx for the history/readings endpoints. This
@@ -80,6 +80,24 @@ XML doc comments on public backend types are surfaced in the generated OpenAPI d
 
   A derived `RailStepId` renders the 5-item visual step rail from `(step, session)` — it is computed, not stored,
   so the rail always reflects whichever of the two tiers is currently driving the UI.
+- **Installation work orders** (`web/src/workOrders/WorkOrdersPage.tsx`): actual dealer-administrator identities
+  can create, list, and cancel orders owned by their dealer. Each order owns a dedicated customer, service
+  location, and tank target. The generated number is the only value shared with technicians. The preview-role
+  control does not grant this navigation item or its backend authorization.
+
+## Installation work-order lifecycle
+
+`InstallationWorkOrders` is the persistent source for technician number lookup. PostgreSQL assigns a sequence
+value used to format the unique `WO-######` number. Orders begin `Open`, become `Completed` with their linked
+commissioning session after first accepted telemetry, or become `Cancelled` after an administrator supplies a
+reason and current row version. Customers, locations, tanks, sessions, and audit fields are retained after
+cancellation.
+
+The management API requires the exact `DealerAdministrator` role and scopes every query to the actor's dealer.
+Technician lookup remains behind `TechnicianOperations` and returns the same generic not-found response for an
+unknown number, another dealer's number, or an order that is not open. Session reservation locks and revalidates
+the order, permits retry after a terminal session, and prevents a second live session. Administrator cancellation
+also refuses an order with a live session.
 
 ## Firmware
 

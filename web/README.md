@@ -22,6 +22,12 @@ The default screen is the internal sensor fleet. The technician provisioning wor
 There is no USB or Web Serial step anywhere in this flow — serial number and tank depth are plain
 text/number fields, and no token or credential is ever shown to or handled by the technician.
 
+Actual dealer-administrator identities also receive a **Work Orders** navigation item at `/work-orders`. The
+screen creates a dedicated installation target, displays the generated number for technician handoff, lists the
+current dealer's orders newest first, and supports reason-required cancellation with optimistic concurrency.
+Technicians do not receive the management route or an open-order queue. Administrator role preview does not
+grant work-order management because API authorization always uses the signed-in identity.
+
 ## Setup
 
     npm install

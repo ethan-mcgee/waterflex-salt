@@ -329,7 +329,72 @@ public sealed record InstallationWorkOrder(
     string CustomerDisplayName,
     string LocationDisplayName,
     string AddressSummary,
-    string? TankLocation);
+    string? TankLocation)
+{
+    public Guid? Id { get; init; }
+}
+
+public enum WorkOrderStatus
+{
+    Open,
+    Completed,
+    Cancelled
+}
+
+public sealed record CreateInstallationWorkOrderRequest(
+    string CustomerName,
+    string LocationName,
+    string Address,
+    string TankLocation);
+
+public sealed record CancelInstallationWorkOrderRequest(string Reason, uint RowVersion);
+
+public sealed record InstallationWorkOrderManagementView(
+    Guid Id,
+    string WorkOrderNumber,
+    WorkOrderStatus Status,
+    string CustomerName,
+    string LocationName,
+    string Address,
+    string TankLocation,
+    string CreatedByActorId,
+    string CreatedBy,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? CompletedAtUtc,
+    string? CancelledByActorId,
+    string? CancelledBy,
+    DateTimeOffset? CancelledAtUtc,
+    string? CancellationReason,
+    uint RowVersion);
+
+public enum InstallationWorkOrderFailure
+{
+    None,
+    InvalidAdministrator,
+    InvalidRequest,
+    NotFound,
+    Conflict
+}
+
+public sealed record InstallationWorkOrderResult(
+    InstallationWorkOrderManagementView? WorkOrder,
+    InstallationWorkOrderFailure Failure,
+    IReadOnlyList<ProvisioningValidationError> ValidationErrors)
+{
+    public bool IsSuccess => Failure == InstallationWorkOrderFailure.None;
+    public static InstallationWorkOrderResult Success(InstallationWorkOrderManagementView workOrder) =>
+        new(workOrder, InstallationWorkOrderFailure.None, []);
+    public static InstallationWorkOrderResult Failed(
+        InstallationWorkOrderFailure failure,
+        IReadOnlyList<ProvisioningValidationError>? errors = null) => new(null, failure, errors ?? []);
+}
+
+public interface IInstallationWorkOrderService
+{
+    Task<InstallationWorkOrderResult> CreateAsync(CreateInstallationWorkOrderRequest request, StaffActor administrator, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<InstallationWorkOrderManagementView>> ListAsync(StaffActor administrator, CancellationToken cancellationToken = default);
+    Task<InstallationWorkOrderResult> CancelAsync(Guid id, CancelInstallationWorkOrderRequest request, StaffActor administrator, CancellationToken cancellationToken = default);
+}
 
 /// <summary>Looks up dealer-sourced work orders eligible to be commissioned, scoped to the requesting dealer.</summary>
 public interface IInstallationWorkOrderDirectory
