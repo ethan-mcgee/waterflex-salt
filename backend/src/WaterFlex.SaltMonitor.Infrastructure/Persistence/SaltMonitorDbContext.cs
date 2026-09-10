@@ -19,6 +19,7 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
     public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
     public DbSet<ServiceLocation> ServiceLocations => Set<ServiceLocation>();
     public DbSet<Tank> Tanks => Set<Tank>();
+    public DbSet<InstallationWorkOrderRecord> InstallationWorkOrders => Set<InstallationWorkOrderRecord>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<FactoryProvisioningJob> FactoryProvisioningJobs => Set<FactoryProvisioningJob>();
     public DbSet<DeviceBootstrapCredential> DeviceBootstrapCredentials => Set<DeviceBootstrapCredential>();
@@ -153,6 +154,32 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
                 .WithMany(location => location.Tanks)
                 .HasForeignKey(tank => tank.ServiceLocationId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.HasSequence<long>("InstallationWorkOrderNumberSequence")
+            .StartsAt(1)
+            .IncrementsBy(1);
+
+        modelBuilder.Entity<InstallationWorkOrderRecord>(entity =>
+        {
+            entity.ToTable("InstallationWorkOrders");
+            entity.HasKey(order => order.Id);
+            entity.Property(order => order.NumberSequence)
+                .HasDefaultValueSql("nextval('\"InstallationWorkOrderNumberSequence\"')");
+            entity.Property(order => order.WorkOrderNumber).HasMaxLength(9);
+            entity.Property(order => order.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(order => order.CreatedByActorId).HasMaxLength(128);
+            entity.Property(order => order.CreatedByDisplayName).HasMaxLength(200);
+            entity.Property(order => order.CancelledByActorId).HasMaxLength(128);
+            entity.Property(order => order.CancelledByDisplayName).HasMaxLength(200);
+            entity.Property(order => order.CancellationReason).HasMaxLength(1000);
+            entity.Property(order => order.RowVersion).IsRowVersion();
+            entity.HasIndex(order => order.WorkOrderNumber).IsUnique();
+            entity.HasIndex(order => new { order.DealerId, order.CreatedAtUtc });
+            entity.HasOne(order => order.Dealer).WithMany().HasForeignKey(order => order.DealerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(order => order.CustomerAccount).WithMany().HasForeignKey(order => order.CustomerAccountId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(order => order.ServiceLocation).WithMany().HasForeignKey(order => order.ServiceLocationId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(order => order.Tank).WithMany().HasForeignKey(order => order.TankId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Device>(entity =>
@@ -340,6 +367,9 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
                 .IsUnique()
                 .HasFilter("\"Status\" IN ('PendingSensor', 'ActivatedAwaitingHealth', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => new { session.Status, session.ExpiresAtUtc });
+            entity.HasIndex(session => session.InstallationWorkOrderId)
+                .IsUnique()
+                .HasFilter("\"InstallationWorkOrderId\" IS NOT NULL AND \"Status\" IN ('PendingSensor', 'ActivatedAwaitingHealth', 'AwaitingFirstTelemetry')");
             entity.HasIndex(session => session.ActivationAttemptId)
                 .IsUnique()
                 .HasFilter("\"ActivationAttemptId\" IS NOT NULL");
@@ -358,6 +388,10 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.HasOne(session => session.ProvisionalCredential)
                 .WithMany()
                 .HasForeignKey(session => session.ProvisionalCredentialId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(session => session.InstallationWorkOrder)
+                .WithMany(order => order.CommissioningSessions)
+                .HasForeignKey(session => session.InstallationWorkOrderId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

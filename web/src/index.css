@@ -3224,3 +3224,20 @@ p {
     transition-duration: 0.01ms !important;
   }
 }
+
+.inline-alert.success {
+  color: var(--success);
+  background: var(--success-wash);
+  border-color: var(--success);
+}
+
+.work-orders-table .table-secondary {
+  display: block;
+  max-width: 420px;
+  margin-top: 3px;
+  white-space: normal;
+}
+
+.reporting-badge.work-order-open { color: var(--brand-dark); background: var(--brand-wash); }
+.reporting-badge.work-order-completed { color: var(--success); background: var(--success-wash); }
+.reporting-badge.work-order-cancelled { color: var(--muted); background: var(--surface-soft); }

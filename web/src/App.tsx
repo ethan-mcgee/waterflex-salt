@@ -1,4 +1,4 @@
-import { AlertTriangle, CircuitBoard, Droplets, Eye, ExternalLink, Gauge, LogOut, RadioTower, Users } from 'lucide-react';
+import { AlertTriangle, CircuitBoard, ClipboardList, Droplets, Eye, ExternalLink, Gauge, LogOut, RadioTower, Users } from 'lucide-react';
 import { useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { DevelopmentIdentitySelector, useDevelopmentIdentity } from './development/DevelopmentIdentity';
@@ -10,6 +10,7 @@ import AlertsPage from './ops/AlertsPage';
 import ProvisioningWorkflow from './provisioning/ProvisioningWorkflow';
 import StaffPage from './staff/StaffPage';
 import FactoryProvisioningPage from './factory/FactoryProvisioningPage';
+import WorkOrdersPage from './workOrders/WorkOrdersPage';
 
 const VIEW_AS_STORAGE_KEY = 'waterflex-view-as-role';
 const VIEW_AS_OPTIONS: { value: string; label: string }[] = [
@@ -45,8 +46,9 @@ export default function App() {
   const canProvision = effectiveRole === 'dealerTechnician' || effectiveRole === 'dealerAdministrator';
   const canManageStaff = effectiveRole === 'dealerAdministrator' || effectiveRole === 'waterFlexAdministrator';
   const canFactoryProvision = effectiveRole === 'factoryWorker' || effectiveRole === 'waterFlexAdministrator';
+  const canManageWorkOrders = currentUser?.role === 'dealerAdministrator';
   const home = canOperateFleet ? '/fleet' : canFactoryProvision ? '/factory/provision' : canProvision ? '/provision' : '/fleet';
-  const section = location.pathname.startsWith('/factory') ? 'Factory provisioning' : location.pathname.startsWith('/provision') ? 'Sensor provisioning' : location.pathname.startsWith('/staff') ? 'Staff administration' : 'Fleet operations';
+  const section = location.pathname.startsWith('/factory') ? 'Factory provisioning' : location.pathname.startsWith('/provision') ? 'Sensor provisioning' : location.pathname.startsWith('/work-orders') ? 'Work orders' : location.pathname.startsWith('/staff') ? 'Staff administration' : 'Fleet operations';
 
   return (
     <div className="app-shell">
@@ -59,6 +61,7 @@ export default function App() {
           {canOperateFleet && <NavLink to="/fleet"><Gauge size={16} /> Fleet</NavLink>}
           {canOperateFleet && <NavLink to="/alerts"><AlertTriangle size={16} /> Alerts</NavLink>}
           {canProvision && <NavLink to="/provision"><RadioTower size={16} /> Provision</NavLink>}
+          {canManageWorkOrders && <NavLink to="/work-orders"><ClipboardList size={16} /> Work Orders</NavLink>}
           {canFactoryProvision && <NavLink to="/factory/provision"><CircuitBoard size={16} /> Factory</NavLink>}
           {canManageStaff && <NavLink to="/staff"><Users size={16} /> Staff</NavLink>}
         </nav>
@@ -100,6 +103,7 @@ export default function App() {
           <Route path="fleet/:deviceId" element={canOperateFleet ? <DeviceDetailPage /> : <Navigate to={home} replace />} />
           <Route path="alerts" element={canOperateFleet ? <AlertsPage /> : <Navigate to={home} replace />} />
           <Route path="provision" element={canProvision ? <ProvisioningWorkflow /> : <Navigate to={home} replace />} />
+          <Route path="work-orders" element={canManageWorkOrders ? <WorkOrdersPage /> : <Navigate to={home} replace />} />
           <Route path="factory/provision" element={canFactoryProvision ? <FactoryProvisioningPage /> : <Navigate to={home} replace />} />
           <Route path="staff" element={canManageStaff ? <StaffPage /> : <Navigate to={home} replace />} />
           <Route path="*" element={<Navigate to={home} replace />} />

@@ -64,6 +64,32 @@ public sealed class Tank
     public ICollection<DeviceInstallation> Installations { get; set; } = [];
 }
 
+public sealed class InstallationWorkOrderRecord
+{
+    public Guid Id { get; set; }
+    public long NumberSequence { get; set; }
+    public required string WorkOrderNumber { get; set; }
+    public Guid DealerId { get; set; }
+    public Guid CustomerAccountId { get; set; }
+    public Guid ServiceLocationId { get; set; }
+    public Guid TankId { get; set; }
+    public WorkOrderStatus Status { get; set; }
+    public required string CreatedByActorId { get; set; }
+    public required string CreatedByDisplayName { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? CompletedAtUtc { get; set; }
+    public string? CancelledByActorId { get; set; }
+    public string? CancelledByDisplayName { get; set; }
+    public DateTimeOffset? CancelledAtUtc { get; set; }
+    public string? CancellationReason { get; set; }
+    public uint RowVersion { get; set; }
+    public Dealer Dealer { get; set; } = null!;
+    public CustomerAccount CustomerAccount { get; set; } = null!;
+    public ServiceLocation ServiceLocation { get; set; } = null!;
+    public Tank Tank { get; set; } = null!;
+    public ICollection<CommissioningSession> CommissioningSessions { get; set; } = [];
+}
+
 /// <summary>
 /// A physical sensor unit, identified by its canonical serial number and tracked across its
 /// entire lifecycle independent of any particular tank installation. Health-reporting fields
@@ -322,6 +348,7 @@ public sealed class CommissioningSession
     public Guid DealerId { get; set; }
     public Guid TankId { get; set; }
     public Guid? ProvisionalCredentialId { get; set; }
+    public Guid? InstallationWorkOrderId { get; set; }
     public CommissioningSessionStatus Status { get; set; }
     public int TankDepthMm { get; set; }
     public string? WaterFlexWorkOrderId { get; set; }
@@ -339,6 +366,7 @@ public sealed class CommissioningSession
     public Dealer Dealer { get; set; } = null!;
     public Tank Tank { get; set; } = null!;
     public DeviceCredential? ProvisionalCredential { get; set; }
+    public InstallationWorkOrderRecord? InstallationWorkOrder { get; set; }
     public ICollection<ProvisioningAuditEvent> AuditEvents { get; set; } = [];
 }
 

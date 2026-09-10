@@ -35,7 +35,7 @@ export default function WorkOrderStep({
               onLookup();
             }
           }}
-          placeholder="WO-82417"
+          placeholder="WO-000123"
           autoFocus
         />
         {loading

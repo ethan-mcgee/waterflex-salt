@@ -212,6 +212,7 @@ public sealed class EfTelemetryIngestionService(
         {
             var commissioningSession = await dbContext.CommissioningSessions
                 .Include(session => session.AuditEvents)
+                .Include(session => session.InstallationWorkOrder)
                 .SingleOrDefaultAsync(
                     session => session.DeviceId == deviceId
                         && session.Status == CommissioningSessionStatus.AwaitingFirstTelemetry,
@@ -220,6 +221,11 @@ public sealed class EfTelemetryIngestionService(
             {
                 commissioningSession.Status = CommissioningSessionStatus.Completed;
                 commissioningSession.CompletedAtUtc = serverTime;
+                if (commissioningSession.InstallationWorkOrder is { Status: WorkOrderStatus.Open } workOrder)
+                {
+                    workOrder.Status = WorkOrderStatus.Completed;
+                    workOrder.CompletedAtUtc = serverTime;
+                }
                 commissioningSession.AuditEvents.Add(new()
                 {
                     DeviceId = deviceId,

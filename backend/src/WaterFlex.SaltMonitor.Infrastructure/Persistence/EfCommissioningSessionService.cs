@@ -104,6 +104,7 @@ public sealed class EfCommissioningSessionService(
                 tankLocation,
                 null),
             technician,
+            workOrder.Id,
             cancellationToken);
     }
 
@@ -137,13 +138,14 @@ public sealed class EfCommissioningSessionService(
                 CommissioningSessionFailure.DirectorySelectionNotFound);
         }
 
-        return await CreateWithSelectionAsync(normalized, selection, technician, cancellationToken);
+        return await CreateWithSelectionAsync(normalized, selection, technician, null, cancellationToken);
     }
 
     private async Task<CommissioningSessionResult> CreateWithSelectionAsync(
         CreateCommissioningSessionRequest request,
         WaterFlexCommissioningSelection selection,
         StaffActor technician,
+        Guid? installationWorkOrderId,
         CancellationToken cancellationToken)
     {
         var strategy = dbContext.Database.CreateExecutionStrategy();
@@ -153,6 +155,7 @@ public sealed class EfCommissioningSessionService(
                 request,
                 selection,
                 technician,
+                installationWorkOrderId,
                 cancellationToken));
         }
         catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
@@ -246,12 +249,39 @@ public sealed class EfCommissioningSessionService(
         CreateCommissioningSessionRequest request,
         WaterFlexCommissioningSelection selection,
         StaffActor technician,
+        Guid? installationWorkOrderId,
         CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
             cancellationToken);
         var now = timeProvider.GetUtcNow();
+        InstallationWorkOrderRecord? installationWorkOrder = null;
+        if (installationWorkOrderId is Guid orderId)
+        {
+            var lockedOrders = await dbContext.InstallationWorkOrders
+                .FromSqlInterpolated($"SELECT *, xmin AS \"xmin\" FROM \"InstallationWorkOrders\" WHERE \"Id\" = {orderId} FOR UPDATE")
+                .ToListAsync(cancellationToken);
+            installationWorkOrder = lockedOrders.SingleOrDefault();
+            if (installationWorkOrder is null
+                || installationWorkOrder.Status != WorkOrderStatus.Open)
+            {
+                return CommissioningSessionResult.Failed(CommissioningSessionFailure.WorkOrderNotFound);
+            }
+            var ownsOrder = await dbContext.Dealers.AnyAsync(
+                dealer => dealer.Id == installationWorkOrder.DealerId
+                    && dealer.ExternalId == technician.DealerExternalId,
+                cancellationToken);
+            if (!ownsOrder) return CommissioningSessionResult.Failed(CommissioningSessionFailure.WorkOrderNotFound);
+            if (await dbContext.CommissioningSessions.AnyAsync(session =>
+                session.InstallationWorkOrderId == orderId
+                && LiveStatuses.Contains(session.Status)
+                && session.ExpiresAtUtc > now,
+                cancellationToken))
+            {
+                return CommissioningSessionResult.Failed(CommissioningSessionFailure.Conflict);
+            }
+        }
         var device = await dbContext.Devices
             .Include(candidate => candidate.BootstrapCredentials)
             .SingleOrDefaultAsync(
@@ -310,6 +340,7 @@ public sealed class EfCommissioningSessionService(
             DeviceId = device.Id,
             DealerId = dealer.Id,
             TankId = tank.Id,
+            InstallationWorkOrderId = installationWorkOrder?.Id,
             Status = CommissioningSessionStatus.PendingSensor,
             TankDepthMm = CentimetersToMillimeters(request.TankDepthCm),
             WaterFlexWorkOrderId = request.WaterFlexWorkOrderId,
@@ -319,7 +350,8 @@ public sealed class EfCommissioningSessionService(
             ExpiresAtUtc = now.Add(SessionLifetime),
             Device = device,
             Dealer = dealer,
-            Tank = tank
+            Tank = tank,
+            InstallationWorkOrder = installationWorkOrder
         };
         session.AuditEvents.Add(CreateAudit(
             session,

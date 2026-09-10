@@ -60,7 +60,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IDeliveryTicketGateway, StubDeliveryTicketGateway>();
         services.AddSingleton<IDevelopmentIdentityDirectory, DevelopmentIdentityDirectory>();
         services.AddSingleton<IWaterFlexCustomerDirectory, DevelopmentWaterFlexCustomerDirectory>();
-        services.AddSingleton<IInstallationWorkOrderDirectory, DevelopmentInstallationWorkOrderDirectory>();
+        services.AddScoped<IInstallationWorkOrderDirectory, EfInstallationWorkOrderDirectory>();
+        services.AddScoped<IInstallationWorkOrderService, EfInstallationWorkOrderService>();
         services.AddScoped<IDeviceTokenValidator, DeviceTokenValidator>();
         services.AddScoped<IDeviceCredentialUsageRecorder, DeviceCredentialUsageRecorder>();
         services.AddScoped<ITelemetryIngestionService, EfTelemetryIngestionService>();
