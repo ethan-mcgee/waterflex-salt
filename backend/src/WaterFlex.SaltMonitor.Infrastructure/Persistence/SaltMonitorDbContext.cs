@@ -127,6 +127,8 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(customer => customer.WaterFlexCustomerId).HasMaxLength(128);
             entity.Property(customer => customer.AccountNumber).HasMaxLength(64);
             entity.Property(customer => customer.DisplayName).HasMaxLength(200);
+            entity.Property(customer => customer.FirstName).HasMaxLength(100);
+            entity.Property(customer => customer.LastName).HasMaxLength(100);
             entity.HasIndex(customer => customer.WaterFlexCustomerId).IsUnique();
         });
 
@@ -137,6 +139,11 @@ public sealed class SaltMonitorDbContext(DbContextOptions<SaltMonitorDbContext> 
             entity.Property(location => location.WaterFlexLocationId).HasMaxLength(128);
             entity.Property(location => location.DisplayName).HasMaxLength(200);
             entity.Property(location => location.AddressSummary).HasMaxLength(500);
+            entity.Property(location => location.StreetAddress).HasMaxLength(200);
+            entity.Property(location => location.AddressLine2).HasMaxLength(100);
+            entity.Property(location => location.City).HasMaxLength(100);
+            entity.Property(location => location.State).HasMaxLength(2);
+            entity.Property(location => location.ZipCode).HasMaxLength(10);
             entity.HasIndex(location => new { location.CustomerAccountId, location.WaterFlexLocationId }).IsUnique();
             entity.HasOne(location => location.CustomerAccount)
                 .WithMany(customer => customer.ServiceLocations)

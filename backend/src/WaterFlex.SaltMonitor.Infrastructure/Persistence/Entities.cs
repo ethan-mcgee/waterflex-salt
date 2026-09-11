@@ -32,6 +32,8 @@ public sealed class CustomerAccount
     public required string WaterFlexCustomerId { get; set; }
     public string? AccountNumber { get; set; }
     public required string DisplayName { get; set; }
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
     public bool IsActive { get; set; }
     public DateTimeOffset LastSyncedAtUtc { get; set; }
     public ICollection<ServiceLocation> ServiceLocations { get; set; } = [];
@@ -43,8 +45,13 @@ public sealed class ServiceLocation
     public Guid Id { get; set; }
     public Guid CustomerAccountId { get; set; }
     public required string WaterFlexLocationId { get; set; }
-    public required string DisplayName { get; set; }
+    public string? DisplayName { get; set; }
     public string? AddressSummary { get; set; }
+    public string? StreetAddress { get; set; }
+    public string? AddressLine2 { get; set; }
+    public string? City { get; set; }
+    public string? State { get; set; }
+    public string? ZipCode { get; set; }
     public bool IsActive { get; set; }
     public DateTimeOffset LastSyncedAtUtc { get; set; }
     public CustomerAccount CustomerAccount { get; set; } = null!;
@@ -57,7 +64,7 @@ public sealed class Tank
     public Guid Id { get; set; }
     public Guid ServiceLocationId { get; set; }
     public string? WaterFlexAssetId { get; set; }
-    public required string Label { get; set; }
+    public string? Label { get; set; }
     public int? CapacityPounds { get; set; }
     public bool IsActive { get; set; }
     public ServiceLocation ServiceLocation { get; set; } = null!;

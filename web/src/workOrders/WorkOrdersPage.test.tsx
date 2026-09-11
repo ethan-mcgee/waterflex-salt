@@ -18,6 +18,8 @@ const order = {
   id: '11111111-1111-1111-1111-111111111111', workOrderNumber: 'WO-000123', status: 'open',
   customerName: 'Baker Family', locationName: 'Main residence', address: '100 Main St',
   tankLocation: 'Primary softener', createdBy: 'Taylor Brooks', createdAtUtc: '2026-09-10T15:00:00Z',
+  firstName: 'Baker', lastName: 'Family', streetAddress: '100 Main St', addressLine2: null,
+  city: 'Madison', state: 'WI', zipCode: '53703',
   createdByActorId: 'north-star-admin', completedAtUtc: null, cancelledByActorId: null,
   cancelledBy: null, cancelledAtUtc: null, cancellationReason: null, rowVersion: 7,
 };
@@ -34,14 +36,15 @@ describe('WorkOrdersPage', () => {
     render(<WorkOrdersPage />);
     expect(await screen.findByText('WO-000123')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Baker Family' } });
-    fireEvent.change(screen.getByLabelText('Location name'), { target: { value: 'Main residence' } });
-    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '100 Main St' } });
-    fireEvent.change(screen.getByLabelText(/^Tank location/), { target: { value: 'Primary softener' } });
+    fillRequiredForm();
     fireEvent.click(screen.getByRole('button', { name: /create work order/i }));
 
     expect(await screen.findByText(/Work order created:/)).toHaveTextContent('WO-000123');
     expect(vi.mocked(fetch).mock.calls[1][0]).toBe('/api/v1/work-orders');
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body))).toEqual({
+      firstName: 'Baker', lastName: 'Family', locationName: '', streetAddress: '100 Main St',
+      addressLine2: '', city: 'Madison', state: 'WI', zipCode: '53703',
+    });
   });
 
   it('requires a cancellation reason and sends the row version', async () => {
@@ -82,10 +85,7 @@ describe('WorkOrdersPage', () => {
     fireEvent.change(screen.getByLabelText('Active dealer'), { target: { value: 'WF-D-LAKES-WATER' } });
     expect(await screen.findByText('WO-000123')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Baker Family' } });
-    fireEvent.change(screen.getByLabelText('Location name'), { target: { value: 'Main residence' } });
-    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '100 Main St' } });
-    fireEvent.change(screen.getByLabelText(/^Tank location/), { target: { value: 'Primary softener' } });
+    fillRequiredForm();
     fireEvent.click(screen.getByRole('button', { name: /create work order/i }));
     await screen.findByText(/Work order created:/);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -133,7 +133,29 @@ describe('WorkOrdersPage', () => {
     expect(screen.queryByLabelText('Active dealer')).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/v1/work-orders');
   });
+
+  it('requires structured fields and renders optional labels without empty separators', async () => {
+    const unlabeled = { ...order, locationName: null, tankLocation: null, address: '100 Main St, Madison, WI 53703' };
+    vi.mocked(fetch).mockResolvedValueOnce(json([unlabeled]));
+    render(<WorkOrdersPage />);
+
+    expect(await screen.findByText('Set by technician')).toBeInTheDocument();
+    expect(screen.getByText('100 Main St, Madison, WI 53703')).toBeInTheDocument();
+    expect(screen.queryByText(/^[·]/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /create work order/i }));
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText(/^Tank location/)).not.toBeInTheDocument();
+  });
 });
+
+function fillRequiredForm() {
+  fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'Baker' } });
+  fireEvent.change(screen.getByLabelText('Last name'), { target: { value: 'Family' } });
+  fireEvent.change(screen.getByLabelText('Street address'), { target: { value: '100 Main St' } });
+  fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Madison' } });
+  fireEvent.change(screen.getByLabelText('State'), { target: { value: 'WI' } });
+  fireEvent.change(screen.getByLabelText('ZIP code'), { target: { value: '53703' } });
+}
 
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });

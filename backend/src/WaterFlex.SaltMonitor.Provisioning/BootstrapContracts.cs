@@ -315,7 +315,7 @@ public interface IDeviceBootstrapActivationService
 public sealed record InstallationWorkOrderView(
     string WorkOrderNumber,
     string CustomerDisplayName,
-    string LocationDisplayName,
+    string? LocationDisplayName,
     string AddressSummary,
     string? TankLocation);
 
@@ -327,7 +327,7 @@ public sealed record InstallationWorkOrder(
     string WaterFlexLocationId,
     string WaterFlexAssetId,
     string CustomerDisplayName,
-    string LocationDisplayName,
+    string? LocationDisplayName,
     string AddressSummary,
     string? TankLocation)
 {
@@ -342,10 +342,14 @@ public enum WorkOrderStatus
 }
 
 public sealed record CreateInstallationWorkOrderRequest(
-    string CustomerName,
-    string LocationName,
-    string Address,
-    string TankLocation);
+    string FirstName,
+    string LastName,
+    string StreetAddress,
+    string City,
+    string State,
+    string ZipCode,
+    string? LocationName,
+    string? AddressLine2);
 
 public sealed record CancelInstallationWorkOrderRequest(string Reason, uint RowVersion);
 
@@ -354,9 +358,16 @@ public sealed record InstallationWorkOrderManagementView(
     string WorkOrderNumber,
     WorkOrderStatus Status,
     string CustomerName,
-    string LocationName,
+    string? LocationName,
     string Address,
-    string TankLocation,
+    string? TankLocation,
+    string? FirstName,
+    string? LastName,
+    string? StreetAddress,
+    string? AddressLine2,
+    string? City,
+    string? State,
+    string? ZipCode,
     string CreatedByActorId,
     string CreatedBy,
     DateTimeOffset CreatedAtUtc,

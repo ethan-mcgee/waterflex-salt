@@ -63,7 +63,7 @@ export default function WorkOrderStep({
           <div className="selection-row selected">
             <span className="selection-symbol"><Building2 size={20} /></span>
             <span className="selection-copy">
-              <strong>{workOrder.customerDisplayName} — {workOrder.locationDisplayName}</strong>
+              <strong>{[workOrder.customerDisplayName, workOrder.locationDisplayName].filter(Boolean).join(' · ')}</strong>
               <small>
                 {workOrder.addressSummary}
                 {workOrder.tankLocation ? ` · ${workOrder.tankLocation}` : ''}

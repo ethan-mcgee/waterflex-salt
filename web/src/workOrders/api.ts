@@ -7,9 +7,16 @@ export interface WorkOrder {
   workOrderNumber: string;
   status: WorkOrderStatus;
   customerName: string;
-  locationName: string;
+  locationName: string | null;
   address: string;
-  tankLocation: string;
+  tankLocation: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  streetAddress: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
   createdByActorId: string;
   createdBy: string;
   createdAtUtc: string;
@@ -22,10 +29,14 @@ export interface WorkOrder {
 }
 
 export interface CreateWorkOrderInput {
-  customerName: string;
-  locationName: string;
-  address: string;
-  tankLocation: string;
+  firstName: string;
+  lastName: string;
+  streetAddress: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  locationName?: string;
+  addressLine2?: string;
 }
 
 export interface WorkOrderDealerOption {

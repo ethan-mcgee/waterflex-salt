@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using WaterFlex.SaltMonitor.Domain.Security;
 using WaterFlex.SaltMonitor.Provisioning;
@@ -37,7 +38,7 @@ public sealed class EfInstallationWorkOrderDirectory(SaltMonitorDbContext dbCont
             order.Tank.WaterFlexAssetId!,
             order.CustomerAccount.DisplayName,
             order.ServiceLocation.DisplayName,
-            order.ServiceLocation.AddressSummary!,
+            order.ServiceLocation.AddressSummary ?? string.Empty,
             order.Tank.Label)
         { Id = order.Id };
 }
@@ -46,6 +47,15 @@ public sealed class EfInstallationWorkOrderService(
     SaltMonitorDbContext dbContext,
     TimeProvider timeProvider) : IInstallationWorkOrderService
 {
+    private static readonly HashSet<string> UsStateCodes = new(StringComparer.Ordinal)
+    {
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+        "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+        "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"
+    };
+    private static readonly Regex ZipCodePattern = new("^[0-9]{5}(-[0-9]{4})?$", RegexOptions.CultureInvariant);
     private static readonly CommissioningSessionStatus[] LiveSessionStatuses =
     [
         CommissioningSessionStatus.PendingSensor,
@@ -62,15 +72,30 @@ public sealed class EfInstallationWorkOrderService(
         var scope = await ResolveDealerAsync(administrator, requestedDealerExternalId, cancellationToken);
         if (!scope.IsSuccess) return InstallationWorkOrderResult.Failed(scope.Failure, scope.ValidationErrors);
 
-        var customerName = request.CustomerName?.Trim() ?? string.Empty;
-        var locationName = request.LocationName?.Trim() ?? string.Empty;
-        var address = request.Address?.Trim() ?? string.Empty;
-        var tankLocation = request.TankLocation?.Trim() ?? string.Empty;
+        var firstName = request.FirstName?.Trim() ?? string.Empty;
+        var lastName = request.LastName?.Trim() ?? string.Empty;
+        var locationName = NullIfWhiteSpace(request.LocationName);
+        var streetAddress = request.StreetAddress?.Trim() ?? string.Empty;
+        var addressLine2 = NullIfWhiteSpace(request.AddressLine2);
+        var city = request.City?.Trim() ?? string.Empty;
+        var state = request.State?.Trim().ToUpperInvariant() ?? string.Empty;
+        var zipCode = request.ZipCode?.Trim() ?? string.Empty;
         var errors = new List<ProvisioningValidationError>();
-        AddRequiredError(errors, nameof(request.CustomerName), customerName);
-        AddRequiredError(errors, nameof(request.LocationName), locationName);
-        AddRequiredError(errors, nameof(request.Address), address);
-        AddRequiredError(errors, nameof(request.TankLocation), tankLocation);
+        ValidateRequired(errors, nameof(request.FirstName), firstName, 100);
+        ValidateRequired(errors, nameof(request.LastName), lastName, 100);
+        ValidateRequired(errors, nameof(request.StreetAddress), streetAddress, 200);
+        ValidateRequired(errors, nameof(request.City), city, 100);
+        ValidateRequired(errors, nameof(request.State), state, 2);
+        ValidateRequired(errors, nameof(request.ZipCode), zipCode, 10);
+        ValidateOptional(errors, nameof(request.LocationName), locationName, 200);
+        ValidateOptional(errors, nameof(request.AddressLine2), addressLine2, 100);
+        var customerName = $"{firstName} {lastName}";
+        if (customerName.Length > 200)
+            errors.Add(new(nameof(request.LastName), "Combined customer name cannot exceed 200 characters."));
+        if (state.Length > 0 && !UsStateCodes.Contains(state))
+            errors.Add(new(nameof(request.State), "State must be a two-letter code for a US state or DC."));
+        if (zipCode.Length > 0 && !ZipCodePattern.IsMatch(zipCode))
+            errors.Add(new(nameof(request.ZipCode), "ZIP code must contain 5 digits or use ZIP+4 format."));
         if (errors.Count > 0)
         {
             return InstallationWorkOrderResult.Failed(InstallationWorkOrderFailure.InvalidRequest, errors);
@@ -84,21 +109,25 @@ public sealed class EfInstallationWorkOrderService(
             .SingleAsync(cancellationToken);
         var now = timeProvider.GetUtcNow();
         var targetKey = Guid.NewGuid().ToString("N");
+        var address = ComposeAddress(streetAddress, addressLine2, city, state, zipCode);
         var customer = new CustomerAccount
         {
             Id = Guid.NewGuid(), WaterFlexCustomerId = $"WO-C-{targetKey}", DisplayName = customerName,
+            FirstName = firstName, LastName = lastName,
             IsActive = true, LastSyncedAtUtc = now
         };
         var location = new ServiceLocation
         {
             Id = Guid.NewGuid(), CustomerAccountId = customer.Id, WaterFlexLocationId = $"WO-L-{targetKey}",
-            DisplayName = locationName, AddressSummary = address, IsActive = true, LastSyncedAtUtc = now,
+            DisplayName = locationName, AddressSummary = address, StreetAddress = streetAddress,
+            AddressLine2 = addressLine2, City = city, State = state, ZipCode = zipCode,
+            IsActive = true, LastSyncedAtUtc = now,
             CustomerAccount = customer
         };
         var tank = new Tank
         {
             Id = Guid.NewGuid(), ServiceLocationId = location.Id, WaterFlexAssetId = $"WO-A-{targetKey}",
-            Label = tankLocation, IsActive = true, ServiceLocation = location
+            Label = null, IsActive = true, ServiceLocation = location
         };
         var order = new InstallationWorkOrderRecord
         {
@@ -229,14 +258,29 @@ public sealed class EfInstallationWorkOrderService(
             IReadOnlyList<ProvisioningValidationError>? errors = null) => new(null, failure, errors ?? []);
     }
 
-    private static void AddRequiredError(List<ProvisioningValidationError> errors, string field, string value)
+    private static void ValidateRequired(List<ProvisioningValidationError> errors, string field, string value, int maximumLength)
     {
         if (value.Length == 0) errors.Add(new(field, $"{field} is required."));
+        else if (value.Length > maximumLength) errors.Add(new(field, $"{field} cannot exceed {maximumLength} characters."));
     }
+
+    private static void ValidateOptional(List<ProvisioningValidationError> errors, string field, string? value, int maximumLength)
+    {
+        if (value?.Length > maximumLength) errors.Add(new(field, $"{field} cannot exceed {maximumLength} characters."));
+    }
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string ComposeAddress(string streetAddress, string? addressLine2, string city, string state, string zipCode) =>
+        string.Join(", ", new[] { streetAddress, addressLine2, city, $"{state} {zipCode}" }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
     private static InstallationWorkOrderManagementView ToView(InstallationWorkOrderRecord order) => new(
         order.Id, order.WorkOrderNumber, order.Status, order.CustomerAccount.DisplayName,
-        order.ServiceLocation.DisplayName, order.ServiceLocation.AddressSummary!, order.Tank.Label,
+        order.ServiceLocation.DisplayName, order.ServiceLocation.AddressSummary ?? string.Empty, order.Tank.Label,
+        order.CustomerAccount.FirstName, order.CustomerAccount.LastName,
+        order.ServiceLocation.StreetAddress, order.ServiceLocation.AddressLine2,
+        order.ServiceLocation.City, order.ServiceLocation.State, order.ServiceLocation.ZipCode,
         order.CreatedByActorId, order.CreatedByDisplayName, order.CreatedAtUtc, order.CompletedAtUtc,
         order.CancelledByActorId, order.CancelledByDisplayName, order.CancelledAtUtc, order.CancellationReason, order.RowVersion);
 }
