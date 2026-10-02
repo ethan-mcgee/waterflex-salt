@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <ItemGroup>
     <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="4.0.105.3" />
-    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.10" />
+    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.15" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
   </ItemGroup>
