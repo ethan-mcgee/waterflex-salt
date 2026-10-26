@@ -89,7 +89,7 @@ jobs:
         run: dotnet list backend/WaterFlex.SaltMonitor.slnx package --vulnerable --include-transitive
       - name: Publish test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-test-results
           path: backend/**/TestResults/*.trx
@@ -153,7 +153,7 @@ jobs:
           python -m unittest discover -s tools -p 'test_*.py' -v
           python tools/build_factory_bundle.py --output-dir factory-release
       - name: Upload firmware binaries
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nano-esp32-firmware-${{ github.sha }}
           path: |
@@ -210,7 +210,7 @@ jobs:
         run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode CorruptIdentity -DiagnosticsDirectory "$env:RUNNER_TEMP/corrupt-identity-diagnostics"
       - name: Upload helper diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-helper-diagnostics-${{ github.sha }}
           path: ${{ runner.temp }}/*-diagnostics/*.log

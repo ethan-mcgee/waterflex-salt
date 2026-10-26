@@ -152,13 +152,13 @@ jobs:
         run: ./firmware/tools/Test-WindowsFactoryHelper.ps1 -Mode LiveStagingProbe -ApiBaseUrl $env:STAGING_URL -DiagnosticsDirectory "$env:RUNNER_TEMP/live-probe-diagnostics"
       - name: Upload helper diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: factory-helper-diagnostics-${{ github.sha }}
           path: ${{ runner.temp }}/*-diagnostics/*.log
           if-no-files-found: warn
       - name: Upload validated release build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: factory-helper-build-${{ github.sha }}
           path: |
@@ -216,7 +216,7 @@ jobs:
           -BundleDirectory firmware/factory-release
           -EvidencePath factory-release-evidence.json
       - name: Upload publication evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: factory-helper-publication-${{ github.sha }}
           path: factory-release-evidence.json
